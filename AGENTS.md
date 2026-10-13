@@ -16,9 +16,15 @@ Read this before creating or modifying files in this repository.
 
 ## Version control
 
-- No hay repositorio git por ahora (pendiente): no hacer commits ni proponerlos.
-- Prohibido `git add` / `git commit` / `git init`; tampoco usar `git status` como paso previo a añadir: no hay nada que añadir ni versionar.
-- Cuando se habilite un repo, limitarse a entregables del proyecto: source, docs, scripts, `assets/`,
+- El repositorio git está operativo (remoto `origin` en GitHub); no recrearlo,
+  no cambiar de remoto ni reescribir su historial sin petición expresa.
+- Lectura libre de git (`git status`, `git log`, `git diff`). Los commits se
+  crean **solo cuando el usuario lo pide explícitamente** ("haz commit",
+  "commitea esto", …): nunca automáticos, nunca como paso intermedio de otra
+  tarea, y no proponerlos por iniciativa propia.
+- `git push`, tags, `amend`/`rebase`/`reset --hard` y force-push: solo si el
+  usuario lo pide.
+- Al preparar un commit, limitarse a entregables del proyecto: source, docs, scripts, `assets/`,
   build inputs (`Cargo.toml`, `Cargo.lock`, `deny.toml`,
   `.cargo/audit.toml`, `rust-toolchain.toml`, `.editorconfig`,
   `.gitattributes`).

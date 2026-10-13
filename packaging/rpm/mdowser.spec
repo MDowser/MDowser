@@ -31,7 +31,7 @@ Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
 License:        MPL-2.0
-URL:            https://example.invalid/mdowser
+URL:            https://github.com/MDowser/MDowser
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo

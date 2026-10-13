@@ -25,7 +25,7 @@ SHELL := /bin/sh
 # PATH but make recipe shells frequently do NOT inherit (hence the classic
 # "cargo: No such file or directory"). Resolve the binary to the first path
 # that REALLY EXISTS, without hardcoding machine-specific absolute dirs
-# (this repo goes straight to git):
+# (the repository stays portable across machines):
 #   PATH lookup, `rustup which cargo`, ~/.cargo/bin, brew layout with the
 #   prefix discovered at runtime, direct toolchain glob (HOME-relative).
 export PATH := $(HOME)/.cargo/bin:$(PATH)

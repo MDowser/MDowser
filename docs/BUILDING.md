@@ -182,7 +182,7 @@ Linux packaging is generated from ONE shared set of files, so the `.deb`, the
   keywords, `StartupWMClass`, Markdown MIME types).
 - `packaging/linux/dev.mdowser.app.metainfo.xml` — AppStream metadata: the
   page GNOME Software / KDE Discover render (name, summary, description,
-  icon, release). `scripts/packaging.sh` pins its `<release>` to the
+  links, icon, release). `scripts/packaging.sh` pins its `<release>` to the
   `Cargo.toml` version at package time.
 - `packaging/linux/mdowser.1` — man page.
 - the hicolor icon ladder (`assets/icons/icon-*.png`) plus the scalable

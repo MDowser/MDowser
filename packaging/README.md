@@ -6,7 +6,7 @@ the native installers, the RPM spec and Flatpak cannot drift:
 | Path | What it is | Consumed by |
 | --- | --- | --- |
 | `linux/mdowser.desktop` | Desktop entry (categories, keywords, `StartupWMClass`, Markdown MIME types) | `.deb`, `.rpm`, Flatpak, `make install` |
-| `linux/dev.mdowser.app.metainfo.xml` | AppStream metadata — the Software-center page (name, summary, description, icon, release) | `.deb`, `.rpm`, Flatpak, `make install` |
+| `linux/dev.mdowser.app.metainfo.xml` | AppStream metadata — the Software-center page (name, summary, description, links, icon, release) | `.deb`, `.rpm`, Flatpak, `make install` |
 | `linux/mdowser.1` | Man page (roff) | `.deb`, `.rpm`, Flatpak, `make install` |
 | `rpm/mdowser.spec` | RPM spec built from the full source tree | `make dist-rpm` (needs `rpmbuild`) |
 | `flatpak/dev.mdowser.app.yaml` | Flatpak manifest — builds the `mdowser-<ver>.flatpak` bundle | `make dist` / `make flatpak` (needs `flatpak-builder`) |

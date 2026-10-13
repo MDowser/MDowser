@@ -12,7 +12,6 @@ No webview, no JavaScript, no cookies, no cache.</p>
   <a href="#install"><img src="https://img.shields.io/badge/platforms-macOS_%7C_Linux_%7C_Windows-lightgrey" alt="Platforms: macOS, Linux, Windows"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/rust-1.98%2B-orange" alt="Rust 1.98+"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MPL--2.0-blue" alt="License: MPL-2.0"></a>
-  <a href="docs/CONTRIBUTING.md"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen" alt="PRs welcome"></a>
 </p>
 
 </div>

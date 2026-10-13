@@ -36,6 +36,16 @@ runtime details: [`BUILDING.md`](BUILDING.md).
 - Tests for every `protocol/` + `markdown/` + `util/` change (`cargo test`).
   Viewer changes need at least a unit test for the helper or a manual screenshot.
 
+## Version control
+
+The project lives at <https://github.com/MDowser/MDowser> (`origin`). Commits
+use Conventional Commits and follow the `Unreleased` changelog rules above.
+Create a commit, push, tag or history rewrite only when it is explicitly
+requested — never as a side effect of another change — and never add AI
+attribution ("Generated with…") to a message. Staging stays limited to project
+deliverables: no `target/`, `dist/`, `.env*`, OS cruft or AI tooling scratch
+(all gitignored).
+
 ## Security
 
 Read `SECURITY.md` first. Never add `http://`, a `file:` destination

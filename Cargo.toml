@@ -9,6 +9,8 @@ edition = "2021"
 description = "Browser for CommonMark (text/markdown) over HTTPS and local files, with tables and footnotes"
 license = "MPL-2.0"
 readme = "README.md"
+homepage = "https://github.com/MDowser/MDowser"
+repository = "https://github.com/MDowser/MDowser"
 keywords = ["markdown", "browser", "commonmark", "https", "egui"]
 categories = ["network-programming", "text-processing"]
 # 1.98: required by `avif-decode` 3 (pure-Rust AVIF via rav1d).

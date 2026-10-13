@@ -322,6 +322,7 @@ Installed-Size: ${_installed_kb:-0}
 Depends: ca-certificates
 Rules-Requires-Root: no
 Maintainer: MDowser <noreply@mdowser.invalid>
+Homepage: https://github.com/MDowser/MDowser
 Description: Minimal browser for text/markdown (CommonMark)
  MDowser shows text/markdown documents served over HTTPS and local
  Markdown files. It registers as a Markdown viewer, so file managers can

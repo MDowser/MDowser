@@ -44,6 +44,10 @@
 
   <launchable type="desktop-id">mdowser.desktop</launchable>
 
+  <url type="homepage">https://github.com/MDowser/MDowser</url>
+  <url type="bugtracker">https://github.com/MDowser/MDowser/issues</url>
+  <url type="vcs-browser">https://github.com/MDowser/MDowser</url>
+
   <provides>
     <binary>mdowser</binary>
     <mediatype>text/markdown</mediatype>

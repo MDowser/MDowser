@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Version-control policy is documented and active: the repository lives on
+  GitHub (`origin`) and commits are created only on explicit request, never
+  automatically, with no AI attribution in messages. (`AGENTS.md`,
+  `docs/CONTRIBUTING.md`.)
+- Package and crate metadata point at the upstream repository instead of a
+  placeholder: the RPM `URL`, a `Homepage` field in the `.deb` control file,
+  the AppStream `homepage`/`bugtracker`/`vcs-browser` links, the Cargo
+  `homepage`/`repository` fields and the man page homepage. (`packaging/`,
+  `scripts/build-dist.sh`, `Cargo.toml`.)
+- README: dropped the "PRs welcome" badge. (`README.md`.)
+
 ## [0.4.5] - 2026-10-13
 
 A hardening, rendering and packaging pass on top of a performance pass: one

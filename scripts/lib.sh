@@ -6,7 +6,7 @@
 
 # lib.sh: shared toolchain bootstrap for scripts/ (POSIX sh, no deps).
 # Sourced as: . "$(dirname "$0")/lib.sh"  (path relative to the script itself,
-# so the repo moves machines cleanly and can go straight to git).
+# so the repo moves between machines cleanly).
 #
 # Goal: make `cargo` (and `rustup` when needed) reachable WITHOUT hardcoding
 # machine-specific absolute dirs like /opt/homebrew or /usr/local.
