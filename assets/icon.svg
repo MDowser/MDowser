@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- MDowser app icon source. `build.rs` (build_support/gen_icons.rs)
+       regenerates assets/icons/ from this file when the committed outputs
+       are missing or outdated; `make icons` forces it. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f81f7"/>
+      <stop offset="1" stop-color="#0a4f9e"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="208" fill="url(#bg)"/>
+  <g fill="none" stroke="#ffffff" stroke-width="88" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 192 704 L 192 344 L 356 528 L 520 344 L 520 704"/>
+    <path d="M 740 344 L 740 704"/>
+    <path d="M 640 588 L 740 704 L 840 588"/>
+  </g>
+</svg>

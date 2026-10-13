@@ -1,0 +1,67 @@
+.\" Copyright (c) 2026 MDowser
+.\" This Source Code Form is subject to the terms of the Mozilla Public
+.\" License, v. 2.0. If a copy of the MPL was not distributed with this
+.\" file, You can obtain one at https://mozilla.org/MPL/2.0/.
+.TH MDOWSER 1 "2026" "MDowser" "User Commands"
+.SH NAME
+mdowser \- browse text/markdown over HTTPS and local files
+.SH SYNOPSIS
+.B mdowser
+.RI [ file | url ]...
+.SH DESCRIPTION
+.B mdowser
+is a native desktop browser for the plain-text web. Each argument is opened
+as a document, in its own tab: either an
+.B https://
+URL or a local path (an absolute path, a
+.B file://
+URL or a
+.B ~
+-relative path; a bare path gets a
+.B .md
+completion attempt).
+.PP
+Documents are fetched with a single
+.B GET
+over HTTPS (there is no
+.B http://
+support) or read from the local filesystem, parsed once as CommonMark/GFM and
+rendered with a desktop-browser-style interface. There is no webview, no
+JavaScript, no cookies, no cache, no proxy and no command-line option: every
+argument is an open target.
+.PP
+When the application is already running, a new launch opens its targets in a
+new instance; MDowser does not use a single-instance guard.
+.SH OPTIONS
+None. Arguments that begin with a hyphen are ignored, so a macOS Finder
+launch's
+.B \-psn_
+argument is never treated as a document.
+.SH ENVIRONMENT
+.TP
+.B XDG_DATA_HOME
+Base directory for the encrypted settings, session, history and bookmarks.
+Defaults to
+.IR $HOME/.local/share ;
+MDowser uses the
+.I mdowser
+subdirectory. A relative value is ignored (the specification requires an
+absolute path).
+.TP
+.B HOME
+Used to derive the default data directory when
+.B XDG_DATA_HOME
+is unset or relative.
+.SH FILES
+.TP
+.I $XDG_DATA_HOME/mdowser/
+Encrypted per-user data: preferences, session, history, bookmarks and the
+single shared key file. Nothing is written outside this directory.
+.SH SEE ALSO
+.BR xdg-open (1),
+.BR dpkg (1),
+.BR rpm (8)
+.SH AUTHOR
+MDowser. Full documentation:
+.IR README.md ,
+.IR docs/BUILDING.md .

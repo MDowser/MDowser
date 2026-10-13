@@ -1,0 +1,248 @@
+[package]
+# MDowser: minimal, fast, cross-platform browser for text/markdown.
+# All app code lives in this directory. The app logic is 100% Rust; the rustls
+# crypto provider (`aws-lc-sys`) compiles C/assembly and needs a C compiler
+# (plus NASM on x86/x86_64), and `rav1d` needs NASM there too.
+name = "mdowser"
+version = "0.4.5"
+edition = "2021"
+description = "Browser for CommonMark (text/markdown) over HTTPS and local files, with tables and footnotes"
+license = "MPL-2.0"
+readme = "README.md"
+keywords = ["markdown", "browser", "commonmark", "https", "egui"]
+categories = ["network-programming", "text-processing"]
+# 1.98: required by `avif-decode` 3 (pure-Rust AVIF via rav1d).
+# Older toolchains can still build with image formats minus AVIF by
+# removing the `avif-decode` dependency (see `media::decode`).
+rust-version = "1.98"
+exclude = ["dist/", "target/"]
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+missing_debug_implementations = { level = "warn", priority = -1 }
+# `linker_messages` (warn-by-default since Rust 1.98) forwards macOS `ld`
+# notes. `rav1d 1.1.0` assembles its x86_64 kernels with NASM, whose Mach-O
+# objects carry no `LC_BUILD_VERSION`, so the Intel build prints ~46
+# "no platform load command found, assuming macOS" notes. Benign upstream
+# noise (the binary links and runs fine); allow it until NASM/rav1d emit
+# the load command. Latest checked: `avif-decode 3.0.0` / `rav1d 1.1.0`.
+linker_messages = "allow"
+
+[lints.rustdoc]
+broken_intra_doc_links = "warn"
+
+[lints.clippy]
+# Keep pedantic/nursery off globally (GUI noise).
+pedantic = { level = "allow", priority = -2 }
+nursery = { level = "allow", priority = -2 }
+# Targeted professional gates: warn (build-test's clippy `-D warnings` step
+# denies them), tests allow `unwrap/expect` locally via module attributes.
+correctness = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+todo = { level = "warn", priority = -1 }
+print_stdout = { level = "warn", priority = -1 }
+print_stderr = { level = "warn", priority = -1 }
+
+# `clippy::all` is enforced by `scripts/build-test.sh` (`cargo clippy -- -D
+# warnings`, run by `make test`).
+# Pedantic/nursery stay at their default (allow): enabling them globally
+# adds noise (doc backticks, line counts, float casts) that does not pay
+# for itself in a GUI app; apply them per-item where valuable instead.
+
+# There is no separate dev-tools package: the old `tools/gen-icons` crate is
+# now a module of `build.rs` (`build_support/gen_icons.rs`), which generates
+# `assets/icons/` from `assets/icon.svg` whenever the committed files are
+# missing or outdated. Plain `cargo build`/`cargo test` therefore bootstrap
+# themselves from a fresh checkout.
+
+[dependencies]
+# Cross-platform immediate UI (winit + wgpu). No webview; all app logic is
+# Rust (the TLS crypto provider links C/asm, see the package comment).
+# DIET NOTE (checked 2026-10-02): eframe default pulls `accesskit` (~14
+# small crates) + `web_screen_reader` (wasm-only, zero native cost).
+# Dropping `accesskit` needs `default-features = false` + manual
+# re-wiring (`default_fonts`, `links`, `wayland`, `wgpu`, `x11`,
+# `winit/default`) and loses screen-reader support; saving vs. ~300
+# total deps is small and GUI-regression risk is high, so defaults stay.
+eframe = "0.36"
+# Modern HTTPS client with HTTP/2. rustls only (no native-tls) to stay cross-platform.
+# NOTE: no system proxy on purpose (see protocol/client.rs).
+# `stream` reads the body in chunks with an anti-abuse cap.
+# `gzip`/`brotli`/`deflate`: transparent decompression. Text/markdown and
+# SVG/HTML-ish payloads shrink 3-10x over the wire; the anti-abuse caps run
+# on the DECOMPRESSED stream (see protocol/client.rs).
+reqwest = { version = "0.13", default-features = false, features = [
+    "rustls",
+    "http2",
+    "stream",
+    "gzip",
+    "brotli",
+    "deflate",
+] }
+# StreamExt for `bytes_stream().next()` with a running cap.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+# Async runtime: all network futures run on ONE long-lived multi-thread
+# runtime (`protocol::client::run_network`), because the shared HTTP client's
+# connection pool outlives individual jobs and its background tasks must stay
+# driven (per-job runtimes made pooled requests fail with "error sending
+# request"). Background job threads still block on that runtime's result.
+# `time` powers the per-chunk stall timeout so a trickling server cannot
+# hold a background thread past the visual timeout (see protocol/client.rs).
+# NOTE: no `macros` feature (no #[tokio::main]/#[tokio::test] in src/).
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time"] }
+# https URL parsing and resolution.
+url = "2.5"
+# AEAD + secure randomness for the encrypted local history store
+# (`history/`). Same crypto backend rustls already links (aws-lc-rs),
+# so no second crypto library or build system is added; ChaCha20-Poly1305
+# and the system RNG are used only for the history file at rest.
+# `default-features = false` matches rustls's own feature set (no ring-io /
+# ring-sig-verify code is compiled that this app never calls).
+aws-lc-rs = { version = "1.18", default-features = false, features = ["aws-lc-sys"] }
+# CommonMark parser with extensions (tables, footnotes, ...).
+# Only Parser/Options/Events are used (see `markdown/document/`,
+# `viewer/`): no `html` module, no `getopts` binary. Default features
+# would compile both for nothing, so keep the bare parser.
+pulldown-cmark = { version = "0.13", default-features = false }
+# Unicode bidirectional algorithm for display order in the viewer
+# (`viewer::bidi`): epaint lays glyphs left-to-right and applies no
+# bidi, so RTL runs are reordered for display here. Already in the graph
+# through `usvg` (SVG text); this only makes it a direct dependency.
+unicode-bidi = "0.3"
+# Color emoji (`media::emoji`): shape the embedded Noto Color Emoji with the
+# same shaper epaint uses, read its SVG-in-OpenType documents and rasterize
+# them through the existing resvg pipeline. All four crates are already in
+# the dependency graph (epaint/usvg/reqwest); these entries only make them
+# direct dependencies.
+skrifa = "0.44"
+harfrust = "0.12"
+unicode-segmentation = "1.13"
+flate2 = "1.1"
+# Brotli decompression for the two largest embedded fonts (Noto Color
+# Emoji, Noto Sans CJK): they ship compressed in the binary and are
+# decompressed once into process-lifetime buffers (CJK at startup, color
+# emoji on the `media::emoji::prewarm` background thread)
+# (`build_support/gen_fonts.rs`, `assets::noto_color_emoji`). Same crate
+# version reqwest already links for transparent response decoding, so no
+# new code or license enters the graph.
+brotli = "9"
+# Parses one SVG document from the font to isolate the requested glyph
+# element and its `#id` references (already in the graph through usvg).
+roxmltree = "0.21"
+# Optional YAML frontmatter at the top of the document.
+serde = { version = "1", features = ["derive"] }
+# Maintained fork of the archived `serde_yaml` (same API, same 0.9 line):
+# upstream was marked unmaintained; `serde_yml` is unsound (RUSTSEC-2025-0068).
+serde_norway = "0.9"
+# Async -> egui bridge: poll each frame for a finished download.
+poll-promise = "0.3"
+# Image decoding for markdown image tags and site favicons, pure Rust only
+# (no C libraries, no system deps). `image` already ships inside eframe;
+# only the codecs below add crates. Formats required by the product:
+# PNG, JPEG, GIF, WebP (via `image`) + JPEG XL (`jxl-oxide`) and
+# AVIF (`avif-decode`, built on the pure-Rust `rav1d` AV1 decoder).
+# `ico` is extra: most site favicons are `.ico` (PNG/BMP container).
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "webp",
+    "ico",
+] }
+# `image` feature: exposes `integration::JxlDecoder` (an `ImageDecoder`).
+jxl-oxide = { version = "0.12", default-features = false, features = ["image"] }
+# `default-features = false` drops the lodepng CLI binary; decode only.
+avif-decode = { version = "3", default-features = false }
+# AVIF container header parsing: reads the real image dimensions before the
+# AV1 decode so oversized bombs are rejected without allocating pixels.
+avif-parse = "2.1"
+resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+emojis = "0.9.0"
+# `O_NONBLOCK` for the local-file reader: a FIFO swapped in between the
+# `metadata` check and `open` would otherwise block the fetch thread forever
+# (see protocol/local.rs). Already in the graph through rustls/ring, so this
+# adds no code; `default-features = false` matches its no-std-ready surface.
+libc = { version = "0.2", default-features = false }
+
+# macOS ONLY: the system menu bar is ALWAYS present there, so MDowser
+# completes it (About/Preferences/Quit + File/Edit/View/History/Window).
+# Windows and Linux get NO menu at all — the toolbar is the whole chrome —
+# so these never enter their builds. `muda` is the safe AppKit wrapper (its
+# GTK backend is Linux-only and stays off, `default-features = false`);
+# `arboard` only backs the Edit > Paste item and is already linked by
+# egui-winit on native. `objc2`/`objc2-app-kit` are ALREADY in the graph
+# through muda/winit: they add no code, only the direct edge MDowser needs
+# for ONE safe generated class method muda does not surface,
+# `NSWindow::setAllowsAutomaticWindowTabbing(false)`, which keeps AppKit's
+# own "Show Tab Bar"/"Show All Tabs" items out of the View menu
+# (`unsafe_code = "forbid"` holds: the generated setter is a safe function).
+[target.'cfg(target_os = "macos")'.dependencies]
+muda = { version = "0.21", default-features = false }
+arboard = "3"
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSWindow",
+] }
+
+[build-dependencies]
+# Rasterizes `assets/icon.svg` into `assets/icons/` when the committed icons
+# are missing or outdated (`build.rs` + `build_support/gen_icons.rs`), so a
+# fresh checkout and a warm target directory both boot correctly. Same crate
+# and features as the app's own SVG pipeline, so a regeneration reproduces
+# the committed files byte for byte. Build scripts run on the host and never
+# link into the binary: this adds no code to the app.
+resvg = { version = "0.48.1", default-features = false, features = ["text"] }
+# Compresses the two largest embedded fonts into `OUT_DIR` (`gen_fonts.rs`),
+# so `assets.rs` embeds ~26 MB less. Runs only when a font changed (a hash
+# stamp lives in `OUT_DIR`); the host-side encoder never links into the app.
+brotli = "9"
+
+[profile.release]
+# Optimized for browsing speed and a contained binary.
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = 0
+# Fail-closed arithmetic in shipped binaries: `wrapping_*`/`saturating_*`
+# were already used for every arithmetic that could overflow, so this only
+# turns a silent wrap in NEW code (a size/budget computation, an offset into
+# a body part) into a loud panic instead of a wrong number that a cap check
+# then trusts. Debug builds have it on by default; the cost is a branch per
+# operation, and the UI stays interactive at 60 fps. `panic = "abort"` is
+# deliberately NOT set: the image pipeline catches decoder panics
+# (`util::guard_panics`) and a poll-promise thread that aborts would take
+# the whole window down.
+overflow-checks = true
+# Release binaries ship unstripped from cargo: `dist` strips each binary
+# with the system `strip` instead (`scripts/build-dist.sh` `try_strip`).
+# Rationale: the toolchain's `rust-objcopy` (used by `strip = true`) is
+# broken on some installs (missing libLLVM -> SIGABRT at link end).
+# Verified on stable 1.98.1 aarch64-apple-darwin. Keep `strip = "none"`
+# here; do not re-enable cargo-side stripping without fixing `try_strip`.
+strip = "none"
+
+# Build scripts and their dependencies run optimized. The font compressor
+# is a Brotli q10 encoder: at the default opt-level 0 it takes ~10 minutes,
+# optimized ~90 s (cached in `OUT_DIR` afterwards); the icon rasterizer
+# benefits too. Only the build scripts are affected, never the app.
+#
+# `strip = "none"` opts out of cargo's automatic debuginfo strip for build
+# dependencies (cargo >= 1.77 passes `-C strip=debuginfo` because build
+# scripts are built without debug info). On macOS that strip step runs the
+# toolchain's `rust-objcopy`, broken on some installs (missing libLLVM ->
+# SIGABRT): without the opt-out EVERY build printed "stripping debug info
+# with `rust-objcopy` failed" once per build script. Build scripts never
+# ship, so their debug info in `target/` costs only disk.
+[profile.dev.build-override]
+opt-level = 3
+strip = "none"
+
+[profile.release.build-override]
+opt-level = 3
+strip = "none"

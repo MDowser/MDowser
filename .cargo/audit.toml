@@ -1,0 +1,15 @@
+# cargo-audit configuration: keep `make audit` output actionable.
+#
+# The ignored advisories mirror `deny.toml` exactly (accepted transitive
+# issues, documented there); a NEW advisory still fails the audit.
+# Yanked crates and informational (unmaintained/unsound) reports are
+# warnings here and are DENIED by `cargo deny check` (run alongside via
+# `make audit`), so both tools are needed for the full gate.
+[advisories]
+ignore = [
+    # `paste` (archived 2024) via `rav1d` -> `avif-decode` (pure-Rust AV1).
+    "RUSTSEC-2024-0436",
+    # `ttf-parser` via `winit` -> `sctk-adwaita` -> `ab_glyph`, Linux/Wayland
+    # decorations only (not compiled on macOS or Windows).
+    "RUSTSEC-2026-0192",
+]

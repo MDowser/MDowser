@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=MDowser
+GenericName=Markdown browser
+Comment=Browse text/markdown over HTTPS and local files
+Exec=mdowser %U
+TryExec=mdowser
+Icon=mdowser
+Terminal=false
+Categories=Network;Office;Viewer;
+Keywords=markdown;browser;text;documentation;
+StartupNotify=true
+StartupWMClass=mdowser
+MimeType=text/markdown;text/x-markdown;application/markdown;application/x-markdown;

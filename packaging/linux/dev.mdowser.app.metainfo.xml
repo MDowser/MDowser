@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metadata (https://www.freedesktop.org/software/appstream/docs/).
+  This is what GNOME Software, KDE Discover and every other app center render
+  as MDowser's Software page (name, summary, description, icon). The file is
+  installed to /usr/share/metainfo/dev.mdowser.app.metainfo.xml by the .deb,
+  the .rpm and `make install`.
+
+  The <release> version/date below are the committed copy's own value; the
+  packaging helpers (`scripts/packaging.sh` `render_metainfo`) pin them to the
+  Cargo.toml version of the build, so the packaged file can never drift from
+  the binary it ships. Keep this file valid standalone: Flatpak and appstream
+  tooling read it straight from the source tree.
+-->
+<component type="desktop-application">
+  <id>dev.mdowser.app</id>
+
+  <name>MDowser</name>
+  <summary>Browse text/markdown over HTTPS and local files</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+
+  <description>
+    <p>
+      MDowser is a native desktop browser for the plain-text web. Paste an
+      HTTPS URL or open a local Markdown file and it fetches or reads it,
+      parses it once and renders it with a clean, desktop-browser-style UI.
+    </p>
+    <p>
+      It is deliberately small and auditable: one document format, one HTTP
+      method, one network protocol. There is no webview, no JavaScript, no
+      cookies, no cache and no proxy.
+    </p>
+    <p>Highlights:</p>
+    <ul>
+      <li>GitHub-grade Markdown: GFM + CommonMark tables, footnotes, tasklists, YAML frontmatter, code cards with syntax colors.</li>
+      <li>MDX/JSX components (Tabs, Accordion, Card, Steps, CodeGroup, Badge) and ::: custom containers render natively; nothing is ever executed.</li>
+      <li>Real browser chrome: vertical tab rail, address autocomplete (bookmarks, local history, curated list), encrypted local history and bookmarks, zoom, light/dark theme.</li>
+      <li>Color emoji, CJK and RTL scripts, and PNG/JPEG/GIF/WebP/JPEG XL/AVIF/ICO/static SVG images, all decoded in pure Rust.</li>
+      <li>Private by design: HTTPS only, GET only, local files only from user input.</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">mdowser.desktop</launchable>
+
+  <provides>
+    <binary>mdowser</binary>
+    <mediatype>text/markdown</mediatype>
+    <mediatype>text/x-markdown</mediatype>
+    <mediatype>application/markdown</mediatype>
+    <mediatype>application/x-markdown</mediatype>
+  </provides>
+
+  <icon type="stock">mdowser</icon>
+
+  <developer>
+    <name>MDowser</name>
+  </developer>
+
+  <categories>
+    <category>Network</category>
+    <category>Office</category>
+    <category>Viewer</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release type="stable" version="0.4.5" date="2026-10-13"/>
+  </releases>
+</component>

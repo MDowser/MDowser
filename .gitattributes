@@ -1,0 +1,19 @@
+# Enforce LF + stable diffs across OSes.
+* text=auto eol=lf
+*.rs text diff=rust
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text
+*.md text
+Makefile text
+# Archives produced by dist/ must not be mangled by Git.
+*.gz binary
+*.zip binary
+*.deb binary
+# App assets: raster icons and fonts must stay byte-identical.
+*.png binary
+*.ico binary
+*.icns binary
+*.ttf binary
+*.ttc binary

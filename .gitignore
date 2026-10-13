@@ -1,0 +1,30 @@
+# Rust build artifacts.
+target/
+# Multi-OS packaged output (scripts/build-dist.sh).
+dist/
+# Flatpak build output and vendored cargo sources (scripts/build-flatpak.sh).
+# The wrapper builds under dist/ (already ignored); these cover a manual
+# flatpak-builder run from the repository root.
+.flatpak-builder/
+packaging/flatpak/.build-dir/
+packaging/flatpak/cargo-sources.json
+# Local editor / OS config.
+.vscode/
+.idea/
+*.swp
+.DS_Store
+# AI-generated CI / automation: intentionally not versioned (see AGENTS.md).
+.github/
+# opencode / OpenChamber plans and agent scratch files.
+.opencode/
+.openchamber/
+# Other AI tooling scratch dirs.
+.claude/
+.codex/
+.cursor/
+.aider*
+# Local secrets and logs.
+.env
+.env.*
+!.env.example
+*.log

@@ -1,0 +1,102 @@
+# Copyright (c) 2026 MDowser
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+# Flatpak manifest for MDowser (app id dev.mdowser.app).
+#
+# One artifact that installs on every Linux distribution (Debian, Fedora,
+# Arch, ...), gets its Software-center page from the same AppStream metainfo
+# the .deb/.rpm carry, and runs sandboxed.
+#
+# `make flatpak` (and the Linux half of `make dist`) drives this manifest
+# through `scripts/build-flatpak.sh`. A Flatpak build is offline, so cargo's
+# dependencies must be vendored first with flatpak-cargo-generator (from
+# https://github.com/flatpak/flatpak-builder-tools):
+#
+#   python3 flatpak-cargo-generator.py ../../Cargo.lock -o cargo-sources.json
+#
+# The wrapper generates `cargo-sources.json` when the generator is installed
+# and explains what is missing otherwise. A manual build from the repository
+# root is:
+#
+#   flatpak-builder --repo=dist/.flatpak-repo --force-clean \
+#       dist/.flatpak-build packaging/flatpak/dev.mdowser.app.yaml
+#
+app-id: dev.mdowser.app
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: mdowser
+# Flatpak requires exported files to carry the app id: these rename the
+# shared packaging/linux copies at export time (and update the desktop
+# entry's `Icon=` key).
+rename-desktop-file: mdowser.desktop
+rename-icon: mdowser
+
+finish-args:
+  # Documents are fetched over HTTPS; images/favicons too.
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # Local Markdown files come from the user (`mdowser ~/notes.md`, an "Open
+  # with" hand-off). The portal covers file-manager opens; `home` also lets a
+  # path be typed in the omnibox, like the .deb/.rpm build.
+  - --filesystem=home
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/mdowser/cargo
+    CARGO_NET_OFFLINE: 'true'
+
+modules:
+  - name: mdowser
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked --offline
+      # `strip = "none"` ships unstripped from cargo (see Cargo.toml); strip
+      # here, exactly like build-dist.sh does for the .tar.gz/.deb/.zip
+      # binaries, so every artifact has the same size class.
+      - strip target/release/mdowser
+      - install -Dm755 target/release/mdowser /app/bin/mdowser
+      # Desktop integration: same files the .deb/.rpm install, from the one
+      # shared copy in packaging/linux/. The metainfo is rendered HERE with
+      # the Cargo version, the build date and the Flatpak launchable/icon
+      # ids, so it can never advertise a stale release or a desktop file /
+      # icon that does not exist after the app-id renames above.
+      - install -Dm644 packaging/linux/mdowser.desktop
+        /app/share/applications/mdowser.desktop
+      - VER="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; DATE="$(date -u +%Y-%m-%d)"; sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$VER\"/" -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$DATE\"/" -e 's|>mdowser\.desktop</launchable>|>dev.mdowser.app.desktop</launchable>|' -e 's|>mdowser</icon>|>dev.mdowser.app</icon>|' packaging/linux/dev.mdowser.app.metainfo.xml > dev.mdowser.app.metainfo.xml; install -Dm644 dev.mdowser.app.metainfo.xml /app/share/metainfo/dev.mdowser.app.metainfo.xml
+      - install -Dm644 packaging/linux/mdowser.1
+        /app/share/man/man1/mdowser.1
+      - for s in 16 32 48 64 128 256 512; do
+        install -Dm644 assets/icons/icon-$s.png
+        /app/share/icons/hicolor/${s}x${s}/apps/mdowser.png; done
+      - install -Dm644 assets/icon.svg
+        /app/share/icons/hicolor/scalable/apps/mdowser.svg
+      - install -Dm644 LICENSE THIRD_PARTY_NOTICES.md /app/share/doc/mdowser/
+    sources:
+      # The repository itself. `skip` keeps build outputs, agent scratch and
+      # the Flatpak state directories out of the copy: `target/` alone is
+      # multi-GB and must never be packed into a source tarball.
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - dist
+          - .git
+          - .flatpak-builder
+          - packaging/flatpak/.build-dir
+          - packaging/flatpak/cargo-sources.json
+          - .opencode
+          - .openchamber
+          - .claude
+          - .codex
+          - .cursor
+      # Generated (see the header): vendored cargo dependencies. Without it
+      # the offline `cargo build` above cannot resolve a single crate.
+      - cargo-sources.json

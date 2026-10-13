@@ -1,0 +1,88 @@
+# cargo-deny: supply-chain policy for MDowser.
+# See https://embarkstudios.github.io/cargo-deny/
+[graph]
+targets = [
+  "x86_64-apple-darwin",
+  "aarch64-apple-darwin",
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-pc-windows-gnu",
+  "x86_64-pc-windows-msvc",
+]
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+# Accepted transitive issues, documented so a NEW advisory still fails
+# `make audit`: 
+# - The unmaintained crate is pulled in by the listed parent and cannot be
+#   changed from this workspace; revisit when the parent migrates.
+ignore = [
+  # `paste` (archived 2024) via `rav1d` -> `avif-decode` (pure-Rust AV1).
+  # No vulnerable code path in this app; rav1d is expected to move to
+  # `pastey`.
+  "RUSTSEC-2024-0436",
+  # `ttf-parser` via `winit` -> `sctk-adwaita` -> `ab_glyph`, Linux/Wayland
+  # decorations only (not compiled on macOS or Windows). MDowser never
+  # parses fonts from documents; egui rasterizes its bundled fonts.
+  "RUSTSEC-2026-0192",
+]
+
+[licenses]
+# NOTE: `unlicensed` is not a valid key in cargo-deny >= 0.16 (removed
+# upstream): unlicensed crates are denied by default, which is the intent.
+# Permissive + Unicode data licenses common in the Rust GUI/TLS stack
+# (eframe, rustls, pulldown-cmark), plus MPL-2.0: MDowser itself is
+# MPL-2.0 (file-level weak copyleft, see `LICENSE`), so weak copyleft
+# is accepted; strong copyleft (GPL/AGPL) stays denied.
+# Every non-MIT/Apache license here is called out in
+# `THIRD_PARTY_NOTICES.md`, shipped with the binaries and embedded for the
+# internal `about:licenses` page (Preferences -> View third-party licenses).
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "ISC",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  # Boost Software License (permissive, OSI): Windows clipboard support
+  # (`clipboard-win`) and `error-code`, both Windows-only transitive deps.
+  "BSL-1.0",
+  # File-level weak copyleft: the app itself is MPL-2.0 (see `LICENSE`)
+  # and `avif-decode` -> `avif-parse` (a fork of `mp4parse`) is MPL-2.0,
+  # linked unmodified.
+  "MPL-2.0",
+  "CC0-1.0",
+  "MIT-0",
+  "Zlib",
+  "Unicode-3.0",
+  # Fonts `epaint_default_fonts` compiles into the binary (Ubuntu Light,
+  # Hack, Noto Emoji; MDowser never registers them, see
+  # `THIRD_PARTY_NOTICES.md`) and the OFL-1.1 Noto faces under `assets/`
+  # (Emoji, Color Emoji, Sans CJK, Sans and the per-script set). Hack's
+  # Bitstream Vera component is not part of the crate's declared
+  # expression; it is called out in `THIRD_PARTY_NOTICES.md`:
+  # SIL Open Font License and the Ubuntu Font License, both permissive
+  # for redistribution with the notice file.
+  "OFL-1.1",
+  "Ubuntu-font-1.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+# rustls-only contract (see docs/SECURITY.md): the browser must never pull
+# OpenSSL / native-tls. `security-framework` (macOS system verifier via
+# rustls-platform-verifier) is expected and stays allowed.
+deny = [
+  { name = "openssl-sys" },
+  { name = "openssl" },
+  { name = "native-tls" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
