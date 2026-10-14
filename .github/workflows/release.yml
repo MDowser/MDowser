@@ -190,12 +190,28 @@ jobs:
                       /usr/share/swift /opt/hostedtoolcache/CodeQL || true
       - name: Flatpak tooling + cargo generator
         run: |
+          set -eu
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder python3-venv
+          # flatpak-builder-tools/cargo publishes no console script (its
+          # pyproject sets package-mode = false and defines no
+          # [project.scripts]), so `pip install` alone yields no command:
+          # fetch the generator at a PINNED commit and wrap it so it always
+          # runs with the venv's Python. Only the wrapper joins PATH, so
+          # build-flatpak.sh finds it by name whatever the PATH order is.
           python3 -m venv /tmp/fcg
-          /tmp/fcg/bin/pip install --upgrade pip setuptools wheel
-          /tmp/fcg/bin/pip install "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=cargo"
+          /tmp/fcg/bin/pip install --upgrade pip
+          /tmp/fcg/bin/pip install "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1"
+          mkdir -p /tmp/fcg/lib
+          curl -fsSL "https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/41c20aa10819cdb2a4f3ca171758a96d1955c018/cargo/flatpak-cargo-generator.py" \
+            -o /tmp/fcg/lib/flatpak-cargo-generator.py
+          {
+            printf '#!/bin/sh\n'
+            printf 'exec /tmp/fcg/bin/python3 /tmp/fcg/lib/flatpak-cargo-generator.py "$@"\n'
+          } > /tmp/fcg/bin/flatpak-cargo-generator
+          chmod +x /tmp/fcg/bin/flatpak-cargo-generator
           echo /tmp/fcg/bin >> "$GITHUB_PATH"
+          /tmp/fcg/bin/flatpak-cargo-generator --help > /dev/null
       - name: Runtimes (branch pinned by the manifest)
         run: |
           set -eu
