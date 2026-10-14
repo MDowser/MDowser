@@ -163,6 +163,20 @@ else
     skip "Flatpak manifest" "PyYAML not available (pip install pyyaml)"
 fi
 
+# --- dist artifacts (privacy) ------------------------------------------------
+# A built dist/ must not carry the builder's absolute paths or build-host
+# metadata; the check is best-effort only in that dist/ need not exist yet.
+step "dist artifacts (privacy)"
+if [ -d "$ROOT/dist" ] && [ -n "$(ls -A "$ROOT/dist" 2>/dev/null)" ]; then
+    if "$ROOT/scripts/check-dist.sh" "$ROOT/dist"; then
+        ok "check-dist (no builder paths / build-host metadata)"
+    else
+        bad "check-dist found build-host information in dist/"
+    fi
+else
+    skip "dist artifacts (privacy)" "no dist/ yet (run make dist)"
+fi
+
 # --- summary -----------------------------------------------------------------
 echo ""
 if [ "$FAILED" -eq 0 ]; then

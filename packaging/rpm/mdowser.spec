@@ -30,7 +30,7 @@
 # `rpmbuild` has network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.5.0}
+Version:        %{?ver}%{!?ver:0.5.1}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
@@ -55,6 +55,11 @@ Requires:       ca-certificates
 # installed binary.
 %global debug_package %{nil}
 
+# Privacy: the RPM header records the build host in the BUILDHOST tag.
+# Pin it to a neutral value so a locally built package does not disclose the
+# builder's machine name (reproducible-builds practice).
+%global _buildhost mdowser
+
 %description
 MDowser shows text/markdown documents served over HTTPS and local Markdown
 files. It is a native desktop browser: one document format, one HTTP method,
@@ -67,6 +72,16 @@ TLS verification uses the system trust store (rustls-platform-verifier).
 %autosetup -n %{name}-%{version}
 
 %build
+# Privacy: remap the builder's absolute home / Cargo-registry paths out of the
+# binary. Panic locations embed dependency source paths, and `strip` cannot
+# remove them (they are runtime data). Mirrors `scripts/lib.sh`
+# `export_remap_rustflags`; guard $HOME so an unset variable can never turn
+# into an empty (catch-all) remap prefix.
+if [ -n "${HOME:-}" ]; then
+    RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=/build"
+    RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+    export RUSTFLAGS
+fi
 cargo build --release --locked
 
 %install
@@ -81,6 +96,7 @@ appstreamcli validate --no-net \
     %{buildroot}%{_datadir}/metainfo/dev.mdowser.app.metainfo.xml || :
 
 %files
+%defattr(-, root, root, -)
 %license LICENSE
 %doc README.md THIRD_PARTY_NOTICES.md
 %{_bindir}/%{name}
@@ -91,6 +107,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.5.1-1
+- Build-artifact privacy gate, CI release automation for every target, and Flatpak runtime 26.08 (see CHANGELOG.md 0.5.1).
 * Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.5.0-1
 - Feature release: first-heading page titles, remembered window geometry, external-open action (see CHANGELOG.md 0.5.0).
 * Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.4.6-1

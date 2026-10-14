@@ -382,6 +382,29 @@ rustup toolchain install 1.98
 if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
 
 if (-not $SkipBuild) {
+    # Privacy: release binaries embed the absolute source path of every panic
+    # location, including dependency sources under the Cargo registry
+    # ($env:USERPROFILE\.cargo\...), so the builder's username and home layout
+    # would ship in the .exe (`strip` cannot remove them). Remap the prefixes
+    # at compile time (the PowerShell equivalent of scripts/lib.sh
+    # `export_remap_rustflags`. CARGO_ENCODED_RUSTFLAGS (0x1f-separated) keeps
+    # a profile path containing spaces intact.
+    $remapSep = [string][char]0x1F
+    $remapFlags = @()
+    if ($env:CARGO_ENCODED_RUSTFLAGS) {
+        $remapFlags += ($env:CARGO_ENCODED_RUSTFLAGS -split $remapSep)
+    } elseif ($env:RUSTFLAGS) {
+        $remapFlags += ($env:RUSTFLAGS -split '\s+')
+    }
+    if ($env:USERPROFILE) {
+        foreach ($prefix in @($env:USERPROFILE, ($env:USERPROFILE -replace '\\', '/'))) {
+            $remapFlags += "--remap-path-prefix=$prefix=/build"
+            $remapFlags += "--remap-path-prefix=$prefix/.cargo=/cargo"
+        }
+    }
+    if ($remapFlags.Count -gt 0) {
+        $env:CARGO_ENCODED_RUSTFLAGS = ($remapFlags -join $remapSep)
+    }
     Write-Host "==>  cargo build --locked --release (first build " + `
         "pays ~90 s for the Brotli font pass, then cached)"
     cargo build --locked --release

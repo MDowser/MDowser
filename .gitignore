@@ -13,8 +13,12 @@ packaging/flatpak/cargo-sources.json
 .idea/
 *.swp
 .DS_Store
-# AI-generated CI / automation: intentionally not versioned (see AGENTS.md).
-.github/
+# CI: intentionally not versioned, with ONE exception (see AGENTS.md): the
+# release workflow. Everything else under .github/ stays ignored.
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/release.yml
 # opencode / OpenChamber plans and agent scratch files.
 .opencode/
 .openchamber/

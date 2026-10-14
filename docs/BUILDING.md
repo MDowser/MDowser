@@ -41,8 +41,10 @@ tools there, best-effort):
 - RPM: `rpmbuild` (`rpm-build` on Fedora). `make dist-rpm` builds the
   package from the full source tree. Not cross-built from macOS.
 - Flatpak: `flatpak-builder` plus the `org.freedesktop.Platform` /
-  `org.freedesktop.Sdk` 24.08 runtimes and the
-  `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`).
+  `org.freedesktop.Sdk` 26.08 runtimes and the
+  `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`; the
+  branch is pinned in `packaging/flatpak/dev.mdowser.app.yaml` and
+  `scripts/build-flatpak.sh` derives it from there).
 
 ## Installing dependencies
 
@@ -142,6 +144,7 @@ bootstrap and, for dist, the host `cargo build --locked --release` that
 ./scripts/build-test.sh            # same as make test
 ./scripts/build-dist.sh --all      # same as make dist (every platform package)
 ./scripts/build-dist.sh --host-only   # current-OS package (fast, no cross)
+./scripts/check-dist.sh            # privacy gate over dist/ (= make check-dist)
 SKIP_SETUP=1 ./scripts/build-dist.sh --all  # without auto-installing toolchains
 ```
 
@@ -174,7 +177,8 @@ Every `.tar.gz`/`.zip` archive carries `README.md`, `THIRD_PARTY_NOTICES.md`
 and `LICENSE`; the macOS `.app` bundles the notices and license under
 `Contents/Resources/` and the `.deb` under
 `/usr/share/doc/mdowser/` (the notices as `copyright`); a `SHA256SUMS.txt` is
-written next to the artifacts.
+written next to the artifacts. Before the checksums, `scripts/check-dist.sh`
+enforces the build-artifact privacy rules below.
 
 ### Native Windows
 
@@ -245,14 +249,44 @@ versions, UTF-8 code page, long paths, segment heap) — and `main` sets
 The distribution stays a portable zip (no installer): the shell reads the
 icon and version from the `.exe`.
 
+### Build-artifact privacy
+
+Release artifacts must not identify the machine that built them. Rust bakes
+the source path of every panic location / `file!()` into a binary, including
+dependency sources under the Cargo registry, so an unmodified release binary
+ships the builder's home path (`/Users/<user>/.cargo/registry/src/...` on
+macOS, `/home/<user>/...` on Linux); `strip` cannot remove those strings
+(they are runtime data, not symbols). `scripts/lib.sh`
+`export_remap_rustflags` therefore sets `CARGO_ENCODED_RUSTFLAGS` with
+`--remap-path-prefix=$HOME=/build` (and the Cargo home to `/cargo`) before
+every DISTRIBUTABLE build: `make build`, `make dist` /
+`scripts/build-dist.sh`, `windows.ps1` and the RPM spec's `%build`. Debug
+builds keep their real paths so debuggers still resolve sources.
+
+The archives are cleaned too: `zip -X` drops the Info-ZIP Unix uid/gid extra
+field the macOS/Windows `.zip` would otherwise carry, and the staging trees
+are xattr-swept (`sweep_xattrs`) plus tarred with `--no-xattrs` where
+supported, so a macOS build does not embed its `com.apple.provenance` blob in
+the Linux `.tar.gz`/`.deb`. The RPM spec pins `%_buildhost` and
+`%defattr(-, root, root, -)` so the header and payload carry no host/user
+identity.
+
+`make check-dist` is the gate: it scans every file in `dist/` for the real
+`$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
+non-zero on any hit. `scripts/build-dist.sh` runs it before writing
+`SHA256SUMS.txt`, so `make dist` fails instead of publishing a leaking build
+(the app's intentional example paths such as `/Users/you/notes.md` are not
+matched).
+
 ### Validating the packaging metadata
 
 `make validate` checks what the host can check and never fails on a missing
 tool (a SKIP names the install command): XML well-formedness of the AppStream
 metadata and of the version-rendered copy the packages install, `appstreamcli`
 or `appstream-util` for the metadata, `desktop-file-validate` for the desktop
-entry, `rpmspec -P` for the RPM spec and `rpmlint` when present, and a YAML
-parse of the Flatpak manifest.
+entry, `rpmspec -P` for the RPM spec and `rpmlint` when present, a YAML
+parse of the Flatpak manifest, and the `dist/` privacy gate
+(`scripts/check-dist.sh`) when a build is present.
 
 On macOS everything except a real `.deb`/`.rpm` build and `flatpak-builder` is
 installable with Homebrew:
@@ -288,8 +322,37 @@ reason and the script moves on. For fully reliable GUI artifacts, build
 natively on each target OS: this script is the best-effort single-machine
 equivalent.
 
-Publishing: attach the files in `dist/` to a GitHub Release (web UI, or
-`gh release create v<ver> dist/*`). Release assets are served directly
+### Releases in CI (GitHub Actions)
+
+`.github/workflows/release.yml` builds every target and publishes ONE GitHub
+Release per tag (`v<version>`, which must match `Cargo.toml`). Each job runs
+on a fresh GitHub-hosted VM with NO Actions cache: every release compiles
+from scratch and only the packaged files travel between jobs (Actions
+artifacts, 1-day retention). The scripts do the building, so the privacy
+guarantees are the same as `make dist`: the publishing job re-runs
+`scripts/check-dist.sh` over the merged set and writes the single
+`SHA256SUMS.txt`.
+
+| Job | Runner | Builds |
+| --- | --- | --- |
+| `linux-x64` | ubuntu-24.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
+| `linux-arm64` | ubuntu-24.04-arm | Linux arm64 `.tar.gz` + `.deb` |
+| `macos` | macos-15 | universal `.app.zip` (arm64 + Intel, `lipo`) |
+| `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
+| `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
+| `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
+
+Artifact names are identical to `make dist`, so a CI release is the same
+set a local build produces. A manual run (`workflow_dispatch`) with
+`dry_run: true` compiles everything without publishing: use it to validate
+the pipeline before pushing a tag. Standard runners are free for public
+repositories; every job is capped with `timeout-minutes` and no cache is
+kept between runs.
+
+Publishing: push a `v<version>` tag matching `Cargo.toml` and the release
+workflow builds every target and attaches the files to one GitHub Release.
+A local `make dist` set can still be attached by hand as a fallback
+(`gh release create v<ver> dist/*`). Release assets are served directly
 (`…/releases/latest/download/<file>`), so `dist/` itself stays untracked
 and out of the repository history.
 

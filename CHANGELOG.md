@@ -5,7 +5,49 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.1] - 2026-10-14
+
+### Added
+
+- `make check-dist` (`scripts/check-dist.sh`): privacy gate over `dist/` that
+  fails when an artifact carries the builder's absolute home / Cargo-registry
+  paths, the build host's nodename, a non-zero archive owner or an
+  xattr/AppleDouble record. `scripts/build-dist.sh` runs it before writing
+  `SHA256SUMS.txt`, and `make validate` includes it.
+- Release automation (`.github/workflows/release.yml`): pushing a `v*` tag
+  builds every distribution target on fresh GitHub-hosted runners (macOS
+  universal `.app.zip`; Linux x86_64/arm64 `.tar.gz` + `.deb`; Windows
+  x86_64 `.zip` via the mingw cross; `.rpm` from source in a Fedora
+  container; `.flatpak` bundle), re-runs the `dist/` privacy gate over the
+  merged set and publishes ONE GitHub Release with a single
+  `SHA256SUMS.txt`. No Actions cache: every release compiles from scratch
+  and only the packaged files travel between jobs. A manual dispatch
+  (`dry_run`) validates the whole pipeline without publishing.
+
+### Changed
+
+- Flatpak builds now target the freedesktop SDK 26.08 runtime (24.08 is
+  end-of-life); the `rust-stable` extension branch is pinned in the manifest
+  and `scripts/build-flatpak.sh` derives the runtime branch from
+  `packaging/flatpak/dev.mdowser.app.yaml` (single source of truth).
+
+### Fixed
+
+- Release binaries no longer embed the builder's absolute home and
+  Cargo-registry paths (the username and home layout leaked through panic
+  locations, which `strip` cannot remove): `make build`,
+  `scripts/build-dist.sh`, `windows.ps1` and the RPM spec's `%build` now
+  remap them at compile time with `--remap-path-prefix`
+  (`scripts/lib.sh` `export_remap_rustflags`).
+- macOS and Windows `.zip` artifacts no longer record the builder's Unix
+  uid/gid (`zip -X` drops the Info-ZIP `0x7875` extra field).
+- Linux `.tar.gz` and `.deb` payloads no longer carry the macOS build
+  machine's `com.apple.provenance` extended attribute as PAX records:
+  staging trees are xattr-swept and tarred with `--no-xattrs` where
+  supported.
+- The RPM spec no longer discloses the build hostname (`%_buildhost`) and its
+  payload can no longer inherit the builder's ownership
+  (`%defattr(-, root, root, -)`).
 
 ## [0.5.0] - 2026-10-14
 

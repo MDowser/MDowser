@@ -43,6 +43,15 @@ fi
 
 MANIFEST="$ROOT/packaging/flatpak/dev.mdowser.app.yaml"
 SOURCES="$ROOT/packaging/flatpak/cargo-sources.json"
+# Runtime branch: single source of truth is the manifest's `runtime-version`
+# (its pinned `rust-stable//<branch>` extension matches it). A runtime bump is
+# a one-line manifest change; `flatpak info`/`flatpak install` here and the
+# error hints below all follow it.
+FDO_VER="$(sed -n "s/^runtime-version:[[:space:]]*'\([0-9.]*\)'.*$/\1/p" "$MANIFEST")"
+if [ -z "$FDO_VER" ]; then
+    echo "ERROR: could not parse runtime-version from $MANIFEST" >&2
+    exit 1
+fi
 # Build and state dirs live under dist/ (swept at the end): a build dir
 # INSIDE the source path makes flatpak-builder recurse into its own state on
 # some versions, and a root `.flatpak-builder/` left multi-GB scratch behind.
@@ -54,7 +63,7 @@ OUT="$ROOT/dist/mdowser-$VER.flatpak"
 if ! command -v flatpak-builder >/dev/null 2>&1; then
     echo "ERROR: flatpak-builder not found." >&2
     echo "  Install the Flatpak tooling (flatpak + flatpak-builder) and the" >&2
-    echo "  org.freedesktop.Platform / org.freedesktop.Sdk (24.08) runtimes" >&2
+    echo "  org.freedesktop.Platform / org.freedesktop.Sdk ($FDO_VER) runtimes" >&2
     echo "  and the org.freedesktop.Sdk.Extension.rust-stable extension, then" >&2
     echo '  re-run `make flatpak`.' >&2
     exit 1
@@ -70,16 +79,16 @@ ensure_runtimes() {
     if ! command -v flatpak >/dev/null 2>&1; then
         return 0
     fi
-    if flatpak info org.freedesktop.Sdk//24.08 >/dev/null 2>&1; then
+    if flatpak info "org.freedesktop.Sdk//$FDO_VER" >/dev/null 2>&1; then
         return 0
     fi
     printf '==> installing freedesktop runtimes (flathub)\n'
     flatpak remote-add --if-not-exists --user flathub \
         https://flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
     flatpak install -y --noninteractive --user flathub \
-        org.freedesktop.Platform//24.08 \
-        org.freedesktop.Sdk//24.08 \
-        org.freedesktop.Sdk.Extension.rust-stable//24.08 || true
+        "org.freedesktop.Platform//$FDO_VER" \
+        "org.freedesktop.Sdk//$FDO_VER" \
+        "org.freedesktop.Sdk.Extension.rust-stable//$FDO_VER" || true
 }
 ensure_runtimes
 

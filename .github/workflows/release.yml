@@ -1,0 +1,257 @@
+# Copyright (c) 2026 MDowser
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+# release.yml: ONE release per v* tag with EVERY distribution target.
+#
+# Jobs (fresh GitHub-hosted runners, NO Actions cache: every release compiles
+# from scratch and only the packaged files travel between jobs):
+#   linux-x64    Linux x86_64 (.tar.gz + .deb) + Windows x86_64 (.zip, mingw)
+#   linux-arm64  Linux arm64 (.tar.gz + .deb)
+#   macos        universal .app.zip (arm64 + Intel, via lipo)
+#   rpm          .rpm from source (Fedora container, rpmbuild)
+#   flatpak      .flatpak bundle (runtime branch read from the manifest)
+#   publish      merged privacy gate + one SHA256SUMS.txt + GitHub Release
+#
+# The scripts do the real work (see AGENTS.md: this workflow builds and
+# publishes, nothing else): build-dist.sh remaps the builder's home out of
+# every binary, runs check-dist.sh per job and writes per-job checksums;
+# publish re-runs the gate over the MERGED set and writes the final
+# SHA256SUMS.txt. Artifact names are identical to `make dist`.
+#
+# Manual run: `workflow_dispatch` with dry_run (default true) compiles
+# everything without publishing; set dry_run false only while on a tag.
+
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Compile everything without publishing the release"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux-x64:
+    name: Linux x86_64 + Windows x86_64
+    # The x64 environment does all the x64 work; the Windows .exe keeps the
+    # very same mingw cross path a local `make dist` uses today.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust-toolchain.toml) + Windows target
+        run: |
+          cargo --version
+          rustup target add x86_64-pc-windows-gnu
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm mingw-w64 zip
+      - name: Free disk space (two release builds need several GB)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup \
+                      /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+      - name: Build Linux x86_64 + Windows x86_64
+        run: |
+          set -eu
+          SKIP_SETUP=1 ./scripts/build-dist.sh --windows
+          ls dist/*.zip
+          mkdir -p /tmp/keep && mv dist/* /tmp/keep/
+          SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
+          ls dist/*.tar.gz dist/*.deb
+          mv /tmp/keep/* dist/
+          rm -f dist/SHA256SUMS.txt
+          ./scripts/check-dist.sh dist
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-x64
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  linux-arm64:
+    name: Linux arm64
+    # aarch64 uses the system assembler: no nasm needed here.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust-toolchain.toml)
+        run: |
+          # The arm64 image ships rustup like the other hosted images, but the
+          # fallback keeps a missing toolchain from failing with a cryptic
+          # error: cargo --version then installs 1.98 from the toolchain file.
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          cargo --version
+      - name: Build Linux arm64
+        run: |
+          set -eu
+          SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
+          ls dist/*.tar.gz dist/*.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-arm64
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  macos:
+    name: macOS universal
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (rust-toolchain.toml) + Intel target
+        run: |
+          cargo --version
+          rustup target add x86_64-apple-darwin
+      - name: NASM (Intel macOS assembles rav1d/aws-lc-sys kernels)
+        run: brew install nasm
+      - name: Build universal .app
+        run: |
+          set -eu
+          SKIP_SETUP=1 ./scripts/build-dist.sh --mac
+          ls dist/*.app.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  rpm:
+    name: RPM (Fedora)
+    # The spec builds from the FULL source tree and needs a Fedora/RHEL host
+    # (see docs/BUILDING.md); the container provides it.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container: fedora:44
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Container essentials (checkout needs git)
+        run: dnf -y install git
+      - uses: actions/checkout@v4
+      - name: Build dependencies (spec BuildRequires)
+        run: |
+          dnf -y install rpm-build nasm gcc gcc-c++ make patch curl \
+              desktop-file-utils appstream tar gzip which
+      - name: Rust 1.98 via rustup (dnf rust/cargo only satisfy BuildRequires)
+        run: |
+          dnf -y install cargo rust
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain 1.98
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Build RPM from source
+        run: |
+          set -eu
+          export PATH="$HOME/.cargo/bin:$PATH"
+          SKIP_SETUP=1 ./scripts/build-dist.sh --rpm
+          ls dist/*.rpm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-rpm
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space (runtime + SDK + build need several GB)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup \
+                      /usr/share/swift /opt/hostedtoolcache/CodeQL || true
+      - name: Flatpak tooling + cargo generator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder python3-venv
+          python3 -m venv /tmp/fcg
+          /tmp/fcg/bin/pip install --upgrade pip setuptools wheel
+          /tmp/fcg/bin/pip install "git+https://github.com/flatpak/flatpak-builder-tools.git#subdirectory=cargo"
+          echo /tmp/fcg/bin >> "$GITHUB_PATH"
+      - name: Runtimes (branch pinned by the manifest)
+        run: |
+          set -eu
+          FDO=$(sed -n "s/^runtime-version:[[:space:]]*'\([0-9.]*\)'.*$/\1/p" packaging/flatpak/dev.mdowser.app.yaml)
+          test -n "$FDO"
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install -y --user --noninteractive flathub \
+            "org.freedesktop.Platform//$FDO" \
+            "org.freedesktop.Sdk//$FDO" \
+            "org.freedesktop.Sdk.Extension.rust-stable//$FDO"
+      - name: Build Flatpak bundle
+        run: |
+          set -eu
+          SKIP_SETUP=1 ./scripts/build-dist.sh --flatpak
+          ls dist/*.flatpak
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-flatpak
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  publish:
+    name: Publish release
+    needs: [linux-x64, linux-arm64, macos, rpm, flatpak]
+    # Only a tag publishes (or an explicit dry_run=false manual dispatch).
+    if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Tag must match the Cargo.toml version
+        run: |
+          set -eu
+          VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)
+          test -n "$VER"
+          test "${GITHUB_REF_NAME#v}" = "$VER"
+      - name: Privacy gate over the merged set + single SHA256SUMS.txt
+        run: |
+          set -eu
+          rm -f dist/SHA256SUMS.txt
+          ./scripts/check-dist.sh dist
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "MDowser ${GITHUB_REF_NAME#v}" --generate-notes \
+          || gh release upload "$GITHUB_REF_NAME" dist/* --clobber

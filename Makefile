@@ -54,7 +54,7 @@ PREFIX ?= /usr/local
 # Dependency group for `make deps` (all | toolchain | cross | packaging).
 DEPS ?= all
 
-.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate deps run clean fmt clippy audit icons help doctor
+.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-dist deps run clean fmt clippy audit icons help doctor
 
 # Default: install deps, build the host release binary, then the current-OS
 # dist. macOS gets the universal .app (dist-mac); other systems the fast
@@ -68,7 +68,7 @@ endif
 all: deps build $(NATIVE_DIST)
 
 build:
-	$(CARGO) build --locked --release
+	. ./scripts/lib.sh && export_remap_rustflags && $(CARGO) build --locked --release
 
 # Host debug binary.
 debug:
@@ -114,9 +114,15 @@ flatpak:
 	./scripts/build-flatpak.sh
 
 # Best-effort packaging validation (desktop entry, AppStream metadata, RPM
-# spec, Flatpak YAML). Missing tools are SKIPs, never failures.
+# spec, Flatpak YAML) plus the dist/ privacy gate (builder paths, uid/gid,
+# xattrs). Missing tools are SKIPs, never failures.
 validate:
 	./scripts/validate.sh
+
+# Privacy gate for built artifacts: fails when any dist/ archive carries the
+# builder's absolute paths or build-host metadata. Also run by `make dist`.
+check-dist:
+	./scripts/check-dist.sh
 
 # Install build/packaging dependencies, best-effort and idempotent (Homebrew on
 # macOS; apt-get/dnf/pacman on Linux). `SKIP_SETUP=1 make deps` reports only;
@@ -163,7 +169,7 @@ doctor:
 	@$(CARGO) --version || echo "ERROR: cargo not found; install rustup (see README)"
 
 help:
-	@echo "make [build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|deps|run|clean|fmt|clippy|audit|icons|doctor]"
+	@echo "make [build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|doctor]"
 	@echo "  (no args)   deps + host release + current-OS dist into dist/"
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"
@@ -173,6 +179,7 @@ help:
 	@echo "  dist-rpm = RPM from source (needs rpmbuild)   |  flatpak/dist-flatpak = Flatpak bundle"
 	@echo "  install  = runtime files under PREFIX (DESTDIR/PREFIX honored; RPM %install)"
 	@echo "  validate = best-effort packaging metadata checks (SKIPs when tools missing)"
+	@echo "  check-dist = privacy gate: fail if dist/ carries builder paths/metadata"
 	@echo "  deps     = install build/packaging deps (SKIP_SETUP=1 dry run; DEPS=<group>)"
 	@echo "  audit = cargo audit + cargo deny (best-effort when installed)"
 	@echo "  icons = force-regenerate assets/icons from assets/icon.svg"

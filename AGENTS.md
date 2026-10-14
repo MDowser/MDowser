@@ -4,11 +4,14 @@ Read this before creating or modifying files in this repository.
 
 ## Do not create versioned automation or AI artifacts
 
-- **Never create or modify `.github/`** (workflows, Dependabot, issue/PR
-  templates). CI and repository automation are intentionally out of scope
-  for this project. Stale references to `.github/workflows` in docs or
-  scripts are historic, not an invitation to regenerate workflows. If
-  automation is genuinely needed, ask the user first.
+- **One exception**: `.github/workflows/release.yml` is a project
+  deliverable (it builds every release target and publishes one release per
+  `v*` tag). It may be created or modified only for that purpose and never
+  as a side effect of another task. Everything else under `.github/` (other
+  workflows, Dependabot, issue/PR templates) stays out of scope; stale
+  references to those paths in docs or scripts are historic, not an
+  invitation to regenerate them. Ask the user before adding any other
+  automation.
 - Do not commit AI tooling scratch: `.opencode/`, `.openchamber/`,
   `.claude/`, `.codex/`, `.cursor/`, `.aider*`, plan files or session
   logs. They are gitignored; do not force-add them or weaken

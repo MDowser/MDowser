@@ -6,6 +6,7 @@
 make test   # sh syntax + fmt --check + clippy -D warnings + test + doc + debug build
 make run    # debug GUI
 make audit  # cargo audit + cargo deny (best-effort when installed)
+make check-dist  # privacy gate over dist/ (builder paths/metadata; after packaging)
 ```
 
 Toolchain: stable Rust ≥ 1.98 via `rustup` (`Cargo.toml` `rust-version`;

@@ -88,3 +88,52 @@ ensure_toolchain_path() {
         unset _CD
     fi
 }
+
+# --- build-artifact privacy --------------------------------------------------
+#
+# Rust bakes the source path of every panic location / `file!()` into the
+# binary, including dependency sources under the Cargo registry. On a release
+# machine those are absolute paths under the builder's home
+# (`~/.cargo/registry/src/...`), so even a `strip`ped binary ships the
+# builder's username and home layout; `strip` cannot remove them (they are
+# runtime data, not symbols). The only fix is to remap the prefixes at compile
+# time. Call `export_remap_rustflags` once before a DISTRIBUTABLE
+# `cargo build`/`cargo zigbuild`; debug builds should keep their real paths so
+# debuggers can still resolve sources.
+#
+# CARGO_ENCODED_RUSTFLAGS (0x1f-separated, preferred by cargo over RUSTFLAGS)
+# is used so a `$HOME` containing spaces survives. An existing RUSTFLAGS is
+# preserved (cargo itself splits it on whitespace). Idempotent.
+export_remap_rustflags() {
+    [ -n "${_MDOWSER_REMAP_DONE:-}" ] && return 0
+    _MDOWSER_REMAP_DONE=1
+    _r_sep="$(printf '\037')"
+    _r_enc="${CARGO_ENCODED_RUSTFLAGS:-}"
+    if [ -z "$_r_enc" ] && [ -n "${RUSTFLAGS:-}" ]; then
+        for _r_f in $RUSTFLAGS; do
+            _r_enc="${_r_enc:+$_r_enc$_r_sep}$_r_f"
+        done
+    fi
+    if [ -n "${HOME:-}" ]; then
+        _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$HOME=/build"
+        _r_cargo="${CARGO_HOME:-$HOME/.cargo}"
+        [ "$_r_cargo" = "$HOME" ] ||
+            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_cargo=/cargo"
+    fi
+    if [ -n "$_r_enc" ]; then
+        CARGO_ENCODED_RUSTFLAGS="$_r_enc"
+        export CARGO_ENCODED_RUSTFLAGS
+    fi
+    unset _r_sep _r_enc _r_f _r_cargo
+}
+
+# Removes extended attributes from a packaging stage tree. bsdtar (macOS)
+# archives xattrs by default as PAX records (`LIBARCHIVE.xattr...` /
+# `SCHILY.xattr...`), which would embed the builder's `com.apple.provenance`
+# blob into Linux `.tar.gz`/`.deb` payloads. `xattr -c` is macOS-only; on
+# Linux the tree carries no such attributes, so this is a no-op. Best-effort:
+# never fails the caller.
+sweep_xattrs() {
+    command -v xattr >/dev/null 2>&1 || return 0
+    xattr -cr "$1" 2>/dev/null || true
+}

@@ -42,6 +42,11 @@ cd "$ROOT"
 ensure_toolchain_path
 export PATH="$PATH:/usr/bin:/bin"
 
+# Privacy: shipped binaries must not embed the builder's absolute home /
+# Cargo-registry paths (panic locations carry dependency source paths); remap
+# them out of every release build this script runs (see lib.sh).
+export_remap_rustflags
+
 APP_LC="mdowser"          # binary name / deb+rpm package
 APP_UI="MDowser"         # display name (.app, windows)
 VER="$(app_version)"
@@ -73,11 +78,21 @@ log()  { printf '\n==> %s\n' "$1"; }
 warn() { printf '··· SKIP: %s\n' "$1"; SKIPPED="$SKIPPED $1"; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Removes macOS AppleDouble sidecars (`._name`) from a packaging stage tree:
-# they are xattr/resource-fork metadata, never package content. POSIX find;
-# a tree without them (every Linux host) is a no-op.
+# bsdtar (macOS) archives extended attributes by default and would embed the
+# builder's `com.apple.provenance` blob into `.tar.gz`/`.deb` payloads as PAX
+# records; GNU tar does not unless asked. Probe once so the flag is used where
+# supported and never breaks a build on a tar that lacks it.
+TAR_NO_XATTRS=""
+if tar --no-xattrs -cf /dev/null --files-from /dev/null 2>/dev/null; then
+    TAR_NO_XATTRS="--no-xattrs"
+fi
+
+# Removes macOS AppleDouble sidecars (`._name`) and extended attributes from a
+# packaging stage tree: they are xattr/resource-fork metadata, never package
+# content. POSIX find; a tree without them (every Linux host) is a no-op.
 sweep_apple_double() {
     find "$1" -name '._*' -exec rm -f {} \; 2>/dev/null || true
+    sweep_xattrs "$1"
 }
 
 # Stage dirs live under dist/ and are removed on the success path; a failure
@@ -365,12 +380,13 @@ EOF
     # (macOS often 501/20) and dpkg preserves archive ownership on install,
     # leaving the installed files owned by a UID that does not exist on the
     # target. GNU and BSD tar both accept the long owner flags. The sweep
-    # drops any AppleDouble sidecar a copy left beside a payload file.
+    # drops any AppleDouble sidecar / xattr a copy left on a payload file
+    # (bsdtar would otherwise archive `com.apple.provenance`).
     sweep_apple_double "$stage"
     (cd "$stage/control" && tar -czf "$stage/control.tar.gz" \
-        --owner=0 --group=0 --numeric-owner control)
+        --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS control)
     (cd "$stage/data" && tar -czf "$stage/data.tar.gz" \
-        --owner=0 --group=0 --numeric-owner usr)
+        --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS usr)
     printf '2.0\n' > "$stage/debian-binary"
     # Verify the archives before wrapping: a silent/incomplete tar must fail
     # loudly here, never produce a broken .deb downstream. A macOS sidecar in
@@ -435,12 +451,14 @@ with open(out, 'wb') as w:
 zip_of() {
     # $1 = source (file or dir; a dir lands at the zip root: right for .app),
     # $2 = target zip. Verifies the result (fails loudly when empty).
+    # `-X` drops the Unix uid/gid extra field (`0x7875`) Info-ZIP would
+    # otherwise store, which would leak the builder's numeric uid/gid.
     if have zip; then
         rm -f "$2"
         if [ -d "$1" ]; then
-            (cd "$(dirname "$1")" && zip -qr "$2" "$(basename "$1")" -x '*.DS_Store')
+            (cd "$(dirname "$1")" && zip -qrX "$2" "$(basename "$1")" -x '*.DS_Store')
         else
-            (cd "$(dirname "$1")" && zip -q "$2" "$(basename "$1")" -x '*.DS_Store')
+            (cd "$(dirname "$1")" && zip -qX "$2" "$(basename "$1")" -x '*.DS_Store')
         fi
     elif have ditto; then
         rm -f "$2"
@@ -465,7 +483,8 @@ zip_contents() {
     dest="$2"; dir="$1"; shift 2
     if have zip; then
         rm -f "$dest"
-        (cd "$dir" && zip -q "$dest" "$@" -x '*.DS_Store')
+        # `-X`: no Unix uid/gid extra field (see zip_of).
+        (cd "$dir" && zip -qX "$dest" "$@" -x '*.DS_Store')
     else
         # `zip`/`ditto` missing (or ditto, which cannot select files):
         # python stdlib with argv (no `split(' ')`, so `My File.exe` survives).
@@ -583,7 +602,7 @@ do_linux() {
             "$ROOT/LICENSE" "$stage/"
         sweep_apple_double "$stage"
         (cd "$stage" && tar -czf "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
-            --owner=0 --group=0 --numeric-owner \
+            --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
             "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE)
         rm -rf "$stage"
         # Best-effort packaging: a failed .deb keeps the .tar.gz and skips
@@ -638,6 +657,7 @@ do_rpm() {
         --exclude='./.flatpak-builder' \
         --exclude='.DS_Store' \
         --exclude='./._*' --exclude='*/._*' \
+        $TAR_NO_XATTRS \
         $_tar_root \
         -czf "$_top/SOURCES/$_pkg.tar.gz" .; then
         warn "rpm (source tarball failed)"
@@ -833,7 +853,7 @@ do_host() {
             "$ROOT/LICENSE" "$_hstage/"
         sweep_apple_double "$_hstage"
         if (cd "$_hstage" && tar -czf "$DIST/$APP_LC-$VER-$_host_os-$_host_arch.tar.gz" \
-            --owner=0 --group=0 --numeric-owner \
+            --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
             "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
             BUILT="$BUILT host-tar"
         else
@@ -895,6 +915,14 @@ rm -f "$DIST"/.DS_Store
 # If the versioned .app survived zipping (it should not), out too:
 if [ -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" ]; then
     rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
+fi
+
+# Privacy gate: no artifact may carry the builder's absolute paths or
+# build-host metadata (uid/gid, xattrs). Fail BEFORE writing checksums so a
+# leaking build is never reported as ready (see scripts/check-dist.sh).
+if ! "$ROOT/scripts/check-dist.sh" "$DIST"; then
+    echo "ERROR: dist/ artifacts leak build-host information (see above)" >&2
+    exit 1
 fi
 
 # Checksums of FINAL files only (no dirs, no dotfiles, no self-inclusion).

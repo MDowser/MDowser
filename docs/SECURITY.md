@@ -393,6 +393,21 @@ attack surface:
   valid certificate, so a local service without one cannot be reached.
   No proxy is used on purpose (deterministic direct TLS).
 
+## Build artifacts
+
+Release binaries and packages must not carry the builder's identity. Rust
+embeds the source path of every panic location — dependency sources included
+(`$HOME/.cargo/registry/src/...`) — so `make`/`scripts/build-dist.sh`,
+`windows.ps1` and the RPM spec's `%build` remap those prefixes at compile time
+(`--remap-path-prefix`); the `.zip` writer drops the Info-ZIP Unix uid/gid
+extra field; and the tar staging sweeps extended attributes / passes
+`--no-xattrs`, so a macOS build does not embed its `com.apple.provenance` blob
+in Linux packages. The RPM spec pins `%_buildhost` and
+`%defattr(-, root, root, -)`. `scripts/check-dist.sh` (`make check-dist`, also
+enforced by `make dist` and `make validate`) fails the build if any `dist/`
+artifact still carries the builder's paths, hostname, uid/gid or xattrs. See
+`BUILDING.md` ("Build-artifact privacy").
+
 ## Reporting a vulnerability
 
 Open an issue in the project tracker with `[security]` in the title, or

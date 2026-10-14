@@ -25,10 +25,13 @@
 #
 app-id: dev.mdowser.app
 runtime: org.freedesktop.Platform
-runtime-version: '24.08'
+runtime-version: '26.08'
 sdk: org.freedesktop.Sdk
 sdk-extensions:
-  - org.freedesktop.Sdk.Extension.rust-stable
+  # Pinned branch: must match `runtime-version` above. This file is the single
+  # source of truth for the branch: `scripts/build-flatpak.sh` derives it from
+  # here (see also docs/BUILDING.md).
+  - org.freedesktop.Sdk.Extension.rust-stable//26.08
 command: mdowser
 # Flatpak requires exported files to carry the app id: these rename the
 # shared packaging/linux copies at export time (and update the desktop
