@@ -186,18 +186,25 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
         ui.add_space(theme::spacing::M);
         // Header row: status dot + title + copy action.
         ui.horizontal(|ui| {
-            // Status dot (error red for real failures). Allocated as a real
-            // widget rect and centered inside it: the old `+ (8,14)` offset
-            // drifted with zoom/font changes.
+            // Status dot (error red for real failures). The dot slot only
+            // reserves the horizontal room; the disc is painted centered on
+            // the TITLE's laid-out rect. A horizontal row top-clamps any
+            // item shorter than the row (the slot is 0.9x the title size,
+            // the title is a full font line), so centering inside the slot
+            // alone parked the disc several px above the title's center.
             let title_size = 24.0;
-            let (dot_rect, _) = ui.allocate_exact_size(
+            let (dot_slot, _) = ui.allocate_exact_size(
                 egui::vec2(title_size * 0.7, title_size * 0.9),
                 egui::Sense::hover(),
             );
-            ui.painter()
-                .circle_filled(dot_rect.center(), title_size * 0.25, s.error);
             ui.add_space(theme::spacing::XS);
-            ui.label(theme::strong(egui::RichText::new(title).size(title_size)).color(s.error));
+            let title_resp =
+                ui.label(theme::strong(egui::RichText::new(title).size(title_size)).color(s.error));
+            ui.painter().circle_filled(
+                egui::pos2(dot_slot.center().x, title_resp.rect.center().y),
+                title_size * 0.25,
+                s.error,
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let copy_log = ui.small_button("Copy log");
                 let copy_log =
@@ -215,6 +222,30 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
         ui.add_space(2.0);
         ui.label(theme::weak(ui, explain));
         ui.label(format!("Requested: {}", strip_scheme_everywhere(asked)));
+        // "No markdown here" is the one failure with a real escape hatch:
+        // the target exists and answered, it just is not Markdown, so the OS
+        // default handler can show it (the default browser for web pages,
+        // the file's default app for local ones). A large accent button
+        // right under the requested address: this is the action a reader
+        // actually wants on this page.
+        if kind == ErrorKind::NotMarkdown {
+            ui.add_space(theme::spacing::M);
+            let label = if local {
+                "Open with the default app"
+            } else {
+                "Open in your browser"
+            };
+            let open = theme::primary_button_sized(ui, label, egui::vec2(240.0, 44.0));
+            if open.clicked() {
+                // Resolve ONCE on the click (not per frame): `parse_navigable`
+                // accepts only targets this browser could have navigated to
+                // and strips pasted credentials, so the OS never receives
+                // anything else.
+                if let Ok(target) = crate::protocol::client::parse_navigable(asked) {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(target.as_str()));
+                }
+            }
+        }
         ui.add_space(theme::spacing::M);
         // Hint card: what to do next.
         theme::card(ui).show(ui, |ui| {
@@ -262,6 +293,7 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
 #[cfg(test)]
 mod tests {
     use super::{classify, copy_for, ErrorKind};
+    use eframe::egui;
 
     #[test]
     fn classifies_network() {
@@ -285,6 +317,213 @@ mod tests {
         assert_eq!(classify(&lines), ErrorKind::NotFound);
         let lines = vec!["HTTPS only, blocked: http://a".to_string()];
         assert_eq!(classify(&lines), ErrorKind::BadAddress);
+    }
+
+    /// Every painted text run of one frame.
+    fn texts(out: &egui::FullOutput) -> Vec<String> {
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Screen center of one painted label (the buttons center their label).
+    fn text_center(out: &egui::FullOutput, label: &str) -> Option<egui::Pos2> {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text() == label => {
+                Some(t.pos + t.galley.size() / 2.0)
+            }
+            _ => None,
+        })
+    }
+
+    /// One primary-pointer transition at `pos`.
+    fn pointer(pos: egui::Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// One rendered `show_error` frame. Returns the full output so callers
+    /// can inspect shapes (dot/title geometry) and the queued OS commands
+    /// (the external-open action), the same headless pattern the theme tests
+    /// use.
+    fn render(
+        ctx: &egui::Context,
+        asked: &str,
+        lines: &[String],
+        kind: ErrorKind,
+        events: Vec<egui::Event>,
+    ) -> egui::FullOutput {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(700.0, 500.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |ui| {
+            super::show_error(ui, asked, lines, kind);
+        });
+        out.textures_delta.clear();
+        out
+    }
+
+    /// The URL of the first `OpenUrl` command in one frame's output.
+    fn opened_url(out: &egui::FullOutput) -> Option<String> {
+        out.platform_output.commands.iter().find_map(|c| match c {
+            egui::OutputCommand::OpenUrl(u) => Some(u.url.clone()),
+            _ => None,
+        })
+    }
+
+    /// The status dot centers on the TITLE's laid-out rect. It used to be
+    /// centered in its own (shorter) slot, which the horizontal layout
+    /// top-clamps, parking the disc ~6px above the title's center.
+    #[test]
+    fn header_dot_is_centered_on_the_title() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let out = render(
+            &ctx,
+            "example.com/page",
+            &["x".to_string()],
+            ErrorKind::NotMarkdown,
+            Vec::new(),
+        );
+        let circle = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Circle(c) => Some(c.center),
+                _ => None,
+            })
+            .expect("the status dot painted");
+        let title = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == "No markdown here" => {
+                    Some((t.pos, t.galley.size()))
+                }
+                _ => None,
+            })
+            .expect("the title painted");
+        let title_center_y = title.0.y + title.1.y / 2.0;
+        assert!(
+            (circle.y - title_center_y).abs() <= 0.5,
+            "dot center y {} vs title center {title_center_y}",
+            circle.y
+        );
+        assert!(circle.x < title.0.x, "the dot sits left of the title");
+    }
+
+    /// "No markdown here" offers the escape hatch: a large accent button
+    /// that hands the resolved address to the OS default handler (the
+    /// `OpenUrl` command `egui-winit` executes through the embedded
+    /// `webbrowser` integration). Clicking it queues the NORMALIZED URL:
+    /// pasted credentials never reach the browser.
+    #[test]
+    fn not_markdown_opens_the_target_externally() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let lines = vec!["access to https://example.com/page returned text/html \
+             (expected a markdown Content-Type)"
+            .to_string()];
+        let asked = "https://user:pass@example.com/page";
+        let first = render(&ctx, asked, &lines, ErrorKind::NotMarkdown, Vec::new());
+        assert!(
+            texts(&first).iter().any(|t| t == "Open in your browser"),
+            "the web button is painted"
+        );
+        let center = text_center(&first, "Open in your browser").expect("button label painted");
+        // Hover + press, then release: egui's click lands on the release frame.
+        let _ = render(
+            &ctx,
+            asked,
+            &lines,
+            ErrorKind::NotMarkdown,
+            vec![egui::Event::PointerMoved(center), pointer(center, true)],
+        );
+        let out = render(
+            &ctx,
+            asked,
+            &lines,
+            ErrorKind::NotMarkdown,
+            vec![pointer(center, false)],
+        );
+        assert_eq!(
+            opened_url(&out).as_deref(),
+            Some("https://example.com/page"),
+            "the credential-free normalized URL is opened"
+        );
+    }
+
+    /// A local non-markdown file gets the same escape hatch with the local
+    /// wording (the OS default APP: for a local file the browser is not the
+    /// handler the launcher picks) and its absolute `file:` URL.
+    #[test]
+    fn local_not_markdown_opens_with_the_default_app() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let lines = vec!["file is not valid utf-8".to_string()];
+        let asked = "file:///tmp/notes.txt";
+        let first = render(&ctx, asked, &lines, ErrorKind::NotMarkdown, Vec::new());
+        assert!(
+            texts(&first)
+                .iter()
+                .any(|t| t == "Open with the default app"),
+            "the local button is painted"
+        );
+        let center =
+            text_center(&first, "Open with the default app").expect("button label painted");
+        let _ = render(
+            &ctx,
+            asked,
+            &lines,
+            ErrorKind::NotMarkdown,
+            vec![egui::Event::PointerMoved(center), pointer(center, true)],
+        );
+        let out = render(
+            &ctx,
+            asked,
+            &lines,
+            ErrorKind::NotMarkdown,
+            vec![pointer(center, false)],
+        );
+        assert_eq!(opened_url(&out).as_deref(), Some("file:///tmp/notes.txt"));
+    }
+
+    /// The escape hatch is scoped to the "No markdown here" family: every
+    /// other failure keeps its page (there is nothing else that reliable to
+    /// hand to the OS; a failed address must not be).
+    #[test]
+    fn other_kinds_offer_no_external_open() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let lines = vec!["access to https://a network error: dns".to_string()];
+        for kind in [
+            ErrorKind::Network,
+            ErrorKind::NotFound,
+            ErrorKind::BadAddress,
+            ErrorKind::Other,
+        ] {
+            let out = render(&ctx, "example.com/page", &lines, kind, Vec::new());
+            assert!(
+                !texts(&out)
+                    .iter()
+                    .any(|t| t == "Open in your browser" || t == "Open with the default app"),
+                "{kind:?} must not offer an external open"
+            );
+            assert!(opened_url(&out).is_none(), "{kind:?}: no command queued");
+        }
     }
 
     #[test]

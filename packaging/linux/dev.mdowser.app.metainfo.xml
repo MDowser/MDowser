@@ -34,7 +34,7 @@
     </p>
     <p>Highlights:</p>
     <ul>
-      <li>GitHub-grade Markdown: GFM + CommonMark tables, footnotes, tasklists, YAML frontmatter, code cards with syntax colors.</li>
+      <li>Native Markdown rendering: CommonMark plus GFM-style tables, footnotes, tasklists, YAML frontmatter, code cards with syntax colors.</li>
       <li>MDX/JSX components (Tabs, Accordion, Card, Steps, CodeGroup, Badge) and ::: custom containers render natively; nothing is ever executed.</li>
       <li>Real browser chrome: vertical tab rail, address autocomplete (bookmarks, local history, curated list), encrypted local history and bookmarks, zoom, light/dark theme.</li>
       <li>Color emoji, CJK and RTL scripts, and PNG/JPEG/GIF/WebP/JPEG XL/AVIF/ICO/static SVG images, all decoded in pure Rust.</li>
@@ -71,6 +71,6 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
-    <release type="stable" version="0.4.6" date="2026-10-14"/>
+    <release type="stable" version="0.5.0" date="2026-10-14"/>
   </releases>
 </component>

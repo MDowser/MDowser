@@ -9,6 +9,35 @@
 use super::tests::*;
 use super::{BULLET_GUTTER, BULLET_SCALE, BULLET_TEXT_GAP, ITEM_INDENT};
 
+/// The document ends with a blank margin (`theme::spacing::PAGE_END`): the
+/// reading sheet's gutter is symmetric, so without the trailing pad the
+/// last block's own tail (8px after a top-level paragraph) was the only air
+/// under the text and a page scrolled to its end read cramped. The pad
+/// paints no shape, so measure the laid-out column bottom against the last
+/// text row.
+#[test]
+fn document_ends_with_a_blank_margin() {
+    let anchors = crate::markdown::anchors::AnchorIndex::default();
+    let (shapes, bottom) = render_shapes_with_bottom("Hola mundo\n", 1100.0, 750.0, &anchors);
+    let last = shapes
+        .iter()
+        .filter_map(|s| match s {
+            eframe::egui::epaint::Shape::Text(t) => Some(t.pos.y + t.galley.rect.max.y),
+            _ => None,
+        })
+        .fold(f32::MIN, f32::max);
+    let air = bottom - last;
+    // Contract floor: comfortably more than the block's own trailing gap
+    // (`spacing::M`), so the trailing `spacing::PAGE_END` pad is required to
+    // pass while extra block air still would. Not tied to `PAGE_END` itself,
+    // so zeroing the pad fails the test.
+    let floor = crate::ui::theme::spacing::M + crate::ui::theme::spacing::L;
+    assert!(
+        air >= floor,
+        "the document must end with the page-end blank margin: only {air:.1}px under the last row"
+    );
+}
+
 /// Tight lists keep a compact rhythm: items sit about one body line
 /// apart plus the implicit item spacing, instead of the old loose stack
 /// (a paragraph gap + a per-item gap made every list read as separate

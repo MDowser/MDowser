@@ -750,6 +750,7 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
     let mut fetched = crate::protocol::client::Fetched {
         display_url: url::Url::parse(url).expect("test URL"),
         meta: crate::markdown::frontmatter::Meta::default(),
+        h1_title: None,
         plain_text: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),

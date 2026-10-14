@@ -199,8 +199,8 @@ pub(super) fn collect_inline<'e>(
                 *i += 1;
             }
             Event::FootnoteReference(label) => {
-                // Raised small marker showing the reference NUMBER (GitHub's
-                // `<sup>1</sup>`), clickable when the definition exists.
+                // Raised small marker showing the reference NUMBER (a
+                // superscript), clickable when the definition exists.
                 // `footnote_id` returns the RESERVED anchor (`fn-<label>` or
                 // its deduped form), so a colliding heading id never hijacks
                 // the jump; `footnote_number` is the 1-based ordinal in

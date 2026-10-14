@@ -267,6 +267,7 @@ pub(super) fn fetched_for(url: &str) -> Fetched {
     Fetched {
         display_url: u(url),
         meta: crate::markdown::frontmatter::Meta::default(),
+        h1_title: None,
         plain_text: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
@@ -286,7 +287,8 @@ fn anchor_from_url_reads_the_fragment() {
 }
 
 /// A successfully resolved page is handed to `App` (once) for the local
-/// history, carrying the raw frontmatter title; failures never do.
+/// history, carrying the raw page title (frontmatter, else first H1);
+/// failures never do.
 #[test]
 fn resolved_page_is_handed_to_history_once() {
     let url = "https://ex.com/a/";
@@ -323,6 +325,7 @@ pub(super) fn fetched_from_md(url: &str, md: &str) -> Fetched {
     Fetched {
         display_url: base,
         meta: crate::markdown::frontmatter::Meta::default(),
+        h1_title: crate::markdown::document::first_h1_title(&events),
         plain_text: String::new(),
         events,
         anchors,
@@ -806,4 +809,59 @@ fn window_title_is_bare_page_title_or_app_name() {
         fetched: fetched_for("https://ex.com/a/"),
     };
     assert_eq!(t.window_title(), "ex.com/a/");
+}
+
+/// Without a frontmatter title, the document's first `#` heading names
+/// the tab, the window, the page-info card and the bookmark target; the
+/// URL stays the last resort.
+#[test]
+fn first_h1_names_the_page_when_metadata_is_missing() {
+    let md = "Intro line.\n\n# Carla's Site\n\nBody.\n";
+    let mut t = Tab::new(1);
+    t.state = TabState::Loaded {
+        fetched: fetched_from_md("https://ex.com/a/", md),
+    };
+    assert_eq!(t.title(), "Carla's Site");
+    assert_eq!(t.window_title(), "Carla's Site");
+    assert_eq!(t.site_info().page_title.as_deref(), Some("Carla's Site"));
+    let (url, title) = t.bookmark_target().expect("bookmark target");
+    assert_eq!(url.as_str(), "https://ex.com/a/");
+    assert_eq!(title.as_deref(), Some("Carla's Site"));
+
+    // A frontmatter `title` still wins over the heading.
+    let mut fetched = fetched_from_md("https://ex.com/b/", md);
+    fetched.meta.title = Some("Metadata Title".to_string());
+    t.state = TabState::Loaded { fetched };
+    assert_eq!(t.title(), "Metadata Title");
+    assert_eq!(t.window_title(), "Metadata Title");
+
+    // Only H2s: still the URL fallback, no invented title.
+    t.state = TabState::Loaded {
+        fetched: fetched_from_md("https://ex.com/c/", "## Section\n\nBody.\n"),
+    };
+    assert_eq!(t.title(), "ex.com/c/");
+    assert_eq!(t.window_title(), "ex.com/c/");
+}
+
+/// The H1 fallback also travels to the local history (the store
+/// sanitizes it like a frontmatter title).
+#[test]
+fn first_h1_title_is_recorded_in_history() {
+    let url = "https://ex.com/a/";
+    let fetched = fetched_from_md(url, "# Page H1\n\nBody.");
+    let promise: Promise<Result<Fetched, BrowserError>> = Promise::from_ready(Ok(fetched));
+    let mut t = Tab::new(1);
+    t.state = TabState::Loading {
+        promise,
+        asked: url.to_string(),
+        address_at_start: String::new(),
+        started: Instant::now(),
+        backdrop: None,
+        saved_back: Vec::new(),
+        saved_forward: Vec::new(),
+        pushed_history: false,
+        cancel: Arc::new(AtomicBool::new(false)),
+    };
+    assert!(t.poll_state());
+    assert_eq!(t.pending_visit, Some((u(url), Some("Page H1".to_string()))));
 }

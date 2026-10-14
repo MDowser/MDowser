@@ -5,7 +5,7 @@
 
 //! `ui::preferences`: the floating Preferences dialog.
 //!
-//! - `Preferences`: a FIXED-SIZE, Material-style dialog (custom header,
+//! - `Preferences`: a FIXED-SIZE, card-style dialog (custom header,
 //!   section cards, list rows) sized to its disarmed content: the History
 //!   and Local data cards fit their rows with no reserved bottom space.
 //!   History retention and the destructive "Delete history" action live in
@@ -50,7 +50,7 @@ const WIN_W: f32 = 480.0;
 const WIN_MIN_H: f32 = 240.0;
 /// Fixed distance from the window top to the dialog's top edge.
 const TOP_MARGIN: f32 = 48.0;
-/// Dialog corner radius (Material extra-large shape).
+/// Dialog corner radius (extra-large shape).
 const RADIUS: u8 = 14;
 /// Body horizontal padding.
 const PAD: f32 = 18.0;

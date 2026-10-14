@@ -84,8 +84,8 @@ fn overlay_expands_and_collapses_gradually() {
     }
 
     let ctx = egui::Context::default();
-    // Expanded rows typeset titles in the bundled bold face: bind it or
-    // epaint panics on the family lookup.
+    // Render with the SHIPPED font stack, as production does (epaint's
+    // bundled default faces are never registered).
     crate::ui::theme::install_test_fonts(&ctx);
     let mut tabs = vec![Tab::new(1), Tab::new(2)];
     let mut favicons = FaviconCache::new();
@@ -136,6 +136,35 @@ fn overlay_expands_and_collapses_gradually() {
         }
     }
     assert!(last >= EXPANDED_W, "overlay finishes expanding: {last}");
+
+    // The rail is CHROME: its labels (tab titles, `+ New Tab`, `History`)
+    // stay in the regular face. `theme::strong` (`wght = 700`) is for the
+    // document surfaces and the titled pages, never the rail.
+    let out = frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        Some(egui::pos2(20.0, 300.0)),
+    );
+    let strong = crate::ui::theme::strong_family();
+    let mut labels = 0;
+    for clipped in &out.shapes {
+        let egui::Shape::Text(t) = &clipped.shape else {
+            continue;
+        };
+        let Some(section) = t.galley.job.sections.first() else {
+            continue;
+        };
+        labels += 1;
+        assert_ne!(
+            section.format.font_id.family,
+            strong,
+            "rail label {:?} must not use the bold family",
+            t.galley.text()
+        );
+    }
+    assert!(labels >= 2, "expanded rail paints its labels: {labels}");
 
     // Leaving the overlay shrinks it back out over several frames.
     let out = frame(
@@ -215,7 +244,7 @@ fn overlay_stays_open_on_toolbar_and_outside_window() {
     }
 
     let ctx = egui::Context::default();
-    // Expanded rows typeset titles in the bundled bold face (see above).
+    // Render with the SHIPPED font stack, as production does (see above).
     crate::ui::theme::install_test_fonts(&ctx);
     let mut tabs = vec![Tab::new(1), Tab::new(2)];
     let mut favicons = FaviconCache::new();
@@ -326,7 +355,13 @@ fn edge_separator_paints_the_right_edge_only() {
         let mut hairlines = 0;
         let mut out = ctx.run_ui(input, |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                super::paint_edge_separator(ui, rect, &scheme);
+                super::paint_edge_separator(
+                    ui.painter(),
+                    ui.visuals().dark_mode,
+                    rect,
+                    &scheme,
+                    1.0,
+                );
             });
         });
         for clipped in &out.shapes {
@@ -358,6 +393,96 @@ fn edge_separator_paints_the_right_edge_only() {
             }
         }
     }
+}
+
+/// The separator is drawn in BOTH rail states: collapsed it is smaller and
+/// fainter (light) and a dimmer hairline (dark), so opening/closing morphs
+/// the shadow instead of popping it on or off.
+#[test]
+fn collapsed_separator_is_smaller_and_softer() {
+    use crate::ui::theme;
+
+    // The collapsed rail's edge: the same x as the real rail.
+    let rect = egui::Rect::from_min_max(egui::pos2(0.0, 48.0), egui::pos2(44.0, 300.0));
+
+    /// Paint one separator; return the black penumbra strips as `(reach past
+    /// the edge, alpha)` plus the hairline's alpha (`0` when no hairline).
+    fn paint(
+        ctx: &egui::Context,
+        rect: egui::Rect,
+        scheme: &theme::Scheme,
+        progress: f32,
+    ) -> (Vec<(f32, u8)>, u8) {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 400.0),
+            )),
+            ..Default::default()
+        };
+        let mut strips = Vec::new();
+        let mut hairline = 0;
+        let mut out = ctx.run_ui(input, |root| {
+            egui::CentralPanel::default().show(root, |ui| {
+                super::paint_edge_separator(
+                    ui.painter(),
+                    ui.visuals().dark_mode,
+                    rect,
+                    scheme,
+                    progress,
+                );
+            });
+        });
+        for clipped in &out.shapes {
+            let egui::Shape::Rect(r) = &clipped.shape else {
+                continue;
+            };
+            if r.rect.max.x == rect.max.x && r.rect.min.x == rect.max.x - 1.0 {
+                hairline = r.fill.a();
+            } else if r.fill.a() > 0 && r.fill.r() == 0 && r.fill.g() == 0 && r.fill.b() == 0 {
+                strips.push((r.rect.max.x - rect.max.x, r.fill.a()));
+            }
+        }
+        out.textures_delta.clear();
+        (strips, hairline)
+    }
+
+    let ctx = egui::Context::default();
+    let reach = |v: &[(f32, u8)]| v.iter().map(|(x, _)| *x).fold(0.0_f32, f32::max);
+    let peak = |v: &[(f32, u8)]| v.iter().map(|(_, a)| *a).max().unwrap_or(0);
+
+    // Light: a penumbra in both states, narrower and fainter when collapsed.
+    ctx.set_theme(egui::Theme::Light);
+    let scheme = theme::light();
+    let (open_strips, _) = paint(&ctx, rect, &scheme, 1.0);
+    let (closed_strips, _) = paint(&ctx, rect, &scheme, 0.0);
+    assert!(
+        !open_strips.is_empty() && !closed_strips.is_empty(),
+        "light: the penumbra paints in both states"
+    );
+    assert!(
+        peak(&closed_strips) > 0 && peak(&closed_strips) < peak(&open_strips),
+        "collapsed penumbra is fainter: {} vs {}",
+        peak(&closed_strips),
+        peak(&open_strips)
+    );
+    assert!(
+        reach(&closed_strips) < reach(&open_strips),
+        "collapsed penumbra is narrower: {} vs {}",
+        reach(&closed_strips),
+        reach(&open_strips)
+    );
+
+    // Dark: one hairline in both states, dimmer while collapsed.
+    ctx.set_theme(egui::Theme::Dark);
+    let scheme = theme::dark();
+    let (open_strips, open_line) = paint(&ctx, rect, &scheme, 1.0);
+    let (_, closed_line) = paint(&ctx, rect, &scheme, 0.0);
+    assert!(open_strips.is_empty(), "dark: no black blur");
+    assert!(
+        closed_line > 0 && closed_line < open_line,
+        "collapsed hairline is dimmer but present: {closed_line} vs {open_line}"
+    );
 }
 
 /// The chrome shares ONE icon size: the rail's favicon column and its
@@ -437,5 +562,137 @@ fn rail_icons_match_the_toolbar_glyph_size() {
     assert!(
         rail_icon.width() > icons::GLYPH * 0.6,
         "the rail icon must not shrink back to the old small column: {rail_icon:?}"
+    );
+}
+
+/// The reveal curve is exact at both ends (the final-width geometry depends
+/// on it), front-loaded (fast start, gentle tail) and the label cascade is
+/// monotonic but always settles flush.
+#[test]
+fn reveal_curves_are_exact_and_front_loaded() {
+    use super::{ease_out, label_reveal, row_reveal, STAGGER, STAGGER_MAX, TEXT_START};
+
+    assert_eq!(ease_out(0.0), 0.0);
+    assert_eq!(ease_out(1.0), 1.0);
+    // Front-loaded: quintic beats the old cubic (0.875) at the midpoint.
+    assert!(
+        ease_out(0.5) > 0.9,
+        "front-loaded ease-out at the midpoint: {}",
+        ease_out(0.5)
+    );
+
+    // Labels hold back until the panel already has some width.
+    assert_eq!(label_reveal(TEXT_START), 0.0);
+    assert_eq!(label_reveal(1.0), 1.0);
+
+    // Rows cascade: a lower row is never ahead of the one above it, and
+    // every row lands exactly at full reveal once the panel settles.
+    for i in 0..6 {
+        assert_eq!(row_reveal(1.0, i), 1.0, "row {i} settles flush");
+        assert!(
+            row_reveal(0.5, i) <= row_reveal(0.5, i.saturating_sub(1)) + f32::EPSILON,
+            "row {i} must not lead the one above it"
+        );
+    }
+    assert!(
+        row_reveal(0.6, 0) > row_reveal(0.6, 2),
+        "the stagger is visible mid-reveal"
+    );
+    // The cap bounds the wait: rows past it share the last capped timing.
+    let cap_rows = (STAGGER_MAX / STAGGER).ceil() as usize;
+    assert_eq!(row_reveal(0.6, cap_rows + 3), row_reveal(0.6, cap_rows));
+}
+
+/// Mid-expansion the pinned action labels sit toward the growing edge and
+/// drift to their final column as the panel settles: the reveal is a slide,
+/// not a bare alpha pop. The settled frame is the zero-offset reference.
+#[test]
+fn labels_drift_into_place_while_expanding() {
+    use super::{EXPANDED_W, RAIL_W, TITLE_SLIDE};
+    use egui::{Event, RawInput, Rect};
+
+    fn frame(
+        ctx: &egui::Context,
+        tabs: &mut [Tab],
+        favicons: &mut FaviconCache,
+        overlay: &mut Option<Rect>,
+        pos: Option<egui::Pos2>,
+    ) -> egui::FullOutput {
+        let input = RawInput {
+            screen_rect: Some(Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            )),
+            events: pos.map_or_else(Vec::new, |p| vec![Event::PointerMoved(p)]),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |root| {
+            egui::Panel::top("test-top").show(root, |ui| {
+                ui.label("toolbar");
+            });
+            let _ = show_tabs(root, tabs, 0, favicons, overlay);
+        });
+        out.textures_delta.clear();
+        out
+    }
+
+    /// Painted right edge of the overlay (`None` while not drawn).
+    fn painted_edge(out: &egui::FullOutput) -> Option<f32> {
+        out.shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(r) if r.rect.max.x > RAIL_W + 1.0 && r.rect.min.y > 0.0 => {
+                Some(clipped.clip_rect.max.x)
+            }
+            _ => None,
+        })
+    }
+
+    /// X origin of the painted label whose text is `text`.
+    fn label_x(out: &egui::FullOutput, text: &str) -> Option<f32> {
+        out.shapes.iter().find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => Some(t.pos.x),
+            _ => None,
+        })
+    }
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_test_fonts(&ctx);
+    let mut tabs = vec![Tab::new(1)];
+    let mut favicons = FaviconCache::new();
+    let mut overlay: Option<Rect> = None;
+    let hover = Some(egui::pos2(20.0, 300.0));
+
+    // Prime the tween collapsed (see the gradual-expansion test), then take
+    // the first frame that is mid-tween AND already paints the labels.
+    frame(&ctx, &mut tabs, &mut favicons, &mut overlay, None);
+    let mut mid: Option<(f32, f32)> = None;
+    for _ in 0..40 {
+        let out = frame(&ctx, &mut tabs, &mut favicons, &mut overlay, hover);
+        let edge = painted_edge(&out).unwrap_or(0.0);
+        if edge > RAIL_W && edge < EXPANDED_W {
+            if let Some(x) = label_x(&out, "New Tab") {
+                mid = Some((x, edge));
+                break;
+            }
+        }
+    }
+    let (mid_x, mid_edge) = mid.expect("a mid-tween frame paints the label");
+
+    // Let it settle fully: zero offset is the reference.
+    let mut settled_x = None;
+    for _ in 0..40 {
+        let out = frame(&ctx, &mut tabs, &mut favicons, &mut overlay, hover);
+        if painted_edge(&out).is_some_and(|e| e >= EXPANDED_W) {
+            settled_x = label_x(&out, "New Tab");
+            if settled_x.is_some() {
+                break;
+            }
+        }
+    }
+    let settled_x = settled_x.expect("the settled overlay paints the label");
+
+    let drift = mid_x - settled_x;
+    assert!(
+        drift > 1.0 && drift <= TITLE_SLIDE + 0.5,
+        "label drifts into place while expanding: {mid_x} -> {settled_x} (edge {mid_edge})"
     );
 }

@@ -8,7 +8,7 @@
 //! `linkify` rewrites text nodes into `Link` events; `scan` finds candidate
 //! spans, and the `finish_*`/`valid_*`/`trim_*` helpers validate the domain
 //! against the root-zone TLD allowlist and strip trailing punctuation
-//! exactly like GitHub's extended autolink path validation.
+//! per the GFM spec's extended autolink path validation.
 
 use super::*;
 

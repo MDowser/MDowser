@@ -134,7 +134,7 @@ pub(super) fn render_block(
             const BOX_PAD: f32 = 6.0;
             const QUOTE_GAP: f32 = 12.0;
             let pad = begin_item_block(ui, ctx);
-            // The box spans the full quote column (GitHub's alerts are block
+            // The box spans the full quote column (callouts are block
             // elements), not just the widest line: record the indented
             // region's right edge and reserve the box's right padding inside
             // the layout, so a full-width line never touches the background.
@@ -144,8 +144,8 @@ pub(super) fn render_block(
                     box_right = ui.max_rect().max.x;
                     ui.set_max_width((ui.available_width() - BOX_PAD).max(1.0));
                     // Plain quotes render muted `#59636e` text; alert bodies
-                    // keep the normal color (GitHub's `.markdown-alert {
-                    // color: inherit }`). Explicit colors (links, code,
+                    // keep the normal color (callout bodies inherit the
+                    // normal text color). Explicit colors (links, code,
                     // headings) override this.
                     if accent.is_none() {
                         ui.visuals_mut().override_text_color = Some(scheme.on_surface_variant);
@@ -221,7 +221,7 @@ pub(super) fn render_block(
                 CodeBlockKind::Fenced(l) => {
                     // Server-controlled: bound what is stored/displayed (the
                     // chip draws it; the copy body comes from the events).
-                    // Only the language token is shown, so Docusaurus/Mintlify
+                    // Only the language token is shown, so docs-generator
                     // `title=` metadata never leaks into the chip.
                     let label = crate::markdown::highlight::info_lang(l);
                     if label.trim().is_empty() {

@@ -119,7 +119,7 @@ fn is_svg_element(tag: &roxmltree::ExpandedName<'_, '_>) -> bool {
 ///
 /// - `<filter>`/`fe*` elements and every `filter` REFERENCE are removed from
 ///   the source (`Cow::Owned`), i.e. filter markup is IGNORED instead of
-///   rendered: an image that ships a blur shadow (shields.io badges) shows
+///   rendered: an image that ships a blur shadow (status badges) shows
 ///   its unfiltered content instead of failing, and no filter can ever run
 ///   (the filter cost model — `numOctaves`, morphology, convolution, filter
 ///   pixmaps — stays unreachable). Removing the references matters too: usvg

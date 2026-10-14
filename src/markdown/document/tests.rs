@@ -36,12 +36,12 @@ fn normalizes_crlf_without_touching_pipes() {
     assert!(out.contains("Home | Docs"), "menu line kept: {out:?}");
 }
 
-/// The `[#id]` heading-anchor convention (Fumadocs/Mintlify docs) becomes a
-/// heading attribute: the title no longer shows the marker and the explicit
-/// id is what `#id` links resolve to.
+/// The `[#id]` heading-anchor convention (a docs-generator convention)
+/// becomes a heading attribute: the title no longer shows the marker and the
+/// explicit id is what `#id` links resolve to.
 #[test]
 fn heading_bracket_anchors_become_attributes() {
-    let md = "# Langfuse Overview\n\n## Observability [#observability]\n\n## Prompt Management [#prompts]\n\n## Quickstarts [#quickstarts]\n";
+    let md = "# Project Overview\n\n## Observability [#observability]\n\n## Prompt Management [#prompts]\n\n## Quickstarts [#quickstarts]\n";
     let out = normalize_body(md).into_owned();
     assert!(out.contains("## Observability {#observability}"), "{out:?}");
     assert!(!out.contains("[#observability]"), "{out:?}");

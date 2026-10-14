@@ -15,7 +15,7 @@ hicolor icon.
 
 `src/ui/theme/mod.rs`: the README palette for the rendered document (light
 `#f6f8fa` chrome / white page, dark `#151b23` / `#0d1117`, `#0969da` links,
-`#d1d9e0` borders, current Primer syntax colors), tonal pill buttons and
+`#d1d9e0` borders, neutral syntax colors), tonal pill buttons and
 error red for the chrome.
 
 ## Tabs
@@ -26,11 +26,24 @@ toolbar with one favicon per tab, drawn at the toolbar's icon size
 gutter). Hovering expands it to 248px as a floating overlay — never
 reflowing the page — with favicon + title + close and two pinned actions at
 the bottom: `+ New Tab` and `History` below it, their icons the same size
-as the toolbar's. The expansion is animated (short `cubic_out` width tween,
-titles fading in) instead of popping open, and closes the same way. The
-overlay collapses only when the pointer moves into the document area:
-moving up to the toolbar or leaving the window keeps it open. The overlay
-merges with the toolbar (no top seam) and only its right edge is elevated.
+as the toolbar's. The expansion is animated instead of popping open, and
+closes the same way: a short ease-out width tween (a quintic curve — fast
+start, gentle settle, mirrored on close) clipped to the growing edge, with
+the titles and action labels holding back until the panel has width and then
+fading in while drifting the last few pixels into their column, each tab row
+a beat after the one above it (a bounded cascade). The overlay collapses
+only when the pointer moves into the document area: moving up to the toolbar
+or leaving the window keeps it open. The overlay merges with the toolbar
+(no top seam) and only its right edge is elevated: a soft penumbra in light
+mode, a hairline in dark, present in both rail states (smaller and fainter
+while collapsed) and strengthening with the panel, so opening or closing
+never pops that boundary.
+The title and both action labels are regular chrome text: the rail never
+borrows the document bold face (`theme::strong`), which is reserved for
+emphasis in the reading surface.
+A tab's title is the page's own title — the frontmatter `title`, else the
+document's first `#` heading — and only falls back to the schemeless URL
+when the page has neither.
 A loading tab shows an hourglass icon where the favicon will be (a favicon
 already cached stays, with a small progress dot over it).
 New tabs are capped at `config::MAX_TABS` (128): opening one past the cap
@@ -113,7 +126,8 @@ kind at a glance (padlock for HTTPS, page for a local file, globe/clock/info
 for the internal pages), and clicking it (or activating it from the
 keyboard) opens a small page-info card under the capsule with the facts of
 the page actually rendered — the kind, the document's own title when it has
-one, the exact address WITH its scheme (the field hides `https://`), and one
+one (the frontmatter `title`, else the first `#` heading), the exact
+address WITH its scheme (the field hides `https://`), and one
 line on where the content came from (fetched over HTTPS, read from this
 device, or an internal page). The card is an overlay: it never shifts the
 capsule, its exact address stays bounded
@@ -161,7 +175,7 @@ zooming in never hides the pill itself.
 ## Preferences
 
 Gear icon, the last button in the toolbar, after the zoom pill and always
-visible. Opens a Material-style dialog (custom header, grouped cards, toggle
+visible. Opens a card-style dialog (custom header, grouped cards, toggle
 switch) with a FIXED WIDTH and a content-sized height, top-anchored: the
 History and Local data cards hug their rows with no reserved bottom space,
 and arming a delete-confirmation note only pushes the cards below it (the
@@ -240,9 +254,9 @@ encrypted on this device only (`bookmarks.bin` + shared `store.key`,
 ChaCha20-Poly1305, the same per-user data directory as History), kept until
 removed (no retention window), bounded to 2000 entries with an add at the
 cap refused instead of dropping an older bookmark. A first run starts with
-a curated default set of five (Accept Markdown, AgentReady leaderboard,
-Cloudflare, Stripe docs, Is It Agent Ready); Vercel, Sentry and Supabase
-docs live only in the omnibox builtin suggestions. Deleting them never brings
+a curated default set of five (Markdown guides, an agent-readiness
+leaderboard and developer-service docs); the rest of the curated list lives
+only in the omnibox builtin suggestions. Deleting them never brings
 them back. Their favicons load through the usual tile pipeline (one probe
 per origin on first display). The grid is deliberately
 the only place the bookmarks themselves are listed.
@@ -251,7 +265,11 @@ the only place the bookmarks themselves are listed.
 
 Content: fluid centered column (max 760px, 8/12/16px gutters),
 always-visible scrollbar (a border-tone handle at 0.75 dormant opacity, so
-the bar reads against both themes instead of blending into the chrome). The
+the bar reads against both themes instead of blending into the chrome). A
+`spacing::PAGE_END` (24px) blank pad closes every scrolling page under its
+last element (documents, Home, the error view), so a page scrolled to its
+end keeps a small margin under the text instead of ending flush against the
+sheet's bottom edge. The
 previous page stays visible until the new one resolves (no white flash).
 
 Render: responsive H1-H6 in the README type scale with H1/H2 bottom rules,
@@ -263,7 +281,7 @@ wrapping selectable paragraphs with README line height,
   in the text column and the bullet on the first text row,
 - compact item spacing, and `N.` lists with real read-only checkboxes for
   tasks,
-- inline code pills at the body size (GitHub `.2em .4em` padding as real
+- inline code pills at the body size (a `.2em .4em` pill padding as real
   layout air on both
   sides, body baseline, linked code included, and one tight pill per row
   when a span wraps; the pill's height is capped at the body line minus 3px
@@ -275,7 +293,7 @@ wrapping selectable paragraphs with README line height,
   distributed proportionally), shrink and wrap long cells (links included)
   instead of forcing a horizontal scrollbar (a table that still scrolls
   keeps its columns at a readable width instead of collapsing them), unique
-  ids, per-column alignment, GitHub-like interior cell separators that reach
+  ids, per-column alignment, collapsed interior cell separators that reach
   the card border and 5px/11px cell padding so text never touches a line,
 - muted quotes in a soft full-width box with ONE thick bar (neutral for
   plain quotes, the alert accent for `> [!NOTE]`/`TIP`/`WARNING` callouts,
@@ -328,8 +346,18 @@ styled error page instead of a raw log:
 - A colored status dot and a family title: No connection, Page not found,
   No markdown here, Invalid address, Could not load (the family is
   classified from the failure log; a local-file failure uses the local
-  wording). An explanation line, the requested address with its scheme
+  wording). The dot is painted centered on the laid-out title (a flat
+  horizontal row top-clamps a shorter item, which used to park it visibly
+  high). An explanation line, the requested address with its scheme
   hidden, a "What you can do" hint card and a Details section follow.
+- "No markdown here" (the target answered, it just did not serve Markdown)
+  offers a large accent "Open in your browser" action under the requested
+  address: it hands the resolved address to the OS default handler — the
+  default browser for web pages, the file's default app for local files
+  (local targets label the button "Open with the default app"). The address
+  goes back through the app's own navigability parser, so pasted
+  credentials are stripped before the OS ever sees it, and no other error
+  family offers the action.
 - Details is a bounded scroll of one monospace line per route candidate,
   in the order they were tried, with `https://`/`file://` stripped and any
   userinfo credentials removed; a "Copy log" button copies the same text

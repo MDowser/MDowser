@@ -92,12 +92,12 @@ fn marker_font(size: f32, note: bool) -> egui::FontId {
     }
 }
 
-/// Draws a read-only task checkbox in GitHub's style and returns its content
+/// Draws a read-only task checkbox and returns its content
 /// offset: a 14px rounded square (1px gray border when pending; accent-blue
 /// fill with a white check when done), centered on a body line so the item's
 /// first text row stays aligned. Read-only, with a hover hint.
 pub(super) fn draw_task_checkbox(ui: &mut egui::Ui, done: bool) -> f32 {
-    /// Box side (px): GitHub's task checkbox visual size.
+    /// Box side (px): the checkbox's visual size.
     const BOX: f32 = 14.0;
     let s = theme::scheme_ref(ui);
     let (row_rect, resp) = ui.allocate_exact_size(

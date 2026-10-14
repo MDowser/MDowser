@@ -4,10 +4,10 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 0.4.x   | Yes       |
-| < 0.4   | No        |
+| 0.5.x   | Yes       |
+| < 0.5   | No        |
 
-Only the latest `0.4.x` release (see `Cargo.toml` version + `CHANGELOG.md`)
+Only the latest `0.5.x` release (see `Cargo.toml` version + `CHANGELOG.md`)
 receives security fixes.
 
 ## Scope
@@ -149,7 +149,7 @@ attack surface:
   STRIPPED before parsing (definitions, `fe*` primitives and every `filter`
   reference, by LOCAL NAME with namespace-prefixed spellings included; a
   byte scan alone was bypassable). Filters are therefore IGNORED, never
-  rendered: an image that ships one (a shields.io badge with a blur shadow)
+  rendered: an image that ships one (a status badge with a blur shadow)
   shows its unfiltered content, and the whole filter cost model — unbounded
   `numOctaves`, morphology and convolution, filter-region pixmaps — stays
   unreachable. Removing the references too is required: usvg DROPS an
@@ -184,9 +184,10 @@ attack surface:
   jobs are panic-guarded: a decoder panic surfaces as a
   failure placeholder instead of killing the background thread
   (which would panic the UI on the next poll).
-- Remote frontmatter `title` is sanitized (control AND Unicode format/bidi
+- Remote document titles — the frontmatter `title` or the first-H1
+  fallback — are sanitized (control AND Unicode format/bidi
   characters stripped, whitespace collapsed, length-capped) before reaching
-  window/tab titles.
+  window/tab titles, the page-info card and the bookmark/history stores.
 - Local browsing history is stored in the OS per-user data directory only,
   bounded (20 000 entries / 8 MiB of plaintext; oldest dropped) and encrypted
   at rest with ChaCha20-Poly1305 (`aws-lc-rs`, the same crypto backend
@@ -231,10 +232,13 @@ attack surface:
   the same distinction guards WRITES: a file that exists but cannot be read
   or decrypted makes the read-modify-write REFUSE, because rewriting from an
   empty body would silently drop every other stored key (theme, zoom,
-  restore-tabs, retention), and a change that would push the plaintext past
-  `MAX_SETTINGS_BYTES` is refused too (the reader's caps derive from
-  `crypto::OVERHEAD_BYTES`, so a written file is always readable). A failed
-  background preference/session write is
+  restore-tabs, retention, window geometry), and a change that would push the
+  plaintext past `MAX_SETTINGS_BYTES` is refused too (the reader's caps derive
+  from `crypto::OVERHEAD_BYTES`, so a written file is always readable). The
+  window geometry (position, size, maximized) is one of those encrypted
+  preferences: the position is a weak "where you were" datum, so it stays
+  encrypted with the rest and is removed by "Delete all data", never kept in a
+  plaintext window-state file. A failed background preference/session write is
   surfaced in Preferences too (each worker's outcome is drained per frame
   into its own slot — a successful session save cannot clear a settings
   warning and vice versa — cleared only on a
@@ -259,7 +263,8 @@ attack surface:
   move-aside window), so a crash can never leave a missing or half-written
   store; any IO/crypto error degrades to
   an empty in-memory history instead of crashing. The worker queue is
-  bounded to one pending blob (newest wins) and a UI-path flush writes what
+  bounded to one pending blob per target file (newest wins; the app writes
+  one data directory) and a UI-path flush writes what
   is queued before waiting at
   most 5s, so a hung disk can neither grow memory, lose the newest data nor
   freeze a frame, a delete or exit. A store wipe is enqueued as a DISCARD
@@ -346,6 +351,12 @@ attack surface:
   percent-encoding makes one 4-byte input char up to 12 ASCII bytes, so the
   old char-based check on the serialized URL silently dropped valid
   under-cap addresses, and history/bookmarks refused to record them).
+  The error view's external-open action is no exception: at click time it
+  re-resolves the asked address through the app's own navigability parser
+  and hands ONLY the resulting sanitized `https:`/`file:` URL to the OS
+  default handler (credentials stripped, blocked schemes and remote `file:`
+  shares refused), so a pasted password can neither reach the browser's URL
+  bar nor the launcher's argv.
 - Key file reads are capped and handle-checked (`O_NONBLOCK | O_NOFOLLOW`
   open, the opened handle re-checked, at most 33 bytes read, permissions
   tightened on that same handle): a FIFO swapped in

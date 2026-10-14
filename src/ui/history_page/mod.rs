@@ -46,7 +46,7 @@ const FOOTER_H: f32 = 60.0;
 /// ("Delete history now" / "Confirm delete") fit, so arming the two-click
 /// confirmation never resizes it (or nudges the footer). Sized against the
 /// bundled proportional primary (Noto Sans): the narrower
-/// 164px value was tuned for epaint's Ubuntu Light and left "Delete history
+/// 164px value was tuned for epaint's default face and left "Delete history
 /// now" ~0.7px over, which grew the button. The page's own test pins this.
 const DELETE_W: f32 = 168.0;
 /// Seconds the "Delete history now" button stays armed.

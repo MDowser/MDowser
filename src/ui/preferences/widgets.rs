@@ -14,7 +14,7 @@
 
 use super::*;
 
-/// Material dialog header: settings icon + title on the left, close X on
+/// Dialog header: settings icon + title on the left, close X on
 /// the right, followed by a full-bleed divider.
 pub(super) fn dialog_header(ui: &mut egui::Ui, s: &theme::Scheme, open: &mut bool) {
     egui::Frame::new()
@@ -57,10 +57,10 @@ pub(super) fn dialog_header(ui: &mut egui::Ui, s: &theme::Scheme, open: &mut boo
         .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
 }
 
-/// A grouped surface (Material "outlined card"): subtle fill, hairline
+/// A grouped surface (an outlined card): subtle fill, hairline
 /// border and rounded corners, holding one section.
 /// Shares the fill/stroke recipe with [`theme::card_with`]; the dialog uses
-/// the SHEET radius (12px, Material extra-large) while document cards stay
+/// the SHEET radius (12px, extra-large) while document cards stay
 /// at CARD, so the radius is overridden after reuse.
 pub(super) fn card(ui: &mut egui::Ui, s: &theme::Scheme, add: impl FnOnce(&mut egui::Ui)) {
     theme::card_with(s.container_low, s.outline_variant, CARD_PAD as i8)
@@ -71,7 +71,7 @@ pub(super) fn card(ui: &mut egui::Ui, s: &theme::Scheme, add: impl FnOnce(&mut e
         });
 }
 
-/// Small uppercase section label (Material "label" style).
+/// Small uppercase section label.
 ///
 /// `text` is expected ALREADY uppercase (the labels are static: a per-frame
 /// `to_uppercase()` allocation bought nothing).
@@ -231,7 +231,7 @@ pub(super) fn danger_row(
     response
 }
 
-/// Material toggle switch. Returns the response; `changed()` is set on click.
+/// Toggle switch. Returns the response; `changed()` is set on click.
 /// `label` is the accessible name: the visible row label is a separate
 /// `Label`, so without it a screen reader gets an unnamed checkbox.
 pub(super) fn switch(

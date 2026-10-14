@@ -20,17 +20,17 @@
 #       --define "_srcrpmdir $PWD/dist/.rpmbuild/SRPMS"
 #
 # `make dist-rpm` does all of that (and builds the source tarball first). The
-# spec also builds under COPR/`fedpkg` once the tree is exported as
-# mdowser-<ver>.tar.gz next to it.
+# spec also builds on Fedora's packaging services once the tree is exported
+# as mdowser-<ver>.tar.gz next to it.
 #
 # Network policy: `cargo build` fetches crates from crates.io during %build.
-# A hermetic (Koji-style, no-network) build needs the crates vendored into the
+# A hermetic (no-network) build needs the crates vendored into the
 # source tarball and a `.cargo/config.toml` pointing at them; that is the
-# packager's choice and is NOT done here (COPR and local `rpmbuild` have
-# network access).
+# packager's choice and is NOT done here (a build service or local
+# `rpmbuild` has network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.4.6}
+Version:        %{?ver}%{!?ver:0.5.0}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
@@ -91,6 +91,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.5.0-1
+- Feature release: first-heading page titles, remembered window geometry, external-open action (see CHANGELOG.md 0.5.0).
 * Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.4.6-1
 - Professionalization pass: shared theme scales, hardened packaging, docs sync (see CHANGELOG.md 0.4.6).
 * Tue Oct 13 2026 MDowser <noreply@mdowser.invalid> - 0.4.5-1

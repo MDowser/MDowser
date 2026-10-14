@@ -8,8 +8,9 @@
 
 use super::{
     load_session_from, read_setting, save_session_to, write_setting, Prefs, ThemePref,
-    MAX_SETTINGS_BYTES, SETTINGS_FILE,
+    WindowGeometry, MAX_SETTINGS_BYTES, SETTINGS_FILE,
 };
+use eframe::egui;
 use std::path::PathBuf;
 
 fn tmp_dir(tag: &str) -> PathBuf {
@@ -244,5 +245,63 @@ fn settings_writes_refuse_an_over_budget_body() {
     // read work right after the refusal.
     write_setting(&dir, "theme", "dark").expect("a small write still works");
     assert_eq!(read_setting(&dir, "theme").as_deref(), Some("dark"));
+    cleanup(&dir);
+}
+
+/// The window geometry is one `settings.bin` key: it must round-trip
+/// (including a negative position and the maximized flag) and refuse every
+/// malformed spelling, so a corrupt value falls back to the first-run
+/// geometry instead of opening a bogus window.
+#[test]
+fn window_geometry_roundtrips_and_rejects_garbage() {
+    let geometry = WindowGeometry {
+        pos: egui::pos2(-12.5, 80.0),
+        size: egui::vec2(1536.0, 864.0),
+        maximized: true,
+    };
+    assert_eq!(
+        WindowGeometry::from_setting(&geometry.as_setting()),
+        Some(geometry)
+    );
+    for bad in [
+        "",
+        "1,2,3",         // missing fields
+        "1,2,3,4",       // missing maximized
+        "a,2,3,4,0",     // non-numeric position
+        "1,2,-3,4,0",    // negative size
+        "1,2,3,0,0",     // zero size
+        "1,2,3,4,maybe", // unknown maximized spelling
+        "1,2,3,4,0,9",   // trailing field
+        "1,2,inf,4,0",   // non-finite size
+        "1,2,nan,4,0",   // non-finite size
+    ] {
+        assert_eq!(WindowGeometry::from_setting(bad), None, "{bad:?} refused");
+    }
+}
+
+/// `Prefs` reads the window geometry from the encrypted settings and ignores
+/// a corrupt value (first-run behavior). Seeded through the synchronous
+/// helper so the test does not race the app-wide settings worker.
+#[test]
+fn prefs_window_geometry_roundtrip() {
+    let dir = tmp_dir("window-geometry");
+    let geometry = WindowGeometry {
+        pos: egui::pos2(120.0, 80.0),
+        size: egui::vec2(1536.0, 864.0),
+        maximized: false,
+    };
+    let prefs = Prefs::load_from(dir.clone());
+    assert_eq!(prefs.window_geometry(), None, "no geometry on a first run");
+    write_setting(&dir, "window", &geometry.as_setting()).unwrap();
+    assert_eq!(
+        Prefs::load_from(dir.clone()).window_geometry(),
+        Some(geometry)
+    );
+    write_setting(&dir, "window", "garbage").unwrap();
+    assert_eq!(
+        Prefs::load_from(dir.clone()).window_geometry(),
+        None,
+        "a corrupt value is ignored, never an error"
+    );
     cleanup(&dir);
 }

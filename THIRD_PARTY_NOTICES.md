@@ -11,6 +11,11 @@ license requires them to travel with the binary. The complete, pinned
 dependency list is [`Cargo.lock`](Cargo.lock); the allowed-license policy is
 [`deny.toml`](deny.toml).
 
+MDowser is not affiliated with, endorsed by or sponsored by any of the
+projects or products named here; every third-party name and mark belongs to
+its respective owner and appears only to identify a component, a license or
+a specification.
+
 ## License summary (release dependency graph)
 
 The dependency graph is dominated by permissive licenses that require only

@@ -500,3 +500,170 @@ fn disabled_buttons_keep_a_readable_text_color() {
     out.textures_delta.clear();
     assert_eq!(seen, 1, "the disabled label rendered");
 }
+
+/// Fixed-size flat buttons ([`tonal_button_sized`] / [`primary_button_sized`])
+/// center their label in the frame. `Button::min_size` alone aligned the
+/// label to the PARENT's cross axis (centered under a centered/right-to-left
+/// parent, left-parked in the error view's left-aligned column), so the
+/// shared body uses `add_sized` (a `centered_and_justified` child).
+#[test]
+fn sized_buttons_center_their_label() {
+    let ctx = egui::Context::default();
+    super::apply(&ctx);
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(400.0, 200.0),
+        )),
+        ..Default::default()
+    };
+    let mut rects = Vec::new();
+    let mut out = ctx.run_ui(input, |root| {
+        egui::CentralPanel::default().show(root, |ui| {
+            // Plain top-down column: the layout that exposed the left-parked
+            // label (no centering to inherit from the parent).
+            rects.push(super::primary_button_sized(ui, "Open", egui::vec2(240.0, 44.0)).rect);
+            rects.push(super::tonal_button_sized(ui, "Retry", egui::vec2(160.0, 36.0), true).rect);
+        });
+    });
+    out.textures_delta.clear();
+    let labels: Vec<(String, egui::Pos2, egui::Vec2)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) => {
+                Some((t.galley.text().to_string(), t.pos, t.galley.size()))
+            }
+            _ => None,
+        })
+        .collect();
+    for (label, rect) in [("Open", rects[0]), ("Retry", rects[1])] {
+        let (_, pos, size) = labels
+            .iter()
+            .find(|(text, _, _)| text == label)
+            .unwrap_or_else(|| panic!("label {label:?} painted"));
+        let center = *pos + *size / 2.0;
+        assert!(
+            (center.x - rect.center().x).abs() <= 0.5,
+            "{label:?}: label x {} vs frame center {}",
+            center.x,
+            rect.center().x
+        );
+        assert!(
+            (center.y - rect.center().y).abs() <= 0.5,
+            "{label:?}: label y {} vs frame center {}",
+            center.y,
+            rect.center().y
+        );
+    }
+}
+
+/// The accent-filled button (the error view's "open in your browser" escape
+/// hatch) keeps its white label at WCAG AA in both themes and EVERY pointer
+/// state: the raw dark accent is a light blue (white on it measured ~3.1:1),
+/// so dark mode fills with a darker shade and LIGHTENS through hover/press.
+/// The test reads the ACTUAL painted fill under the label per state instead
+/// of re-deriving it, so a palette or shade regression fails here.
+#[test]
+fn primary_button_label_stays_readable_in_both_themes() {
+    /// `(label color, the smallest opaque fill under the label)` of one frame.
+    fn ink_and_fill(out: &egui::FullOutput) -> (egui::Color32, egui::Color32) {
+        let (pos, size, label_color) = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == "Open" => Some((
+                    t.pos,
+                    t.galley.size(),
+                    t.galley
+                        .job
+                        .sections
+                        .first()
+                        .map(|s| s.format.color)
+                        .expect("text section"),
+                )),
+                _ => None,
+            })
+            .expect("the label painted");
+        let center = pos + size / 2.0;
+        let fill = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::epaint::Shape::Rect(r) if r.rect.contains(center) && r.fill.a() == 255 => {
+                    Some((r.rect.area(), r.fill))
+                }
+                _ => None,
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
+            .map(|(_, fill)| fill)
+            .expect("the button fill painted");
+        (label_color, fill)
+    }
+
+    for theme in [egui::Theme::Light, egui::Theme::Dark] {
+        let ctx = egui::Context::default();
+        super::apply(&ctx);
+        ctx.set_theme(theme);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 200.0));
+        let mut out = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            },
+            |root| {
+                egui::CentralPanel::default().show(root, |ui| {
+                    let _ = super::primary_button_sized(ui, "Open", egui::vec2(240.0, 44.0));
+                });
+            },
+        );
+        out.textures_delta.clear();
+        let (label_color, idle_fill) = ink_and_fill(&out);
+        assert_eq!(label_color, egui::Color32::WHITE, "{theme:?}: white label");
+        // The pointer then targets the button: hover, press and release.
+        let pos = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == "Open" => {
+                    Some(t.pos + t.galley.size() / 2.0)
+                }
+                _ => None,
+            })
+            .expect("the label painted");
+        let press = |pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut fills = vec![idle_fill];
+        for events in [
+            vec![egui::Event::PointerMoved(pos)],
+            vec![egui::Event::PointerMoved(pos), press(true)],
+            vec![press(false)],
+        ] {
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |root| {
+                    egui::CentralPanel::default().show(root, |ui| {
+                        let _ = super::primary_button_sized(ui, "Open", egui::vec2(240.0, 44.0));
+                    });
+                },
+            );
+            out.textures_delta.clear();
+            fills.push(ink_and_fill(&out).1);
+        }
+        for (state, fill) in ["idle", "hover", "pressed", "released"].iter().zip(fills) {
+            let ratio = contrast(label_color, fill);
+            assert!(
+                ratio >= 4.5,
+                "{theme:?}/{state}: white label contrast {ratio:.2} below WCAG AA"
+            );
+        }
+    }
+}

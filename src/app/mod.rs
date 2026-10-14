@@ -82,6 +82,9 @@ pub struct MdowserApp {
     /// preference is off, so turning it on forces the first write even when
     /// the snapshot did not change.
     session_restore_enabled: bool,
+    /// Native-window geometry: the one-shot first-frame placement plus the
+    /// debounced persistence of later moves/resizes (`app::window`).
+    window_geometry: WindowGeometryState,
     /// Floating Preferences window (visibility lives here so the toolbar and
     /// the tab rail can toggle it). The history list is an internal page.
     windows: PreferencesState,
@@ -161,6 +164,8 @@ impl MdowserApp {
         // Enabling the preference mid-session still forces the first write
         // (the flag was false while the preference was off).
         let session_restore_enabled = prefs.restore_tabs();
+        // Geometry remembered by a previous session (encrypted settings).
+        let window_geometry = WindowGeometryState::new(prefs.window_geometry());
         Self {
             tabs,
             active,
@@ -177,6 +182,7 @@ impl MdowserApp {
             session_saved_active: active,
             session_save_retry_at: None,
             session_restore_enabled,
+            window_geometry,
             windows: PreferencesState::new(),
             #[cfg(target_os = "macos")]
             mac_menu: menu::AppMenu::install(&cc.egui_ctx),
@@ -460,8 +466,10 @@ pub(crate) mod menu;
 mod run;
 mod session;
 mod shortcuts;
+mod window;
 
 use session::*;
+use window::*;
 
 #[cfg(test)]
 mod tests;

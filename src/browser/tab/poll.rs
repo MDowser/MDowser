@@ -74,8 +74,12 @@ impl Tab {
         self.cancel = None;
         self.current = Some(fetched.display_url.clone());
         // Hand the shown page to `App::logic` for the local history: only
-        // pages that actually reach the screen are recorded.
-        self.pending_visit = Some((fetched.display_url.clone(), fetched.meta.title.clone()));
+        // pages that actually reach the screen are recorded. The title is
+        // the frontmatter `title` or the first-H1 fallback.
+        self.pending_visit = Some((
+            fetched.display_url.clone(),
+            fetched.page_title().map(str::to_string),
+        ));
         // A stack entry equal to the page just loaded would only reload
         // it: heal those self-duplicates so Back/Forward never look like
         // no-ops.

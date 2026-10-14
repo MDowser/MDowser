@@ -222,6 +222,7 @@ fn toolbar_slots_are_fixed_across_content_states() {
             fetched: crate::protocol::client::Fetched {
                 display_url: url::Url::parse("https://ex.com/a/").unwrap(),
                 meta: crate::markdown::frontmatter::Meta::default(),
+                h1_title: None,
                 plain_text: String::new(),
                 events: Vec::new(),
                 anchors: crate::markdown::anchors::AnchorIndex::default(),
@@ -295,6 +296,7 @@ fn loaded_tab() -> Tab {
         fetched: crate::protocol::client::Fetched {
             display_url: url::Url::parse("https://ex.com/a/").unwrap(),
             meta: crate::markdown::frontmatter::Meta::default(),
+            h1_title: None,
             plain_text: String::new(),
             events: Vec::new(),
             anchors: crate::markdown::anchors::AnchorIndex::default(),

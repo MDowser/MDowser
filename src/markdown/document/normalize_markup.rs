@@ -334,7 +334,7 @@ fn attr_expr_value<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
 /// `None` when the expression is not an array literal or any entry is not a
 /// string literal (an identifier, spread or nested array would make the
 /// positional mapping unknowable). Used for the `<Tabs items={[…]}>` labels
-/// of Fumadocs/Mintlify-style docs.
+/// of docs-generator markup.
 fn jsx_string_array(expr: &str) -> Option<Vec<String>> {
     let body = expr.trim();
     let body = body.strip_prefix('{')?.strip_suffix('}')?.trim();
@@ -780,8 +780,8 @@ fn wrap_marker(open: &str, close: &str, body: &str) -> String {
 pub(super) fn render_component_markup(kind: &str, attrs: &str, body: &str) -> String {
     match kind {
         // `<Tabs items={[…]}>`: the item strings label the `<Tab>` children
-        // that carry no `label`/`title` of their own (Fumadocs/Mintlify
-        // convention, used by langfuse.com and others).
+        // that carry no `label`/`title` of their own (a common
+        // docs-generator convention).
         "tabs" => {
             let body = match items_labels(attrs) {
                 Some(labels) if !labels.is_empty() => label_items_tabs(body, &labels),

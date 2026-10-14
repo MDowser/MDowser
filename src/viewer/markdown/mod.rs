@@ -305,6 +305,12 @@ pub(crate) fn show_markdown(
             *pending_anchor = None;
         }
     }
+    // Blank margin at the very END of the document (`theme::spacing::PAGE_END`):
+    // the reading sheet's gutter is symmetric, so a document scrolled to its
+    // last line used to end with only that gutter (plus whatever trailing
+    // block spacing) under the text. The pad is bottom-only, so the top
+    // gutter and the scrolled-edge clipping stay unchanged.
+    ui.add_space(theme::spacing::PAGE_END);
 }
 
 /// Block-kind renderers (paragraphs, headings, tables, HTML).

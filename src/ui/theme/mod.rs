@@ -5,13 +5,14 @@
 
 //! `ui::theme`: README-style look for the rendered document.
 //!
-//! - Palette tokens (current GitHub Primer values): gray chrome
+//! - Palette tokens (a neutral documentation scheme): gray chrome
 //!   (#f6f8fa / #151b23), white page (#ffffff / #0d1117), accent-blue links
 //!   (#0969da / #4493f8), border gray (#d1d9e0 / #3d444d), muted text
 //!   (#59636e / #9198a1); the OS picks light/dark and dark mirrors light.
 //! - `apply(ctx)`: airy spacing + full `Visuals` per theme.
 //! - Helpers honoring the active theme: `tonal_button_sized` (secondary
-//!   container), `card` (raised surface),
+//!   container), `primary_button_sized` (accent fill, white label: the one
+//!   emphasized action of a surface), `card` (raised surface),
 //!   `code_card` (code block), `rule` (document `<hr>`), type scale
 //!   (`display`, `weak`) and `scheme_for(ui)`.
 //! - Interface icons are monochrome vector strokes (`ui::icons`): one
@@ -24,8 +25,8 @@
 //!   rest of the embedded faces follow only as glyph fallbacks: complete
 //!   monochrome emoji, CJK (Chinese/Japanese/Korean), extended
 //!   Latin/Vietnamese and the major non-CJK scripts (Arabic, Hebrew,
-//!   Indic, Southeast Asian, ...). epaint's bundled Ubuntu/Hack faces are
-//!   never registered. Text emoji render monochrome (epaint has
+//!   Indic, Southeast Asian, ...). The framework's own bundled fallback
+//!   faces are never registered. Text emoji render monochrome (epaint has
 //!   no color-font support); the viewer paints color textures through
 //!   `media::emoji`. RTL runs get display-order
 //!   reordering from `viewer::bidi`.
@@ -106,11 +107,9 @@ pub struct Scheme {
 
 /// Light scheme: white page, `#f6f8fa` chrome, accent blue.
 ///
-/// Tokens track GitHub's current Primer values (github-markdown-css):
-/// `--bgColor-default` #ffffff, `--bgColor-muted` #f6f8fa,
-/// `--fgColor-default` #1f2328, `--fgColor-muted` #59636e,
-/// `--borderColor-default` #d1d9e0, `--fgColor-accent` #0969da,
-/// syntax colors from the prettylights light palette.
+/// Tokens: default surface #ffffff, muted surface #f6f8fa, default text
+/// #1f2328, muted text #59636e, default border #d1d9e0, accent #0969da and
+/// the syntax colors below.
 pub fn light() -> Scheme {
     Scheme {
         primary: rgb(9, 105, 218),
@@ -147,10 +146,9 @@ pub fn light() -> Scheme {
 
 /// Dark scheme: `#0d1117` page, `#151b23` chrome, brighter accent blue.
 ///
-/// Tokens track GitHub's current Primer values: `--bgColor-default` #0d1117,
-/// `--bgColor-muted` #151b23, `--fgColor-default` #f0f6fc,
-/// `--fgColor-muted` #9198a1, `--borderColor-default` #3d444d,
-/// `--fgColor-accent` #4493f8, prettylights dark syntax colors.
+/// Tokens: default surface #0d1117, muted surface #151b23, default text
+/// #f0f6fc, muted text #9198a1, default border #3d444d, accent #4493f8 and
+/// the syntax colors below.
 pub fn dark() -> Scheme {
     Scheme {
         primary: rgb(68, 147, 248),
@@ -245,8 +243,8 @@ pub fn scheme_ref_ctx(ctx: &egui::Context) -> &'static Scheme {
 /// script face in [`crate::assets::SCRIPT_FONTS`] follow purely as glyph
 /// fallbacks for code points the primaries cannot draw.
 ///
-/// epaint's bundled defaults (Ubuntu Light, Hack, its old Noto Emoji
-/// subset and emoji-icon-font) are deliberately NOT registered:
+/// epaint's bundled defaults (its old emoji subset and icon font
+/// included) are deliberately NOT registered:
 /// `FontDefinitions::empty()` starts a stack with no dependency-shipped
 /// face, so nothing outside `assets/` can ever paint.
 fn install_fonts(ctx: &egui::Context) {
@@ -396,7 +394,7 @@ fn apply_spacing_type(style: &mut egui::Style) {
     // ~1.1:1 contrast — a scrollbar the reader could not see. epaint's own
     // default (`fg_stroke` = near-black `on_surface`) is what the old code
     // avoided by painting `bg_fill`; the border tone is the visible middle
-    // ground, in both themes (GitHub's own scrollbar gray).
+    // ground, in both themes.
     style.spacing.scroll.foreground_color = true;
     style.spacing.scroll.bar_width = 10.0;
     style.spacing.scroll.handle_min_length = 24.0;

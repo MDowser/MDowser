@@ -230,7 +230,9 @@ pub struct Tab {
     /// so the popup can never describe a page that is gone.
     pub(crate) site_info: Option<&'static str>,
     /// A successfully loaded page waiting to be recorded in the local
-    /// history store: `(normalized URL, raw frontmatter title)`. Set when a
+    /// history store: `(normalized URL, raw page title)` where the title is
+    /// the frontmatter `title` or the first-H1 fallback
+    /// ([`Fetched::page_title`]). Set when a
     /// fetch resolves and taken by `App::logic` right after `poll`; only
     /// pages that actually loaded are recorded. `None` when nothing new.
     pub pending_visit: Option<(Url, Option<String>)>,
@@ -433,7 +435,8 @@ impl Tab {
     }
 
     /// Short title for the tab strip (expanded rail rows / tooltips).
-    /// Prefers the frontmatter `title`, then the schemeless host + path.
+    /// Prefers the page's own title (frontmatter `title`, else the first
+    /// `#` heading), then the schemeless host + path.
     /// Never empty: falls back to `New Tab` / `Loading...` / `Error`.
     /// Capped at [`crate::config::TAB_TITLE_CHARS`] so a remote title cannot
     /// bloat the UI. Allocates: the rail's per-frame path goes through
@@ -461,9 +464,11 @@ impl Tab {
                 }
             }
             TabState::Loaded { fetched } => {
-                // Prefer the frontmatter `title`; else host + path.
-                // Sanitized: no control chars from remote YAML reach the UI.
-                if let Some(t) = fetched.meta.title.as_deref() {
+                // Prefer the page's own title (frontmatter `title`, else the
+                // first H1); else host + path.
+                // Sanitized: no control chars from remote YAML or heading
+                // text reach the UI.
+                if let Some(t) = fetched.page_title() {
                     let clean = sanitize_title(t);
                     if !clean.is_empty() {
                         return truncate_chars(&clean, TAB_TITLE_CHARS).into_owned();
@@ -483,9 +488,10 @@ impl Tab {
 
     /// OS window title: the page's own title with no decoration while a
     /// page is open, and just `MDowser` on Home (nothing open).
-    /// - Frontmatter `title` when present (sanitized), else the schemeless
-    ///   URL, else "Untitled". Loading shows the asked URL and failures
-    ///   `Error: <asked>`, so the window still identifies the load.
+    /// - Frontmatter `title` when present (sanitized), else the first `#`
+    ///   heading, else the schemeless URL, else "Untitled". Loading shows
+    ///   the asked URL and failures `Error: <asked>`, so the window still
+    ///   identifies the load.
     ///
     /// Allocates: the per-frame window-title comparison goes through
     /// [`Self::window_title_cached`] (the [`TabDisplay`] memo), like the
@@ -511,7 +517,7 @@ impl Tab {
         use crate::config::{WINDOW_TITLE_CHARS, WINDOW_TITLE_ERROR_URL_CHARS};
         match &self.state {
             TabState::Loaded { fetched } => {
-                if let Some(t) = fetched.meta.title.as_deref() {
+                if let Some(t) = fetched.page_title() {
                     let clean = sanitize_title(t);
                     if !clean.is_empty() {
                         return truncate_chars(&clean, WINDOW_TITLE_CHARS).into_owned();
@@ -602,15 +608,18 @@ impl Tab {
         }
     }
 
-    /// Current page as a bookmark target: `(normalized URL, raw frontmatter
-    /// title)` when a LOADED document is on screen. `None` on Home /
+    /// Current page as a bookmark target: `(normalized URL, raw page title)`
+    /// when a LOADED document is on screen, where the title is the
+    /// frontmatter `title` or the first-H1 fallback
+    /// ([`Fetched::page_title`]). `None` on Home /
     /// Loading / History / Licenses / Failed: Ctrl/Cmd+D has no page to
     /// bookmark there. The store sanitizes the title and validates the URL.
     pub fn bookmark_target(&self) -> Option<(Url, Option<String>)> {
         match &self.state {
-            TabState::Loaded { fetched } => {
-                Some((fetched.display_url.clone(), fetched.meta.title.clone()))
-            }
+            TabState::Loaded { fetched } => Some((
+                fetched.display_url.clone(),
+                fetched.page_title().map(str::to_string),
+            )),
             _ => None,
         }
     }

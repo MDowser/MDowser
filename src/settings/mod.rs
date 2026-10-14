@@ -14,6 +14,7 @@
 //! theme=system
 //! zoom=1
 //! restore_tabs=true
+//! window=120,80,1536,864,0
 //! ```
 //!
 //! The plaintext above is encrypted with the single shared store key
@@ -258,6 +259,20 @@ impl Prefs {
         self.restore_tabs
     }
 
+    /// Remembered native-window geometry (position, size, maximized), when a
+    /// valid `window` key is stored. `None` means "first run" (or a corrupt
+    /// value): the app then opens with a centered, monitor-proportional size.
+    pub fn window_geometry(&self) -> Option<WindowGeometry> {
+        let dir = self.dir.as_deref()?;
+        read_setting(dir, WINDOW_KEY).and_then(|value| WindowGeometry::from_setting(&value))
+    }
+
+    /// Persists the window geometry through the background writer (encrypted
+    /// like every other preference; a missing data directory is a no-op).
+    pub fn set_window_geometry(&mut self, geometry: WindowGeometry) {
+        self.write(WINDOW_KEY, &geometry.as_setting());
+    }
+
     /// Sets the theme and persists it.
     pub fn set_theme(&mut self, theme: ThemePref) {
         if self.theme == theme {
@@ -429,6 +444,82 @@ impl Default for Prefs {
 /// Setting-file spelling of a zoom factor.
 fn format_zoom(zoom: f32) -> String {
     format!("{zoom}")
+}
+
+// ---------------------------------------------------------------------------
+// Window geometry (remembered across launches)
+// ---------------------------------------------------------------------------
+
+/// Setting key holding the last window geometry (`x,y,w,h,maximized`).
+const WINDOW_KEY: &str = "window";
+
+/// Remembered native-window geometry, in PHYSICAL pixels.
+///
+/// Stored in the encrypted `settings.bin` like the theme and zoom: the
+/// position is a weak "where you were" datum, so it stays with the rest of
+/// the preferences instead of a plaintext window-state file. Physical pixels
+/// (not ui points) keep the window stable across a DPI or zoom change, so a
+/// window remembered on a monitor at a different scale reopens at the same
+/// physical size. While the window is maximized, `pos`/`size` keep the last
+/// WINDOWED rectangle, so un-maximizing (now or on the next launch) restores
+/// it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WindowGeometry {
+    /// Outer position (top-left of the window frame) in monitor space,
+    /// physical pixels.
+    pub pos: egui::Pos2,
+    /// Inner (content) size, physical pixels.
+    pub size: egui::Vec2,
+    /// Whether the window was maximized.
+    pub maximized: bool,
+}
+
+impl WindowGeometry {
+    /// Setting-file spelling: `x,y,w,h,maximized` (one line, one key).
+    fn as_setting(self) -> String {
+        format!(
+            "{},{},{},{},{}",
+            self.pos.x,
+            self.pos.y,
+            self.size.x,
+            self.size.y,
+            u8::from(self.maximized)
+        )
+    }
+
+    /// Parses the `window` setting. Any malformed/absent field (or a
+    /// non-positive/non-finite size) returns `None`, so a corrupt value falls
+    /// back to the first-run geometry instead of opening a bogus window.
+    fn from_setting(value: &str) -> Option<Self> {
+        let mut parts = value.split(',');
+        let x = parts.next()?.trim().parse::<f32>().ok()?;
+        let y = parts.next()?.trim().parse::<f32>().ok()?;
+        let w = parts.next()?.trim().parse::<f32>().ok()?;
+        let h = parts.next()?.trim().parse::<f32>().ok()?;
+        let maximized = match parts.next().map(str::trim) {
+            Some("1") => true,
+            Some("0") => false,
+            _ => return None,
+        };
+        if parts.next().is_some() {
+            // Trailing fields: refuse rather than silently ignore.
+            return None;
+        }
+        if !x.is_finite()
+            || !y.is_finite()
+            || !w.is_finite()
+            || !h.is_finite()
+            || w <= 0.0
+            || h <= 0.0
+        {
+            return None;
+        }
+        Some(Self {
+            pos: egui::pos2(x, y),
+            size: egui::vec2(w, h),
+            maximized,
+        })
+    }
 }
 
 // ---------------------------------------------------------------------------

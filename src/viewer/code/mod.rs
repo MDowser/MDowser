@@ -436,9 +436,9 @@ fn code_card(
     budget: &mut usize,
 ) {
     ui.add_space(theme::spacing::S);
-    // Code block: GitHub's `pre` — `#f6f8fa` surface, no border, 6px
-    // corners, 16px padding (see `theme::code_card`); a subtle header with
-    // the language and a Copy button (READMEs do not show a header, but the
+    // Code block: `#f6f8fa` surface, no border, 6px corners, 16px padding
+    // (see `theme::code_card`); a subtle header with
+    // the language and a Copy button (a plain `pre` shows no header, but the
     // copy affordance stays). Full reading-column width.
     let avail = ui.available_width().max(0.0);
     ui.set_min_width(avail);

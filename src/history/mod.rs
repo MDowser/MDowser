@@ -135,7 +135,8 @@ impl Retention {
 pub struct Visit {
     /// Normalized absolute `https://` URL, or a local `file://` path.
     pub url: String,
-    /// Sanitized frontmatter title, when the page had one.
+    /// Sanitized page title (frontmatter `title`, else the first H1), when
+    /// the page has one.
     pub title: Option<String>,
     /// Unix timestamp (seconds) of the visit.
     pub visited_at: u64,

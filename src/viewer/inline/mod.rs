@@ -19,14 +19,13 @@ use eframe::egui;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-/// Horizontal padding of the inline code pill beyond the glyph run (px).
-/// GitHub's `code` rule: `padding: .2em .4em` at the code size, which is the
-/// body size (16px), so `.4em` = 6.4px.
+/// Horizontal padding of the inline code pill beyond the glyph run (px):
+/// `.4em` at the code size, which is the body size (16px), so 6.4px.
 const CODE_PILL_PAD_X: f32 = 6.4;
-/// Vertical padding of the inline code pill beyond the glyph box (px).
-/// GitHub's `.2em` at the 16px code size.
+/// Vertical padding of the inline code pill beyond the glyph box (px):
+/// `.2em` at the 16px code size.
 const CODE_PILL_PAD_Y: f32 = 3.2;
-/// Corner radius of the inline code pill (px). GitHub uses 6px.
+/// Corner radius of the inline code pill (px): the shared card radius (6px).
 const CODE_PILL_RADIUS: u8 = crate::ui::theme::radius::CARD;
 /// Height cap for one tight code pill (`code_pill_rows`): the body line
 /// minus 3px. A face whose em box is tall (the bundled CJK mono cut used
@@ -521,14 +520,14 @@ pub(super) fn render_badge(
 }
 
 /// Scale of a footnote reference marker relative to the text it follows
-/// (GitHub's `<sup>` markup draws the reference visibly smaller).
+/// (a superscript marker draws visibly smaller).
 const SUP_REF_SCALE: f32 = 0.72;
 /// How far above the box top the marker is raised, as a fraction of the box
 /// height: a superscript sits ~0.3em above the text baseline, and the
 /// baseline sits ~0.75em into the box, so ~0.09 of it clears the line.
 const SUP_REF_RAISE_FACTOR: f32 = 0.09;
 
-/// Renders one footnote reference: GitHub's `<sup>1</sup>`.
+/// Renders one footnote reference as a superscript marker.
 ///
 /// The source `[^label]` spelling never reaches the screen — the marker shows
 /// the reference NUMBER (assigned by `markdown::anchors` in first-reference

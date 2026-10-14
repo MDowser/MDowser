@@ -20,6 +20,7 @@ fn fetched_for(url: &str) -> Fetched {
     Fetched {
         display_url: url::Url::parse(url).unwrap(),
         meta: crate::markdown::frontmatter::Meta::default(),
+        h1_title: None,
         plain_text: "# Hi\n\nbody text\n".to_string(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),

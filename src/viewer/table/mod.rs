@@ -5,11 +5,11 @@
 
 //! `viewer::table`: Markdown tables in a bordered card.
 //!
-//! - GitHub-like interior grid: 1px row and column separators painted
+//! - Collapsed interior grid: 1px row and column separators painted
 //!   BETWEEN cells (`table th, td { border: 1px solid }`, collapsed), while
 //!   the card frame stays the outer border.
 //! - Cells are adjacent (no Grid spacing) and carry a tight 5px/11px
-//!   padding INSIDE (slightly tighter than GitHub's 6px/13px): the grid
+//!   padding INSIDE (slightly tighter than the common 6px/13px): the grid
 //!   reaches the card border edge to edge and the text never touches a
 //!   line.
 //! - Subtle surface, 1px `#d1d9e0` border, 6px corners, `#f6f8fa` stripes.
@@ -38,8 +38,8 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-/// Cell padding (px), slightly tighter than GitHub's `th, td { padding:
-/// 6px 13px }`: the text is inset from the collapsed cell border, while the
+/// Cell padding (px), slightly tighter than the common 6px/13px inset:
+/// the text is inset from the collapsed cell border, while the
 /// grid itself reaches the card's outer border (the card frame IS the outer
 /// cell border).
 const CELL_PAD_X: f32 = 11.0;

@@ -7,11 +7,12 @@
 //! module stays reviewable).
 
 use super::{
-    BOOKMARK_GRID_MAX_VISIBLE_ROWS, DIR_INDEXES, FAVICON_PATHS, FAVICON_REQUEST_TIMEOUT_SECS,
-    FETCH_SLOT_WAIT_SECS, IMAGE_JOB_TIMEOUT_SECS, MARKDOWN_CONTENT_TYPES, MAX_INLINE_IMAGE_H,
-    MAX_INLINE_VECTOR_H, MAX_ROUTE_CANDIDATES, MAX_TITLE_CHARS, REQUEST_TIMEOUT_SECS,
-    TAB_TITLE_CHARS, TOTAL_FETCH_TIMEOUT_SECS, USER_AGENT, WINDOW_INITIAL_H, WINDOW_INITIAL_W,
-    WINDOW_MIN_H, WINDOW_MIN_W, WINDOW_TITLE_CHARS, WINDOW_TITLE_ERROR_URL_CHARS,
+    centered_window_pos, initial_window_size, BOOKMARK_GRID_MAX_VISIBLE_ROWS, DIR_INDEXES,
+    FAVICON_PATHS, FAVICON_REQUEST_TIMEOUT_SECS, FETCH_SLOT_WAIT_SECS, IMAGE_JOB_TIMEOUT_SECS,
+    MARKDOWN_CONTENT_TYPES, MAX_INLINE_IMAGE_H, MAX_INLINE_VECTOR_H, MAX_ROUTE_CANDIDATES,
+    MAX_TITLE_CHARS, REQUEST_TIMEOUT_SECS, TAB_TITLE_CHARS, TOTAL_FETCH_TIMEOUT_SECS, USER_AGENT,
+    WINDOW_INITIAL_FRACTION, WINDOW_INITIAL_H, WINDOW_INITIAL_MAX_H, WINDOW_INITIAL_MAX_W,
+    WINDOW_INITIAL_W, WINDOW_MIN_H, WINDOW_MIN_W, WINDOW_TITLE_CHARS, WINDOW_TITLE_ERROR_URL_CHARS,
 };
 
 #[test]
@@ -110,4 +111,69 @@ fn deadline_helper_never_panics_and_moves_forward() {
     assert!(soon >= before);
     let saturated = super::deadline_after(u64::MAX);
     assert!(saturated >= before);
+}
+
+#[test]
+#[allow(clippy::assertions_on_constants)]
+fn window_geometry_constants_are_consistent() {
+    assert!(
+        WINDOW_INITIAL_FRACTION > 0.0 && WINDOW_INITIAL_FRACTION <= 1.0,
+        "the initial fraction must be a real fraction of the monitor"
+    );
+    assert!(WINDOW_INITIAL_MAX_W >= WINDOW_MIN_W);
+    assert!(WINDOW_INITIAL_MAX_H >= WINDOW_MIN_H);
+    // The creation-time fallback (used before the first frame adjusts the
+    // window) stays within the computed size's bounds.
+    assert!(WINDOW_INITIAL_W <= WINDOW_INITIAL_MAX_W);
+    assert!(WINDOW_INITIAL_H <= WINDOW_INITIAL_MAX_H);
+}
+
+#[test]
+fn initial_window_size_scales_with_the_monitor_and_respects_bounds() {
+    // A 1080p monitor at 100 %: the fraction fits under both caps.
+    assert_eq!(initial_window_size(1920.0, 1080.0), (1536.0, 864.0));
+    // A large monitor: the caps win (never a nearly full-screen window).
+    assert_eq!(
+        initial_window_size(2560.0, 1440.0),
+        (WINDOW_INITIAL_MAX_W, WINDOW_INITIAL_MAX_H)
+    );
+    // A small monitor: the fraction still clears the minimum exactly.
+    assert_eq!(initial_window_size(800.0, 600.0), (640.0, 480.0));
+    // A monitor smaller than the minimum: the minimum wins.
+    assert_eq!(
+        initial_window_size(320.0, 200.0),
+        (WINDOW_MIN_W, WINDOW_MIN_H)
+    );
+    // Never larger than the monitor.
+    let (w, h) = initial_window_size(1000.0, 700.0);
+    assert!(w <= 1000.0 && h <= 700.0, "{w}x{h} overflows its monitor");
+    // Non-finite input falls back to the minimum instead of panicking.
+    assert_eq!(
+        initial_window_size(f32::NAN, f32::INFINITY),
+        (WINDOW_MIN_W, WINDOW_MIN_H)
+    );
+}
+
+#[test]
+fn centered_window_pos_centers_and_clamps() {
+    // 1920x1080 monitor, 1536x864 outer window: even margins.
+    assert_eq!(
+        centered_window_pos(0.0, 0.0, 1920.0, 1080.0, 1536.0, 864.0),
+        (192.0, 108.0)
+    );
+    // A monitor offset to the right keeps its own origin.
+    assert_eq!(
+        centered_window_pos(1920.0, 0.0, 1920.0, 1080.0, 1536.0, 864.0),
+        (2112.0, 108.0)
+    );
+    // A window larger than its monitor opens at the monitor origin.
+    assert_eq!(
+        centered_window_pos(0.0, 0.0, 800.0, 600.0, 1000.0, 800.0),
+        (0.0, 0.0)
+    );
+    // Non-finite input falls back to the origin on that AXIS only.
+    assert_eq!(
+        centered_window_pos(5.0, 7.0, f32::NAN, 600.0, 100.0, 100.0),
+        (5.0, 257.0)
+    );
 }

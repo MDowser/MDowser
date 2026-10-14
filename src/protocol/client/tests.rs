@@ -223,6 +223,31 @@ fn display_sanitizer_never_echoes_credentials() {
     );
 }
 
+/// `finish_document` derives the first-H1 title fallback once, next to the
+/// copy text and the anchors; a declared frontmatter `title` always wins,
+/// and an EMPTY one falls through to the heading.
+#[test]
+fn finish_document_derives_the_first_h1_title() {
+    let url = url::Url::parse("https://ex.com/a/").unwrap();
+    let fetched =
+        super::finish_document("Intro.\n\n# Carla\n\nBody.", url.clone(), &url).expect("parse");
+    assert_eq!(fetched.h1_title.as_deref(), Some("Carla"));
+    assert_eq!(fetched.page_title(), Some("Carla"));
+    assert!(fetched.meta.title.is_none());
+
+    // A frontmatter title wins; the heading still arrives as the fallback.
+    let fetched = super::finish_document("---\ntitle: Meta\n---\n# Carla\n", url.clone(), &url)
+        .expect("parse");
+    assert_eq!(fetched.meta.title.as_deref(), Some("Meta"));
+    assert_eq!(fetched.page_title(), Some("Meta"));
+    assert_eq!(fetched.h1_title.as_deref(), Some("Carla"));
+
+    // `title: ""` is "no title": the heading names the page.
+    let fetched = super::finish_document("---\ntitle: \"\"\n---\n# Carla\n", url.clone(), &url)
+        .expect("parse");
+    assert_eq!(fetched.page_title(), Some("Carla"));
+}
+
 // -----------------------------------------------------------------------
 // Redirect contract, network smoke tests (ignored by default).
 //

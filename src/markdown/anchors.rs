@@ -42,7 +42,7 @@ pub struct AnchorIndex {
     footnotes: HashMap<String, String>,
     /// Footnote labels in FIRST-REFERENCE order (`label -> 1-based number`).
     /// Both the reference marker and the definition marker show this number:
-    /// GitHub numbers footnotes by reference, not by definition order, so
+    /// footnotes are numbered by reference, not by definition order, so
     /// `[^note]` followed by `[^2]` renders as 1 and 2.
     footnote_numbers: HashMap<String, usize>,
     /// Highest number handed out to a referenced footnote (a definition the
@@ -86,7 +86,7 @@ impl AnchorIndex {
     }
 
     /// 1-based number of footnote `label`, assigned in FIRST-REFERENCE order
-    /// (the number GitHub's `<sup>` and `<ol>` show). `None` when the
+    /// (the number a rendered footnote marker shows). `None` when the
     /// document never references the label: the definition still renders, it
     /// just has no reference to number.
     pub fn footnote_number(&self, label: &str) -> Option<usize> {
@@ -213,7 +213,7 @@ pub fn build(events: &[Event<'static>]) -> AnchorIndex {
             }
             // Footnote REFERENCES carry the numbering: the marker in the text
             // and the definition both show the number of the reference, in
-            // the order the references appear (GitHub's `<sup>`/`<ol>`).
+            // the order the references appear.
             Event::FootnoteReference(label) if index.footnote_numbers.len() < cap => {
                 let label =
                     crate::util::truncate_chars(label, crate::config::MAX_FOOTNOTE_LABEL_CHARS);
@@ -359,7 +359,7 @@ mod tests {
     fn footnote_numbers_follow_first_reference_order() {
         // `[^a]` needs its own definition too: pulldown-cmark only emits a
         // footnote REFERENCE for a label that HAS one (an undefined label
-        // stays literal text, exactly like GitHub).
+        // stays literal text).
         let events = parse_events(
             "A[^b] B[^a] C[^b] D[^2]\n\n[^b]: b\n[^a]: a\n[^2]: two\n[^c]: never referenced\n",
         )

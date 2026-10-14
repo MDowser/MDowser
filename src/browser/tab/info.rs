@@ -78,9 +78,7 @@ impl Tab {
             }
             TabState::Loaded { fetched } => {
                 let page_title = fetched
-                    .meta
-                    .title
-                    .as_deref()
+                    .page_title()
                     .map(sanitize_title)
                     .filter(|title| !title.is_empty());
                 if fetched.display_url.scheme() == "file" {

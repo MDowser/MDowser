@@ -13,14 +13,19 @@
 //!   reflow) showing favicon + title + close, plus a pinned `+ New Tab`.
 //!   It collapses only when the pointer moves into the document area:
 //!   moving up to the toolbar or leaving the window keeps it open.
-//! - The expansion is ANIMATED (short `cubic_out` width tween clipped to
-//!   the growing edge, titles/labels fading in behind it) instead of popping
-//!   the full-width panel in one frame, which read as a flash. At t == 0 the
-//!   overlay is exactly the collapsed rail, so both directions start from the
-//!   state the user already sees and nothing jumps.
+//! - The expansion is ANIMATED (a short width tween clipped to the growing
+//!   edge, labels fading AND drifting in behind it) instead of popping the
+//!   full-width panel in one frame, which read as a flash. The curve is an
+//!   ease-out with a longer tail than `cubic_out` (`ease_out`): it snaps open
+//!   and settles gently. egui mirrors the easing when closing, so both
+//!   directions settle the same way. At t == 0 the overlay is exactly the
+//!   collapsed rail, so both directions start from the state the user already
+//!   sees and nothing jumps. Labels hold back until the panel has some width,
+//!   then cascade top to bottom with a short per-row delay.
 //! - Rows have the SAME x/y/size in both states (same paddings, row height
 //!   and gap): expanding only grows the row background to the right and
-//!   reveals the title/close. Nothing jumps.
+//!   reveals the title/close. Nothing jumps: labels drift into their shared
+//!   column while fading, then rest there (see `label_slide`/`row_reveal`).
 //! - Chrome icon size is shared with the toolbar (`icons::BUTTON` /
 //!   `icons::GLYPH`): favicons and the rail's vector icons draw at the same
 //!   size as the toolbar buttons, so the chrome reads as one set. The
@@ -30,8 +35,10 @@
 //!   two read as ONE chrome surface (no shadow above: it painted a dirty
 //!   seam under the toolbar). Only the right edge is elevated: a soft
 //!   penumbra in light mode, a hairline in dark mode (black blur over dark
-//!   chrome reads as dirt). Action rows are the same borderless rows in
-//!   both states.
+//!   chrome reads as dirt). That separator is drawn in BOTH rail states —
+//!   collapsed it is the smaller, fainter version — and it morphs with the
+//!   open tween, so opening or closing never pops the shadow on or off.
+//!   Action rows are the same borderless rows in both states.
 //! - While the overlay covers the rail, the collapsed content is NOT drawn —
 //!   pointer inside the overlay OR above it (the toolbar area, which keeps
 //!   the overlay open): otherwise the old rows show through below/behind it,
@@ -103,7 +110,47 @@ const ACTION_SEP_H: f32 = 6.0;
 const ACTION_H: f32 = 2.0 * ACTION_ROW_H + ACTION_GAP + ACTION_SEP_GAP + ACTION_SEP_H;
 /// Open/close animation time of the hover overlay, in seconds. Slow enough
 /// to read as a deliberate motion, fast enough to still feel like hover.
+/// The easing (`ease_out`, quintic) spends most of this time on the gentle
+/// tail, so the panel is close to its width early and settles soft.
 const EXPAND_ANIM_SECS: f32 = 0.22;
+/// Progress point (in the eased width `t`) where the labels start to appear:
+/// they hold back until the panel already has some width, so the text never
+/// shows in a strip too thin to read.
+const TEXT_START: f32 = 0.25;
+/// How far (px) a label drifts in while it fades: it starts this much toward
+/// the growing edge and settles at its final column, so the reveal reads as
+/// content flowing out of the rail instead of a bare alpha pop. Always at
+/// its column when the panel is at rest (no leftover offset).
+const TITLE_SLIDE: f32 = 8.0;
+/// Extra per-row delay of the label reveal (in `t` units), and its cap: a
+/// short cascade top-to-bottom, bounded so a long list never leaves the last
+/// tab waiting. Every row still reaches full reveal exactly at `t == 1`.
+const STAGGER: f32 = 0.05;
+const STAGGER_MAX: f32 = 0.25;
+
+/// `easeOutQuint` (<https://easings.net/#easeOutQuint>): a fast start with a
+/// long, gentle tail, the shape a native sidebar's open motion has. Exact at
+/// both ends (`0 -> 0`, `1 -> 1`), which the final-width geometry relies on
+/// (an asymptotic curve such as `exponential_out` never quite reaches
+/// `EXPANDED_W`). Used for the width tween; egui derives the close motion
+/// from it too (`1 - ease(1 - v)`), so collapsing settles the same way.
+fn ease_out(t: f32) -> f32 {
+    1.0 - (1.0 - t).powi(5)
+}
+
+/// Shared label reveal curve: `0` until [`TEXT_START`], then `0..1`.
+fn label_reveal(t: f32) -> f32 {
+    ((t - TEXT_START) / (1.0 - TEXT_START)).clamp(0.0, 1.0)
+}
+
+/// [`label_reveal`] delayed by `index * STAGGER` (capped at [`STAGGER_MAX`]),
+/// so titles cascade top-to-bottom instead of switching on together. Every
+/// index reaches `1.0` at `t == 1`, so the settled layout is identical for
+/// every row.
+fn row_reveal(t: f32, index: usize) -> f32 {
+    let start = TEXT_START + (index as f32 * STAGGER).min(STAGGER_MAX);
+    ((t - start) / (1.0 - start)).clamp(0.0, 1.0)
+}
 
 /// What the tab rail reported this frame (mirrors `OmniboxResponse`:
 /// one struct out instead of one out-param per action).
@@ -313,22 +360,34 @@ pub fn show_tabs(
         egui::Id::new("tabs_rail_expand"),
         open,
         EXPAND_ANIM_SECS,
-        egui::emath::easing::cubic_out,
+        ease_out,
     );
     if !open && t <= 0.0 {
         *overlay_rect = None;
+        // Collapsed: the separator STAYS — smaller and fainter — so closing
+        // the overlay never pops the shadow off. It goes on its own Middle
+        // layer (a plain layer painter, NOT an `Area`: a fresh area runs a
+        // sizing pass, hidden for one frame, and this edge must not blink).
+        let edge = egui::Rect::from_min_max(rail_rect.min, rail_rect.max);
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Middle,
+            egui::Id::new("tabs_edge_separator"),
+        ));
+        paint_edge_separator(&painter, ui.visuals().dark_mode, edge, s, 0.0);
         // Return the COLLAPSED content's actions, not a fresh default: a
         // keyboard user can focus a tab with Tab and activate it with
         // Enter/Space (egui synthesizes a click, and no hover ever set
         // `open`), and that click must not be discarded here.
         return out;
     }
-    // Animated width and text fade. At `t == 0` the overlay is exactly the
+    // Animated width and label reveal. At `t == 0` the overlay is exactly the
     // collapsed rail (`RAIL_W`), so the motion starts from the layout the
-    // user already sees. Titles/labels hold back until the panel has some
-    // width, then fade in.
+    // user already sees. The labels of the pinned actions hold back until the
+    // panel has some width, then fade in while drifting to their column; the
+    // tab rows do the same one beat after the row above them (see
+    // `row_reveal`), so the list cascades instead of switching on at once.
     let width = egui::lerp(RAIL_W..=EXPANDED_W, t);
-    let text_t = ((t - 0.25) / 0.75).clamp(0.0, 1.0);
+    let text_t = label_reveal(t);
     // Curtain clip: everything the overlay paints (background included) is
     // clipped to `width`, so the panel grows out of the rail instead of
     // flashing its final size in one frame.
@@ -352,7 +411,7 @@ pub fn show_tabs(
         .show(ui.ctx(), |ui| {
             let screen_clip = ui.clip_rect();
             ui.set_clip_rect(clip.intersect(screen_clip));
-            let panel = egui::Frame::new()
+            egui::Frame::new()
                 .fill(s.container_low)
                 // Square corners on all four sides: the panel is flush with
                 // the toolbar (top) and the window edges (left/bottom); any
@@ -400,7 +459,7 @@ pub fn show_tabs(
                                     tab,
                                     i == active,
                                     row_w,
-                                    text_t,
+                                    row_reveal(t, i),
                                     favicons,
                                     &mut out,
                                 );
@@ -444,13 +503,15 @@ pub fn show_tabs(
                 });
             // The right-edge separator spills a few px over the page, so it
             // is painted OUTSIDE the curtain clip, at the ANIMATED edge (the
-            // frame's own rect is full width from the first frame).
+            // frame's own rect is full width from the first frame). Same
+            // rect the collapsed state paints, so the hand-off at t == 0 is
+            // seamless.
             ui.set_clip_rect(screen_clip);
             let edge = egui::Rect::from_min_max(
-                panel.response.rect.min,
-                egui::pos2(rail_rect.min.x + width, panel.response.rect.max.y),
+                rail_rect.min,
+                egui::pos2(rail_rect.min.x + width, rail_rect.max.y),
             );
-            paint_edge_separator(ui, edge, s);
+            paint_edge_separator(ui.painter(), ui.visuals().dark_mode, edge, s, t);
         });
     *overlay_rect = Some(area.response.rect);
     out

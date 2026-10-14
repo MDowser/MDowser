@@ -83,6 +83,49 @@ pub fn tonal_button_sized(
             s.container_high,
         )
     };
+    sized_button(ui, text, size, enabled, (fg, fill, hover, active))
+}
+
+/// Accent-filled button: the ONE emphasized action of a surface (the error
+/// view's "open in your browser" escape hatch). Same geometry contract as
+/// [`tonal_button_sized`]; the fill is the accent tone, never a widget gray.
+///
+/// The label is white, so every fill must keep it readable: the light accent
+/// passes on its own (~5.9:1), while the dark accent (`#4493f8`, a light
+/// blue) would render white at ~3.1:1, so dark mode fills with a darker
+/// shade and LIGHTENS on hover/press like every other dark-mode control
+/// (the whole ramp stays at or above WCAG AA, pressed included).
+pub fn primary_button_sized(ui: &mut egui::Ui, text: &str, size: egui::Vec2) -> egui::Response {
+    let s = scheme_ref(ui);
+    let (fill, hover, active) = if ui.visuals().dark_mode {
+        (
+            shade(s.primary, 0.60),
+            shade(s.primary, 0.72),
+            shade(s.primary, 0.80),
+        )
+    } else {
+        (s.primary, shade(s.primary, 0.92), shade(s.primary, 0.85))
+    };
+    sized_button(
+        ui,
+        text,
+        size,
+        true,
+        (egui::Color32::WHITE, fill, hover, active),
+    )
+}
+
+/// Shared body of [`tonal_button_sized`] and [`primary_button_sized`]:
+/// fixed-size flat button whose visuals come from
+/// `(fg, fill, hover, active)`, one 1px (transparent) stroke in every state
+/// and readable disabled colors.
+fn sized_button(
+    ui: &mut egui::Ui,
+    text: &str,
+    size: egui::Vec2,
+    enabled: bool,
+    (fg, fill, hover, active): (egui::Color32, egui::Color32, egui::Color32, egui::Color32),
+) -> egui::Response {
     // Enforce size via add_sized inside a scope with overridden visuals.
     ui.scope(|ui| {
         {
@@ -119,10 +162,15 @@ pub fn tonal_button_sized(
         } else {
             egui::Sense::hover()
         };
-        let resp = ui.add(
-            egui::Button::new(strong(egui::RichText::new(text).color(fg)))
-                .min_size(size)
-                .sense(sense),
+        // `add_sized` (a `centered_and_justified` child ui): the label is
+        // centered in the fixed frame whatever the PARENT layout is.
+        // `Button::min_size` alone left it aligned to the parent's cross
+        // axis — centered inside a centered/right-to-left parent (history
+        // footer) but visibly left-parked inside the error view's plain
+        // left-aligned column.
+        let resp = ui.add_sized(
+            size,
+            egui::Button::new(strong(egui::RichText::new(text).color(fg))).sense(sense),
         );
         if enabled {
             resp.on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -145,9 +193,9 @@ pub fn card(ui: &egui::Ui) -> egui::Frame {
 /// so changing one cannot silently overflow the other.
 pub const CODE_PAD_X: f32 = 16.0;
 
-/// Card for code blocks: GitHub's `pre` recipe — `--bgColor-muted` surface,
-/// 6px corners, 16px padding and NO border (the stylesheet's `pre` has no
-/// stroke; the app's header row with language + Copy stays).
+/// Card for code blocks: muted surface, 6px corners, 16px padding and NO
+/// border (a `pre` block has no stroke; the app's header row with language +
+/// Copy stays).
 ///
 /// The bottom padding is 4px, not 16: the horizontal bar's lane
 /// ([`scrollbar_lane`], 12px) lives INSIDE the scroll content, so the bar
@@ -269,7 +317,9 @@ pub fn content_frame(ui: &egui::Ui) -> egui::Frame {
 /// content (`ScrollArea::content_margin`): the left/right insets keep the
 /// reading column off the sheet edges while the always-visible scrollbar
 /// hugs the flush right edge, and the top/bottom pad matches that spacing at
-/// rest so letters can still scroll all the way to the flush edges.
+/// rest so letters can still scroll all the way to the flush edges (the END
+/// of a long page additionally carries [`spacing::PAGE_END`] below its last
+/// element, so a document scrolled to its bottom does not read cramped).
 ///
 /// Must be measured on the same `Ui` [`content_frame`] is built from (the
 /// central panel's root, before any frame margin), so the two cannot drift.
@@ -427,6 +477,13 @@ pub mod spacing {
     pub const L: f32 = 12.0;
     /// Loose gap (16px): heading top air, hero sections.
     pub const XL: f32 = 16.0;
+    /// Page-end pad (24px): blank air after the LAST element of a scrolling
+    /// page, so its final line never sits flush against the sheet's bottom
+    /// edge when scrolled all the way down. Bottom-only: the top keeps its
+    /// symmetric gutter, and scrolled content still clips at the flush
+    /// edges. Applied by the document renderer, the Home landing page and
+    /// the error view.
+    pub const PAGE_END: f32 = 24.0;
 }
 
 /// Shared keyboard-focus ring: a 1px accent inset stroke that does not

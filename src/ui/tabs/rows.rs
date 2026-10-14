@@ -7,9 +7,19 @@
 //! favicon+title+close), the pinned action rows and the edge separator.
 //!
 //! Geometry is shared by both rail states (same x/y/size), so expansion
-//! only grows the background to the right and nothing jumps.
+//! only grows the background to the right and nothing jumps. Labels are the
+//! only moving parts: they drift a few px while fading in and then rest at
+//! that same shared column (`label_slide` is exactly 0 at rest).
 
 use super::*;
+
+/// Horizontal drift of a label during the overlay's open animation: it
+/// starts `TITLE_SLIDE` px toward the growing edge and settles at its final
+/// column as `t` reaches 1 (and at exactly 0 once at rest). The favicon and
+/// the vector icons never move: only the text drifts.
+fn label_slide(t: f32) -> f32 {
+    TITLE_SLIDE * (1.0 - t)
+}
 
 /// Row background shared by both states (same geometry, same colors).
 pub(super) fn draw_row_background(
@@ -76,8 +86,8 @@ pub(super) fn action_row(
 /// Paints one action row: icon at the favicon column, optional label at the
 /// title column, hover wash across the row. The caller owns the `Response`
 /// (click, tooltip, accessibility): the collapsed rail passes no label.
-/// `label_alpha` fades the label during the overlay's open animation (the
-/// icon stays solid: it is painted with its full tint).
+/// `label_alpha` fades the label during the overlay's open animation and
+/// drives its drift (the icon stays solid: it is painted with its full tint).
 pub(super) fn draw_action_row(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -105,8 +115,9 @@ pub(super) fn draw_action_row(
     );
     icons::paint(ui, icon_rect, icon, color);
     if let Some(label) = label {
-        // Aligned with the tab titles (same icon column + gap).
-        let title_left = rect.min.x + ICON_CX + FAVICON / 2.0 + 8.0;
+        // Aligned with the tab titles (same icon column + gap), drifting in
+        // with them during the reveal.
+        let title_left = rect.min.x + ICON_CX + FAVICON / 2.0 + 8.0 + label_slide(label_alpha);
         let label_rect = egui::Rect::from_min_max(
             egui::pos2(title_left, rect.min.y),
             egui::pos2(rect.max.x, rect.max.y),
@@ -117,8 +128,11 @@ pub(super) fn draw_action_row(
                 .max_rect(label_rect)
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
             |ui| {
+                // Regular chrome text: the rail is not document emphasis, so
+                // it deliberately does NOT go through `theme::strong` (the
+                // `wght = 700` face the reading surfaces use).
                 ui.add(
-                    egui::Label::new(theme::strong(egui::RichText::new(label).color(color)))
+                    egui::Label::new(egui::RichText::new(label).color(color))
                         .truncate()
                         .selectable(false),
                 );
@@ -127,39 +141,61 @@ pub(super) fn draw_action_row(
     }
 }
 
-/// Right-edge separation for the expanded overlay.
+/// Right-edge separation for the rail/expanded overlay.
 ///
 /// The toolbar, rail and overlay share one chrome tone and must read as a
 /// single surface, so there is deliberately NO shadow above (the frame
 /// shadow's top half painted a gray seam under the toolbar). The right edge
 /// floats over the page and needs its own separation:
-/// - light: a soft gradient penumbra (26 -> 0 alpha over ~12px);
+/// - light: a soft gradient penumbra (darkest at the panel edge, gone at its
+///   reach);
 /// - dark: a crisp 1px hairline (black blur over dark chrome reads as dirt,
 ///   same rationale as `theme::soft_shadow`).
-pub(super) fn paint_edge_separator(ui: &egui::Ui, rect: egui::Rect, s: &theme::Scheme) {
+///
+/// `progress` is the rail's open tween (0 collapsed, 1 fully open). The
+/// separator is drawn in BOTH states — collapsed it is the smaller, fainter
+/// version — and it morphs with the panel, so opening or closing never pops
+/// the shadow on or off (the collapsed rail used to show nothing at all).
+pub(super) fn paint_edge_separator(
+    painter: &egui::Painter,
+    dark: bool,
+    rect: egui::Rect,
+    s: &theme::Scheme,
+    progress: f32,
+) {
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
     }
-    let painter = ui.painter();
-    if ui.visuals().dark_mode {
+    let progress = progress.clamp(0.0, 1.0);
+    if dark {
+        // One hairline at both ends of the tween, dimmed while collapsed so
+        // the boundary strengthens with the panel instead of snapping on.
         painter.rect_filled(
             egui::Rect::from_min_max(egui::pos2(rect.max.x - 1.0, rect.min.y), rect.max),
             egui::CornerRadius::ZERO,
-            s.outline_variant,
+            s.outline_variant
+                .gamma_multiply(egui::lerp(0.55..=1.0, progress)),
         );
         return;
     }
-    const WIDTH: f32 = 12.0;
+    // Reach (px) and peak alpha of the penumbra: a hint of boundary when
+    // collapsed, the floating page shadow when open.
+    const COLLAPSED_WIDTH: f32 = 5.0;
+    const COLLAPSED_ALPHA: f32 = 12.0;
+    const OPEN_WIDTH: f32 = 12.0;
+    const OPEN_ALPHA: f32 = 26.0;
     const STEPS: usize = 12;
-    let step_w = WIDTH / STEPS as f32;
+    let width = egui::lerp(COLLAPSED_WIDTH..=OPEN_WIDTH, progress);
+    let peak = egui::lerp(COLLAPSED_ALPHA..=OPEN_ALPHA, progress);
+    let step_w = width / STEPS as f32;
     for i in 0..STEPS {
         let t = i as f32 / STEPS as f32;
-        // Quadratic falloff: darkest at the panel edge, gone at WIDTH.
-        let alpha = (26.0 * (1.0 - t) * (1.0 - t)).round() as u8;
+        // Quadratic falloff: darkest at the panel edge, gone at `width`.
+        let alpha = (peak * (1.0 - t) * (1.0 - t)).round() as u8;
         if alpha == 0 {
             continue;
         }
-        let x0 = rect.max.x + t * WIDTH;
+        let x0 = rect.max.x + t * width;
         painter.rect_filled(
             egui::Rect::from_min_max(
                 egui::pos2(x0, rect.min.y),
@@ -172,8 +208,8 @@ pub(super) fn paint_edge_separator(ui: &egui::Ui, rect: egui::Rect, s: &theme::S
 }
 
 /// One expanded row: favicon + title + close, click selects. `text_t` fades
-/// the title during the overlay's open animation (the favicon itself stays
-/// solid).
+/// the title during the overlay's open animation and drives its drift (the
+/// favicon itself stays solid).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn expanded_row(
     ui: &mut egui::Ui,
@@ -220,7 +256,7 @@ pub(super) fn expanded_row(
     // the full bar width at the overlay's right edge even while invisible,
     // and would otherwise steal clicks from the outer part of the close box.
     let lane = theme::scrollbar_width(ui);
-    let title_left = row_rect.min.x + ICON_CX + FAVICON / 2.0 + 8.0;
+    let title_left = row_rect.min.x + ICON_CX + FAVICON / 2.0 + 8.0 + label_slide(text_t);
     let title_rect = egui::Rect::from_min_max(
         egui::pos2(title_left, row_rect.min.y),
         egui::pos2(row_rect.max.x - CLOSE_W - 6.0 - lane, row_rect.max.y),
@@ -238,8 +274,11 @@ pub(super) fn expanded_row(
             .max_rect(title_rect)
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
         |ui| {
+            // Regular chrome text (see `draw_action_row`): tab titles carry
+            // the tab's identity, not emphasis, so they stay off the bold
+            // family.
             ui.add(
-                egui::Label::new(theme::strong(egui::RichText::new(title).color(title_color)))
+                egui::Label::new(egui::RichText::new(title).color(title_color))
                     .truncate()
                     .selectable(false),
             );

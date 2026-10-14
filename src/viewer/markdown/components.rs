@@ -318,7 +318,7 @@ fn render_tabs(
     });
     ui.ctx().data_mut(|d| d.insert_temp(id, sel));
     // The strip's bottom border, full reading column, with the active tab's
-    // underline sitting ON it (browser/Docusaurus tab look, not buttons).
+    // underline sitting ON it (a browser-tab look, not buttons).
     let (line, _) = ui.allocate_exact_size(egui::vec2(full_w, 1.0), egui::Sense::hover());
     ui.painter()
         .rect_filled(line, egui::CornerRadius::ZERO, scheme.outline_variant);

@@ -5,7 +5,9 @@ Single binary (`src/main.rs` → `app::MdowserApp`), immediate-mode egui.
 ```
 main → app (tabs + active index + zoom + favicons + encrypted history and
            bookmarks + shortcuts + the macOS-only native menu bar
-           (`menu`, macOS only) + OS/CLI open targets)
+           (`menu`, macOS only) + native window geometry (`window`:
+           first-frame placement + persisted position/size/maximized) +
+           OS/CLI open targets)
   ├─ assets (embedded Noto faces: color emoji, monochrome emoji, CJK,
   │          Latin + script set; the two largest ship Brotli-compressed
   │          and are decompressed once into process-lifetime
@@ -32,14 +34,14 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   ├─ builtin_sites (the single curated omnibox site list, embedded from
   │                 `assets/builtin_sites.txt` and parsed once)
   ├─ settings (encrypted preferences + session: theme, startup zoom,
-  │            session restore; settings.bin/session.bin + store.key,
-  │            atomic file helpers; `session`, `file`, `platform`
-  │            submodules)
+  │            session restore, window geometry; settings.bin/session.bin
+  │            + store.key, atomic file helpers; `session`, `file`,
+  │            `platform` submodules)
   ├─ protocol/client (capped GET cascade, global rustls pool;
   │    │              `parse_navigable` = HTTPS or local file)
   │    ├─ get (shared capped streaming GET: documents + subresources)
   │    └─ fetch (fetch_with_fallback + finish_document: frontmatter,
-  │               events, anchors)
+  │               events, copy text, first-H1 title, anchors)
   ├─ protocol/resolver (.md candidates, display normalization, dedup)
   ├─ protocol/content_type (markdown Content-Type + accepted image types)
   ├─ protocol/rewrite (absolutize links pre-render; scheme policy per base:
@@ -66,8 +68,9 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │            never hide behind such an opener),
   │            highlight ranges; `document/` splits the parser options and
   │            event walk (`mod`), the pre-parse repair pass (`normalize`
-  │            + `normalize_links`/`normalize_tables`/`normalize_markup`) and
-  │            the Copy-text derivation (`plain`))
+  │            + `normalize_links`/`normalize_tables`/`normalize_markup`),
+  │            the Copy-text derivation (`plain`) and the first-H1 page-title
+  │            fallback (`title`))
   ├─ media (pure-Rust image pipeline for subresources)
   │    ├─ fetch (background download; content-type gate + decode)
   │    ├─ emoji (color emoji: harfrust shaping + SVG-table extraction
@@ -123,7 +126,8 @@ Key contracts:
   reads reuse `MAX_BODY_BYTES` / `MAX_IMAGE_BYTES` with a cooperative
   cancel check between 64 KiB chunks, and successful bodies go through the
   SAME `client::finish_document` as HTTPS ones (frontmatter, parsed events,
-  copy text, anchors, display URL), so the viewer cannot tell them apart.
+  copy text, first-H1 title, anchors, display URL), so the viewer cannot
+  tell them apart.
   `resolver::is_same_logical` compares local files by exact path (never by
   the `/.../` collapsing rules), `display_string` shows the decoded path
   and `server_home_of` returns the containing directory. `rewrite` only
@@ -278,8 +282,9 @@ Key contracts:
   rename, 0600/0700 on Unix) at most every 2s while dirty and once on
   `App::on_exit`. The encrypted blob is built on the UI thread (bounded) and
   the file write + fsync run on a worker thread, so a slow disk never
-  stalls a frame; the worker queue is bounded to one pending blob (newest
-  wins) and a flush lets the worker WRITE what is queued (never drops it:
+  stalls a frame; the worker queue is bounded to one pending blob PER TARGET
+  FILE (newest wins; the app writes one data directory) and a flush lets the
+  worker WRITE what is queued (never drops it:
   the store cleared `dirty` at enqueue time) before waiting at most 5s for
   the exit, so a hung disk can neither grow memory nor lose the newest data
   nor freeze a frame, a delete or exit; a write, delete or exit flushes the
@@ -353,7 +358,7 @@ Key contracts:
   process through `finish_document`, `viewer` renders it with the normal
   document pipeline (menu, selection, live links), and `App::open_licenses`
   backs the Preferences footer link. `ui::preferences` keeps only
-  the floating, FIXED-SIZE, Material-style
+  the floating, FIXED-SIZE
   Preferences dialog (borderless custom header, grouped section cards, list
   rows, a toggle switch). The History card holds the retention dropdown and
   the destructive "Delete history" action (two-click confirmation); the
@@ -498,7 +503,12 @@ Key contracts:
   owned events (`Fetched.events`); copy text (`Fetched.plain_text`) is
   derived FROM THOSE EVENTS (`plain_text_from_events`, so the clipboard
   never pays a second parser pass; a corpus test pins it byte-identical to
-  the body-based oracle), and `:shortcode:` emoji are expanded for text nodes
+  the body-based oracle). The page-title fallback (`Fetched.h1_title`, the
+  document's first `#` heading) is derived from the same events and read
+  through `Fetched::page_title` (frontmatter `title` first), so a document
+  without YAML metadata still names its tab, window, page-info card and
+  default bookmark/history entry instead of showing its URL.
+  `:shortcode:` emoji are expanded for text nodes
   (never inside code) in the rendered events AND in `plain_text`, so the
   clipboard matches the viewer. The theme sets
   `override_text_color = on_surface`, so plain labels paint the readable
@@ -616,7 +626,8 @@ Key contracts:
   pending instead of being dropped at the end of the frame, so opening that
   tab later still applies the request (only a target the anchor index does
   not know is cleared).
-  Footnotes render like GitHub's (`AnchorIndex::footnote_number`): the same
+  Footnotes are numbered by first reference
+  (`AnchorIndex::footnote_number`): the same
   pass numbers every REFERENCED label in first-reference order, the
   reference paints that number as a raised small marker
   (`viewer::inline::render_superscript_ref`, linked to the reserved
@@ -678,7 +689,7 @@ Key contracts:
   wrapping child spans the full width); both menu separator families keep a
   prose guard. `normalize_body` also repairs a link an exporter split with a
   blank line (`[label` blank line `body](url)`) so it parses as one link,
-  and rewrites the Fumadocs/Mintlify `[#id]` heading marker
+  and rewrites the docs-generator `[#id]` heading marker
   (`## Title [#custom-id]`) to the heading attribute `{#custom-id}`, so the
   marker never renders and the explicit id is the anchor.
   README headings/rules/quotes/tables come from
@@ -706,7 +717,7 @@ Key contracts:
   of forcing a horizontal scrollbar; when even the floors do not fit, the
   table scrolls with every column kept at its measured width up to a wider
   `scroll_max` cap (the floors wrapped words mid-word), and the pass paints
-  GitHub's collapsed 1px interior row/column separators between the cell
+  collapsed 1px interior row/column separators between the cell
   rects of that same pass; the card frame stays the outer border. A fitting
   layout never sums past the usable width, not even by a rounding ulp (the
   residual is taken off the widest column, never below `min_col`): the
@@ -727,7 +738,7 @@ Key contracts:
   with Noto Sans CJK face 0 as the proportional CJK fallback. The complete
   monochrome emoji face and
   every face in `assets::SCRIPT_FONTS` (Arabic, Hebrew, Indic, Southeast
-  Asian, ...) follow as glyph fallbacks. epaint's bundled Ubuntu/Hack
+  Asian, ...) follow as glyph fallbacks. epaint's bundled default
   faces are never registered; in the SVG database every generic
   family — `serif`/`sans-serif`/`cursive`/`fantasy` and its no-family
   default to Noto Sans, `monospace` to the Noto Sans Mono CJK cut — so
@@ -786,12 +797,20 @@ Key contracts:
   tinted with the active theme, so the whole chrome shares one uniform,
   crisp line-icon set; buttons ease the glyph from the muted tone to the
   accent while it grows ~10% on hover (and pulls back on press), and
-  keyboard focus draws the shared `theme::focus_ring`. Corners share the
+  keyboard focus draws the shared `theme::focus_ring`. Flat filled buttons
+  share one body (`theme::widgets::sized_button`, labels centered with
+  `add_sized` whatever the parent layout — `Button::min_size` alone left
+  them on the parent's cross axis): `theme::tonal_button_sized`
+  (neutral `secondary_container`) everywhere, plus
+  `theme::primary_button_sized`, the single accent-filled white-label action
+  (the error view's "open in your browser" escape hatch), whose dark-mode
+  fill is a darker accent shade so the white label keeps WCAG AA on every
+  pointer state. Corners share the
   `theme::radius` scale (`SMALL/HAIRLINE/CARD/MENU/TILE/SHEET/FULL` + `theme::pill_radius`;
   rows use `row::ROW_RADIUS = radius::MENU`, switch/zoom tracks use
   `pill_radius`), type shares `theme::typography` (`UI_COMPACT/UI_SMALL/EYEBROW/UI_LINK/BUTTON/DROPDOWN/ROW/HEADING/DIALOG_TITLE/DISPLAY`),
   strokes share `theme::stroke` (`HAIRLINE/ICON/EMPHASIS`) and gaps share
-  `theme::spacing` (`XS/S/M/L/XL`); suggestion/history row caps (`config::ROW_TITLE_CHARS /
+  `theme::spacing` (`XS/S/M/L/XL/PAGE_END`); suggestion/history row caps (`config::ROW_TITLE_CHARS /
   ROW_URL_CHARS`), the page-info card's address cap
   (`config::SITE_INFO_ADDRESS_CHARS`), delete confirmations
   (`config::DELETE_CONFIRM_SECS`) and
@@ -829,7 +848,10 @@ Key contracts:
   always-visible scrollbar travel INSIDE the scroll content
   (`theme::content_gutter` + `ScrollArea::content_margin`) so the bar hugs
   the sheet's right edge and a scrolled document is clipped at the flush
-  edges instead of one gutter short of them.
+  edges instead of one gutter short of them. Every scrolling page closes
+  with a shared `theme::spacing::PAGE_END` (24px) blank pad under its last
+  element (documents, Home, the error view), so a page scrolled to its end
+  keeps a small blank margin under the text; the top gutter is unchanged.
 - Omnibox autocomplete (`suggest.rs` + `ui::omnibox`): while either
   address field is editing, a popup lists up to
   `config::MAX_OMNIBOX_SUGGESTIONS` suggestions ranked bookmarks → history →
@@ -956,6 +978,29 @@ Key contracts:
   `muda`/`arboard`/`objc2`/`objc2-app-kit` are macOS-only dependencies
   (`arboard` only backs Paste; the objc2 crates only make the one safe
   AppKit call muda does not surface).
+- Native window geometry (`app::window`): the FIRST frame sizes and positions
+  the window once. `main` sets `NativeOptions::centered`, so eframe centers
+  the window on the primary monitor while CREATING it — Windows otherwise
+  opens it at the `CW_USEDEFAULT` cascade position (low and off to one side).
+  On the first frame the app restores the geometry remembered in the
+  encrypted preferences, or (first run) opens at `config::initial_window_size`
+  — `WINDOW_INITIAL_FRACTION` (80 %) of the current monitor, clamped to
+  `WINDOW_MIN_*`/`WINDOW_INITIAL_MAX_*` — centered on that monitor. The
+  monitor list and the window rects come from the winit window eframe exposes
+  (`Frame::winit_window`, inherent methods only: no direct `winit`
+  dependency). A stored position that no longer overlaps any attached monitor
+  (unplugged screen) falls back to centering, and the size is clamped to the
+  monitor it opens on. Later moves/resizes are persisted (encrypted
+  `settings.bin` key `window`, debounced by
+  `WINDOW_GEOMETRY_SAVE_DEBOUNCE_SECS` and flushed on exit), so the next
+  launch reopens where the user left the window; while maximized only the flag
+  is updated (the stored rect stays the last WINDOWED one, so un-maximizing
+  restores it). The geometry is kept in PHYSICAL pixels and converted to
+  native-scale points only for the viewport commands: egui applies a
+  `set_zoom_factor` only at the start of the NEXT pass, so the first frame's
+  commands run at the default zoom, and physical pixels survive a DPI or zoom
+  change without drifting (a window remembered on a monitor at a different
+  scale reopens at the same physical size).
 - Address typing is tracked with `Tab::address_dirty` (set by the fields on
   `changed()`), so `poll()` never clobbers user edits.
 - Ids: tables/code-scroll/document-scroll salted by `doc_id_salt(base_url)`
@@ -979,8 +1024,10 @@ Key contracts:
   Module-local budgets that only their owner reads live beside it
   (`MAX_SETTINGS_BYTES`, the structural/MDX `MAX_*_SCAN_LINES` budgets,
   `protocol::local`'s read chunk and the store repair-lock timeouts).
-  Window geometry (`WINDOW_INITIAL_*`/`WINDOW_MIN_*`) lives in `config/`
-  instead of `main`, and every wall-clock deadline goes through
+  Window geometry constants (`WINDOW_INITIAL_*`/`WINDOW_INITIAL_FRACTION`/
+  `WINDOW_INITIAL_MAX_*`/`WINDOW_MIN_*` and the save debounce) live in
+  `config/` (not as magic numbers in `main`/`app::window`), and every
+  wall-clock deadline goes through
   `config::deadline_after` (fail-closed `checked_add`: the unreachable
   overflow expires immediately instead of panicking the thread).
 
@@ -1003,8 +1050,9 @@ Key contracts:
 - No continuous repaint: only while loading (60ms ticks for the omnibox
   progress sweep, 100/300ms for the fetch poll), while images/favicons are
   pending, during the 500ms cooldown ticks (counter), or on interaction.
-  The document is parsed to owned events once per fetch and copy text is
-  derived there too; repaints (scroll, selection) never re-run the parser
+  The document is parsed to owned events once per fetch and copy text and
+  the first-H1 title fallback are derived there too; repaints (scroll,
+  selection) never re-run the parser
   nor copy the document text, and code blocks reuse a bounded
   per-document body/span cache. Jobs registered mid-frame also schedule
   their own 120ms tick, so loading placeholders never wait for the next

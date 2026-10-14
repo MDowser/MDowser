@@ -103,7 +103,11 @@ impl eframe::App for MdowserApp {
 
     /// Logic without drawing: poll downloads (documents + images + favicons)
     /// and repaint only while something is pending.
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // Native window: size/position ONCE on the first frame, then keep
+        // the remembered geometry in sync (debounced persistence).
+        self.place_initial_window(ctx, frame);
+        self.track_window_geometry(ctx, frame);
         // macOS menu bar: queue the commands activated since the last pass
         // (replayed through the raw input by `raw_input_hook`). A no-op on
         // the platforms that have no menu.
@@ -393,6 +397,9 @@ impl eframe::App for MdowserApp {
     fn on_exit(&mut self) {
         self.history.on_exit();
         self.bookmarks.on_exit();
+        // Last window geometry (a move or resize right before closing must
+        // not be lost to the debounce).
+        self.save_window_geometry_on_exit();
         // Final session snapshot (also written during `logic`): cheap and
         // guarantees the last state is on disk even if no frame ran after
         // the last change. Only when something actually changed, so a plain

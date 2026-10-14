@@ -29,7 +29,7 @@
 //! - After the domain/path, every non-space non-`<` character is part of the
 //!   candidate; trailing punctuation (`?`, `!`, `.`, `,`, `:`, `*`, `_`,
 //!   `~`), unmatched `)` and a trailing entity reference (`&hl;`) are
-//!   excluded, exactly like GitHub's "extended autolink path validation".
+//!   excluded, per the GFM spec's "extended autolink path validation".
 //! - Email addresses never link (`user@example.com`,
 //!   `user.name@example.com`, `mailto:...`): a domain followed by `@` is
 //!   rejected, and `mailto:` is not a recognized scheme.

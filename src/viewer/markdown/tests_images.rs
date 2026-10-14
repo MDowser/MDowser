@@ -406,12 +406,12 @@ fn consecutive_inline_vectors_share_one_strip_height() {
         )),
         ..Default::default()
     };
-    // Claude (256x257), codex (`1em` -> 16x16), cursor (viewBox only).
+    // Three intrinsic sizes: 256x257, `1em` -> 16x16, viewBox-only (467:533).
     let sizes = [[256usize, 257], [16, 16], [467, 533]];
     let urls = [
-        "https://ex.com/claude.svg",
-        "https://ex.com/codex.svg",
-        "https://ex.com/cursor.svg",
+        "https://ex.com/wide.svg",
+        "https://ex.com/em.svg",
+        "https://ex.com/tall.svg",
     ];
     let mut ids = Vec::new();
     let mut images = crate::media::cache::ImageCache::new();
@@ -478,8 +478,8 @@ fn consecutive_inline_vectors_share_one_strip_height() {
             "strip icon {n} must share the 32px height: {r:?}"
         );
     }
-    // Aspect ratios are preserved: codex grows to 32 wide, cursor keeps
-    // its 467:533 ratio.
+    // Aspect ratios are preserved: the `1em` icon grows to 32 wide, the
+    // viewBox-only one keeps its 467:533 ratio.
     assert!((rects[0].width() - 31.9).abs() < 0.6, "{:?}", rects[0]);
     assert!((rects[1].width() - 32.0).abs() < 0.6, "{:?}", rects[1]);
     assert!((rects[2].width() - 28.0).abs() < 0.6, "{:?}", rects[2]);
@@ -589,18 +589,18 @@ fn theme_variant_logo_pair_collapses_to_one() {
     assert_eq!(painted, 1, "exactly one variant painted: {rects:?}");
 }
 
-/// The Cloudflare "Pick your agent" cards: each ships a light/dark logo
-/// pair of wildly different intrinsic sizes (a 256px logo, a `1em` icon).
-/// One logo per card and one common height for the whole list.
+/// Agent-card lists: each card ships a light/dark logo pair of wildly
+/// different intrinsic sizes (a 256px logo, a `1em` icon). One logo per
+/// card and one common height for the whole list.
 #[test]
-fn cloudflare_card_icons_render_uniform() {
-    let cl = "https://developers.cloudflare.com/icons/agents/claude/light.svg";
-    let cd = "https://developers.cloudflare.com/icons/agents/claude/dark.svg";
-    let xl = "https://developers.cloudflare.com/icons/agents/codex/light.svg";
-    let xd = "https://developers.cloudflare.com/icons/agents/codex/dark.svg";
+fn card_logo_pairs_render_uniform() {
+    let cl = "https://ex.com/icons/alpha/light.svg";
+    let cd = "https://ex.com/icons/alpha/dark.svg";
+    let xl = "https://ex.com/icons/beta/light.svg";
+    let xd = "https://ex.com/icons/beta/dark.svg";
     let md = format!(
-        "[![]({cl})![]({cd}) Anthropic<h3>Claude Code</h3>A description long enough to pass the forty character gate](https://ex.com/a) \
-         [![]({xl})![]({xd}) OpenAI<h3>Codex</h3>Another description long enough to pass the forty char gate](https://ex.com/b)\n"
+        "[![]({cl})![]({cd}) Alpha Foundation<h3>Agent One</h3>A description long enough to pass the forty character gate](https://ex.com/a) \
+         [![]({xl})![]({xd}) Beta Cooperative<h3>Agent Two</h3>Another description long enough to pass the forty char gate](https://ex.com/b)\n"
     );
     let rects = render_vector_set(
         &md,

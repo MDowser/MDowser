@@ -95,6 +95,11 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
     // Copy text is derived here too: off the UI thread, once per document,
     // from the SAME owned events the viewer renders (no second parse).
     let plain_text = crate::markdown::document::plain_text_from_events(&events);
+    // First-`#`-heading title fallback: also from the same events, so a
+    // document without a frontmatter `title` still names its tab/window
+    // (computed unconditionally: an EMPTY frontmatter title falls through
+    // to it in `Fetched::page_title`).
+    let h1_title = crate::markdown::document::first_h1_title(&events);
     // Anchor targets for in-document navigation, collected from the same
     // owned events (bounded).
     let anchors = crate::markdown::anchors::build(&events);
@@ -107,6 +112,7 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
     Ok(Fetched {
         display_url,
         meta,
+        h1_title,
         plain_text,
         events,
         anchors,

@@ -11,7 +11,7 @@
 //! [`NOTO_SANS`] for proportional text and the Noto Sans Mono CJK cut
 //! (face 5 of [`noto_sans_cjk`]) for code — and the rest are glyph
 //! fallbacks for code points they cannot draw. Nothing else is registered
-//! anywhere: epaint's bundled Ubuntu/Hack faces never reach the screen.
+//! anywhere: epaint's bundled default faces never reach the screen.
 //!
 //! - `NOTO_SANS`: Noto Sans (variable `wdth`/`wght`, default Regular).
 //!   The app's proportional typeface (chrome, menus, documents) and the

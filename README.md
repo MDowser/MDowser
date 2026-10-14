@@ -25,10 +25,11 @@ any static Markdown host just works.
 
 ## Highlights
 
-- **GitHub-grade Markdown.** GFM + CommonMark (tables, footnotes, tasklists,
-  strikethrough) and YAML frontmatter, drawn with GitHub's Primer palette —
-  code cards with syntax colors and a Copy button, striped bordered tables,
-  callouts and README typography. HTML, JSX and `:::` custom containers
+- **Native Markdown engine.** CommonMark plus GFM-style extensions (tables,
+  footnotes, tasklists, strikethrough) and YAML frontmatter, rendered by
+  MDowser itself with a neutral documentation palette — code cards with
+  syntax colors and a Copy button, striped bordered tables, callouts and
+  documentation typography. HTML, JSX and `:::` custom containers
   render at the markup level only: tags are transparent wrappers, MDX
   components (`<Tabs>`, `<Accordion>`, `<Card>`, `<Steps>`, `<CodeGroup>`,
   `<Badge>`) and their `:::` equivalents (`:::tabs`, `:::code-group`,
@@ -148,3 +149,11 @@ in [`docs/SECURITY.md`](docs/SECURITY.md).
 ## License
 
 Mozilla Public License 2.0 (`MPL-2.0`) — see [`LICENSE`](LICENSE).
+
+## Trademarks
+
+MDowser is an independent project, not affiliated with, endorsed by or
+sponsored by any product, project or service it may mention. Every
+third-party name and mark belongs to its respective owner and is used only
+for identification or description; bundled dependencies are listed in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

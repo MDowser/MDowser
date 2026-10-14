@@ -6,12 +6,12 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
-use super::MdowserApp;
+use super::{first_run_target, stored_target, MdowserApp, WindowGeometryState};
 use crate::bookmarks::BookmarkStore;
 use crate::browser::tab::{Tab, TabState};
 use crate::history::HistoryStore;
 use crate::media::favicon::FaviconCache;
-use crate::settings::Prefs;
+use crate::settings::{Prefs, WindowGeometry};
 use crate::ui::preferences::PreferencesState;
 
 fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
@@ -31,6 +31,7 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         session_saved_active: active,
         session_save_retry_at: None,
         session_restore_enabled: false,
+        window_geometry: WindowGeometryState::new(None),
         windows: PreferencesState::new(),
         // The real bar is installed at startup (AppKit owns it); tests never
         // touch it, so the field stays `None` here.
@@ -94,6 +95,7 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
     let mut fetched = crate::protocol::client::Fetched {
         display_url: url::Url::parse(url).unwrap(),
         meta: crate::markdown::frontmatter::Meta::default(),
+        h1_title: None,
         plain_text: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
@@ -336,6 +338,7 @@ fn markdown_tab(id: usize, md: &str) -> Tab {
         fetched: crate::protocol::client::Fetched {
             display_url: base,
             meta: crate::markdown::frontmatter::Meta::default(),
+            h1_title: crate::markdown::document::first_h1_title(&events),
             plain_text: md.to_string(),
             events,
             anchors,
@@ -473,5 +476,81 @@ fn right_click_keeps_the_text_selection_for_copy() {
         copied.first().map(String::as_str),
         Some(selected.as_str()),
         "Copy must copy the selected text"
+    );
+}
+
+/// First run (no stored geometry): the window opens at the
+/// monitor-proportional size, centered on the current monitor.
+#[test]
+fn first_run_window_geometry_is_proportional_and_centered() {
+    use eframe::egui;
+    let monitor = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+    let target = first_run_target(Some(monitor), egui::Vec2::ZERO, 1.0).expect("a monitor");
+    assert_eq!(
+        target.size,
+        egui::vec2(1536.0, 864.0),
+        "80 % of the monitor"
+    );
+    assert_eq!(target.pos, egui::pos2(192.0, 108.0), "centered");
+    assert!(!target.maximized);
+    // The frame chrome is accounted for: the OUTER rect is centered.
+    let target = first_run_target(Some(monitor), egui::vec2(0.0, 40.0), 1.0).unwrap();
+    assert_eq!(target.pos.y, 88.0);
+    // A 2x monitor: the size is physical, so the ui-point bounds scale with
+    // it (the window is still 80 % of the monitor).
+    let hidpi = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(3840.0, 2160.0));
+    let target = first_run_target(Some(hidpi), egui::Vec2::ZERO, 2.0).unwrap();
+    assert_eq!(target.size, egui::vec2(3072.0, 1728.0));
+    assert_eq!(target.pos, egui::pos2(384.0, 216.0));
+    // No monitor information at all: nothing to place.
+    assert!(first_run_target(None, egui::Vec2::ZERO, 1.0).is_none());
+}
+
+/// A stored geometry is restored when its position still lands on an
+/// attached monitor; the size is clamped to that monitor and the maximized
+/// flag survives.
+#[test]
+fn stored_window_geometry_is_restored_and_clamped() {
+    use eframe::egui;
+    let monitor = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+    let stored = WindowGeometry {
+        pos: egui::pos2(300.0, 200.0),
+        size: egui::vec2(1000.0, 700.0),
+        maximized: true,
+    };
+    let target = stored_target(stored, &[monitor], Some(monitor), egui::Vec2::ZERO, 1.0).unwrap();
+    assert_eq!(target, stored, "an on-screen geometry is kept verbatim");
+    // A size from a larger screen is clamped to this monitor.
+    let huge = WindowGeometry {
+        size: egui::vec2(3000.0, 2000.0),
+        ..stored
+    };
+    let target = stored_target(huge, &[monitor], Some(monitor), egui::Vec2::ZERO, 1.0).unwrap();
+    assert_eq!(target.size, egui::vec2(1920.0, 1080.0));
+    assert!(target.maximized, "the maximized flag survives the clamp");
+}
+
+/// The monitor a stored window was on can be gone: the geometry then falls
+/// back to centering on the current monitor instead of opening off-screen.
+#[test]
+fn stored_window_geometry_falls_back_to_centering_without_its_monitor() {
+    use eframe::egui;
+    let monitor = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+    let stored = WindowGeometry {
+        pos: egui::pos2(5000.0, 5000.0), // was on a monitor that is gone
+        size: egui::vec2(1000.0, 700.0),
+        maximized: false,
+    };
+    let target = stored_target(stored, &[monitor], Some(monitor), egui::Vec2::ZERO, 1.0).unwrap();
+    assert_eq!(
+        target.pos,
+        egui::pos2(460.0, 190.0),
+        "centered on the current monitor"
+    );
+    assert_eq!(target.size, stored.size);
+    // No monitor list to validate against: trust the stored geometry.
+    assert_eq!(
+        stored_target(stored, &[], Some(monitor), egui::Vec2::ZERO, 1.0),
+        Some(stored)
     );
 }

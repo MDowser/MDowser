@@ -12,9 +12,12 @@
 //!   large store nor a slow/spun-down disk stalls a frame.
 //! - ONE worker per store means writes can never reorder (a stale blob
 //!   renamed over a newer one).
-//! - The queue is BOUNDED to one pending blob: enqueueing while a blob is
-//!   still queued replaces it (newest wins). A hung disk therefore cannot
-//!   grow memory at the debounce rate.
+//! - The queue is BOUNDED to one pending blob PER TARGET FILE: enqueueing
+//!   for a directory that already has a blob queued replaces it (newest
+//!   wins). The app writes ONE data directory, so a hung disk cannot grow
+//!   memory at the debounce rate; keying by directory also keeps two writers
+//!   to DIFFERENT directories (only tests do this) from dropping each other's
+//!   blob, which a single-slot queue did.
 //! - `flush` lets the worker WRITE the queued blob (never drops it: the
 //!   caller cleared its `dirty` flag at enqueue time, so a dropped blob
 //!   would silently lose the newest data), signals it to exit once the
@@ -61,8 +64,12 @@ struct WorkerShared {
     name: &'static str,
     /// Store label used in error messages ("could not save history: ...").
     label: &'static str,
-    /// Newest pending job (older, unwritten blobs are dropped).
-    job: Mutex<Option<WriteJob>>,
+    /// Newest pending job PER TARGET DIRECTORY (older, unwritten blobs for
+    /// the same directory are dropped). The app writes one data directory,
+    /// so this is the documented bounded queue; keeping one job per
+    /// directory stops a write to ANOTHER directory (only tests) from
+    /// replacing it.
+    job: Mutex<Vec<WriteJob>>,
     /// Signals a new job or the stop request.
     cv: Condvar,
     /// Set by `flush`: the worker exits once the queue is empty.
@@ -72,7 +79,7 @@ struct WorkerShared {
     /// (reporting the race to the caller) instead of leaving them in a queue
     /// nobody reads.
     exited: AtomicBool,
-    /// Queued + in-flight jobs (0, 1 or 2), so `busy` is exact.
+    /// Queued + in-flight jobs, so `busy` is exact.
     pending: AtomicUsize,
     last_error: Mutex<Option<String>>,
     /// Set by the worker when a write lands; consumed by the store's `tick`
@@ -90,7 +97,7 @@ impl StoreWriter {
         let shared = Arc::new(WorkerShared {
             name,
             label,
-            job: Mutex::new(None),
+            job: Mutex::new(Vec::new()),
             cv: Condvar::new(),
             stop: AtomicBool::new(false),
             exited: AtomicBool::new(false),
@@ -113,7 +120,7 @@ impl StoreWriter {
                     let job = {
                         let mut slot = worker.job.lock().unwrap_or_else(|e| e.into_inner());
                         loop {
-                            if let Some(job) = slot.take() {
+                            if let Some(job) = slot.pop() {
                                 break Some(job);
                             }
                             if worker.stop.load(Ordering::SeqCst) {
@@ -181,17 +188,22 @@ impl StoreWriter {
         }
     }
 
-    /// Queues one write, replacing a queued-but-unwritten blob (newest
-    /// wins). `Err(job)` returns the job UNSENT when the worker had already
-    /// exited: the caller must replace the worker and retry, never drop the
-    /// blob (see [`queue_or_respawn`]).
+    /// Queues one write, replacing a queued-but-unwritten blob for the SAME
+    /// target directory (newest wins); a job for another directory is kept.
+    /// `Err(job)` returns the job UNSENT when the worker had already exited:
+    /// the caller must replace the worker and retry, never drop the blob (see
+    /// [`queue_or_respawn`]).
     fn push(&self, job: WriteJob) -> Result<(), WriteJob> {
         let mut slot = self.shared.job.lock().unwrap_or_else(|e| e.into_inner());
         if self.shared.exited.load(Ordering::SeqCst) {
             return Err(job);
         }
-        if slot.replace(job).is_none() {
-            self.shared.pending.fetch_add(1, Ordering::SeqCst);
+        match slot.iter_mut().find(|pending| pending.dir == job.dir) {
+            Some(pending) => *pending = job,
+            None => {
+                slot.push(job);
+                self.shared.pending.fetch_add(1, Ordering::SeqCst);
+            }
         }
         drop(slot);
         self.shared.cv.notify_one();
@@ -438,6 +450,23 @@ mod tests {
         // the LAST queued blob is what must land in the end.
         assert_eq!(landed, b"third", "newest wins");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two writers to DIFFERENT directories must not drop each other's blob
+    /// (a single-slot queue did): each directory keeps its own newest job.
+    /// The app only writes one directory; this pins the test-only case.
+    #[test]
+    fn jobs_for_different_directories_are_kept() {
+        let a = tmp_dir("multi-a");
+        let b = tmp_dir("multi-b");
+        let mut writer = StoreWriter::spawn("store.bin", "store");
+        enqueue(&writer, &a, b"a");
+        enqueue(&writer, &b, b"b");
+        assert!(writer.flush(Duration::from_secs(5)), "both writes drain");
+        assert_eq!(std::fs::read(a.join("store.bin")).expect("a written"), b"a");
+        assert_eq!(std::fs::read(b.join("store.bin")).expect("b written"), b"b");
+        let _ = std::fs::remove_dir_all(&a);
+        let _ = std::fs::remove_dir_all(&b);
     }
 
     /// A stopped worker that has drained reports `worker_dead`, and `Drop`

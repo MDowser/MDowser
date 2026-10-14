@@ -67,10 +67,11 @@ fn main() -> eframe::Result<()> {
     // typed. Flags are skipped (`-psn_...` on a macOS Finder launch, and any
     // future option), so nothing machine-generated is opened as a document.
     let initial = collect_initial_targets(std::env::args().skip(1));
-    // Native options: title, initial + minimum size, vsync for smooth
-    // scrolling. `app_id` drives the Wayland app id and the persistence
-    // directory; the app icon goes to the OS window/taskbar (Windows and
-    // Linux; macOS uses the `.app` bundle icon).
+    // Native options: title, creation + minimum size (the first frame then
+    // applies the remembered geometry or the monitor-proportional size; see
+    // `app::window`), vsync for smooth scrolling. `app_id` drives the Wayland
+    // app id and the persistence directory; the app icon goes to the OS
+    // window/taskbar (Windows and Linux; macOS uses the `.app` bundle icon).
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size(egui::Vec2::new(
             crate::config::WINDOW_INITIAL_W,
@@ -87,6 +88,12 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions {
         viewport,
+        // eframe centers the window on the primary monitor while CREATING
+        // it (it reaches winit's monitors from the event loop), so Windows
+        // never opens MDowser at its `CW_USEDEFAULT` cascade position (which
+        // appeared low and off to one side). The first frame then applies the
+        // stored geometry, or a monitor-proportional size, in `app::window`.
+        centered: true,
         ..Default::default()
     };
     eframe::run_native(

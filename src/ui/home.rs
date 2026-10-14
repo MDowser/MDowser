@@ -83,7 +83,9 @@ pub fn show_home(
                 }
                 // Bookmarks live ONLY here (Home / new tab page).
                 new_tab_url = crate::ui::bookmarks::show_bookmarks(ui, tab, bookmarks, favicons, w);
-                ui.add_space(24.0);
+                // Same blank end margin as the reading column (the Home page
+                // scrolls too): text never hugs the sheet's bottom edge.
+                ui.add_space(theme::spacing::PAGE_END);
             });
         });
     crate::ui::remember_scroll(ui.ctx(), crate::ui::HOME_SCROLL_ID, tab.id, out.id);

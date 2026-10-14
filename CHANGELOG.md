@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-14
+
+A feature release on top of a full audited pass: documents without a
+frontmatter `title` now name themselves from their first `#` heading, the
+native window remembers its geometry (and opens centered instead of at the
+OS cascade position), and the "No markdown here" screen gains an accent
+action that hands the target to the OS default handler — plus a
+native-feeling tab-rail reveal, neutral product wording across the docs,
+metadata and comments, and fixes across the stores, the packaging and the
+error view.
+
+### Added
+
+- Documents without a frontmatter `title` now name their tab, the OS window
+  title, the omnibox page-info card and the default bookmark/history entry
+  with their first `#` heading; the schemeless URL stays the last resort.
+  The title is derived once per fetch from the already-parsed events
+  (background thread, never a second parse), bounded and sanitized exactly
+  like a frontmatter title, and a declared `title` always wins.
+  (`src/markdown/document/title.rs`, `src/protocol/client/`,
+  `src/browser/tab/`, `src/history/`, `src/bookmarks/`, `docs/`.)
+- The native window now remembers its geometry: the last position, size and
+  maximized state are stored encrypted in `settings.bin` (like the theme and
+  zoom; written debounced after the window is still, and once more on exit)
+  and restored on the next launch, with a centering fallback when the monitor
+  it was on is gone. (`src/settings/`, `src/app/window.rs`, `docs/`.)
+- The error screen's "No markdown here" family gained a large accent
+  "Open in your browser" action under the requested address (local files say
+  "Open with the default app"): it hands the resolved target to the OS
+  default handler — the default browser for web pages, the file's default
+  app for local ones — through egui's `OpenUrl` command (the already-embedded
+  integration, no new dependency). The address is re-resolved through the
+  app's own navigability parser at click time, so pasted credentials are
+  stripped before the OS sees anything; no other error family offers it.
+  (`src/ui/error_view.rs`, `src/ui/theme/widgets.rs`, `docs/`.)
+
 ### Changed
 
 - Assets layout: the bundled Noto faces moved to `assets/fonts/` (every
@@ -17,15 +53,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   embedded with `include_str!` and parsed once per process by
   `builtin_sites::builtin_suggestions()`. The list content and order are
   unchanged. (`assets/`, `src/`, `build_support/`, `docs/`.)
+- Tab rail labels (tab titles, `+ New Tab` and `History`) draw the regular
+  face again: the rail is chrome, and `theme::strong` (the bundled Noto
+  Sans pinned to `wght = 700`) stays for document emphasis (headings,
+  `**strong**` runs, callout titles, footnote refs) and the titled
+  surfaces (History, Bookmarks, Preferences, the error view, omnibox
+  suggestions, tonal buttons). (`src/ui/tabs/rows.rs`,
+  `docs/INTERFACE.md`.)
+- The tab rail's hover expansion now settles like a native sidebar: the
+  width tween uses a quintic ease-out (fast start, gentle tail, mirrored
+  when closing) instead of `cubic_out`, and the titles and action labels
+  fade in while drifting the last few pixels into their column, each tab row
+  a bounded beat after the one above it. Geometry at rest is unchanged.
+  (`src/ui/tabs/`, `docs/INTERFACE.md`.)
+- Wording: user-facing copy (README, AppStream metadata, man page, docs and
+  source comments) now describes the Markdown engine, the palette and the
+  layout in neutral terms instead of naming third-party products, and the
+  README gained a Trademarks note. Functional references that stay
+  (CommonMark/GFM as a spec comparison, platforms, dependencies, fonts and
+  curated links) are nominative only.
+  (`README.md`, `docs/`, `packaging/`, `src/`, `CHANGELOG.md`.)
 
 ### Fixed
 
+- Scrolling pages now end with a small blank margin: the responsive content
+  gutter is symmetric, so the last line of a long document (and of the Home
+  and error pages) sat close to the sheet's bottom edge once scrolled all
+  the way down. Every scrolling page closes with a shared
+  `theme::spacing::PAGE_END` (24px) pad under its last element; the top
+  gutter and the scrolled-edge clipping are unchanged. (`src/ui/theme/`,
+  `src/ui/home.rs`, `src/viewer/`, `docs/`.)
 - The internal egui id-salt parameters (`ui::omnibox::address_id`,
   `ui::scroll_id_key`, `ui::remember_scroll`, `ui::forget_scroll_state`) are
-  named `id_salt` instead of `salt`, so CodeQL's
-  `rust/hard-coded-cryptographic-value` heuristic no longer misreads a UI
-  hash namespace as hard-coded cryptographic material (no behavior change;
-  the stored ids are identical).
+  named `id_salt` instead of `salt`, so static-analysis heuristics for
+  hard-coded cryptographic values no longer misread a UI hash namespace as
+  cryptographic material (no behavior change; the stored ids are identical).
+- Initial window position on Windows: the window opened at the OS
+  `CW_USEDEFAULT` cascade position (low and off to one side). It is now
+  centered on the primary monitor while it is created
+  (`NativeOptions::centered`), and the first frame sizes it to 80 % of the
+  monitor, clamped between 640×480 and 1680×1050, instead of a fixed
+  1100×750. (`src/main.rs`, `src/config/`, `src/app/window.rs`, `docs/`.)
+- The encrypted-store background writer's bounded "newest wins" queue is now
+  keyed per target directory, so two writers to DIFFERENT data directories
+  can no longer drop each other's queued blob. The app writes a single data
+  directory, so this is a latent-robustness fix (it also makes the parallel
+  test suite deterministic). (`src/store/writer.rs`, `docs/`.)
+- The tab rail's right-edge separator no longer pops on or off when the hover
+  overlay opens or closes: it is now drawn in the collapsed state too
+  (smaller and fainter — a dimmer hairline in dark mode) and its strength
+  follows the open tween, so the rail/page boundary is continuous.
+  (`src/ui/tabs/`, `docs/INTERFACE.md`.)
+- The error screen's red status dot sits centered with the family title
+  again: it is painted on the title's laid-out rect instead of on its own
+  shorter slot, which the horizontal row top-clamps and parked ~6px above
+  the title. (`src/ui/error_view.rs`.)
+- Fixed-size buttons (`theme::tonal_button_sized` and the new
+  `theme::primary_button_sized`: Retry and the external-open action) center
+  their label again. `Button::min_size` aligned the label to the PARENT
+  layout's cross axis — centered under a centered/right-to-left parent, but
+  visibly left-parked inside the error view's left-aligned column; the
+  shared body now uses `add_sized` (`centered_and_justified`), so the label
+  centers whatever the surrounding layout is. (`src/ui/theme/widgets.rs`.)
 
 ## [0.4.6] - 2026-10-14
 
@@ -487,7 +576,7 @@ binaries and a batch of doc/comment drift closed.
   summed a hair past the usable width (`86.25 + 340` grown to fill 757 came
   out `757.00006 > 757`), and `flush_table` reads `sum > usable` as "even
   the floors do not fit", re-laying every column out for horizontal
-  scrolling capped at `scroll_max`. On the Stripe in-person-payments table
+  scrolling capped at `scroll_max`. On a real-world pricing table
   the second column collapsed from ~604px to 128px and wrapped every couple
   of words while its card stayed full width. A rounding residual is now
   taken off the widest column (never below `min_col`, so a REAL overflow
@@ -542,7 +631,7 @@ truncation).
   `Down`/`Up` and clicks are unchanged. (`src/ui/omnibox/`,
   `docs/INTERFACE.md`, `docs/NAVIGATION.md`.)
 - `<Tabs items={[…]}>` labels now reach the tab strip: the `items` array was
-  ignored, so langfuse.com-style tab sets fell back to `Tab 1…N`. The
+  ignored, so tab sets that rely on it fell back to `Tab 1…N`. The
   string-array attribute labels the `<Tab>` children that carry no
   `label`/`title` of their own (explicit labels win, nested sets use their
   own parent). The per-instance selection key also includes the `<Tabs>`
@@ -550,7 +639,7 @@ truncation).
   share one selection (the "ghost" tab that appeared selected in the second
   list and vanished on the first click). (`src/markdown/document/`,
   `src/viewer/markdown/`, `docs/RENDERING.md`.)
-- Headings no longer show their `[#anchor]` markers: the Fumadocs/Mintlify
+- Headings no longer show their `[#anchor]` markers: the docs-generator
   convention (`## Title [#custom-id]`) is rewritten before parsing to the
   heading attribute `{#custom-id}`, which sets the explicit anchor id and
   never renders as text. Code, escaped markers and non-heading lines keep
@@ -1115,7 +1204,7 @@ are cleaned up.
   `docs/ARCHITECTURE.md`.)
 
 - Address autocomplete builtin list grows from 9 to 82 curated entries
-  (service/doc sites such as Resend, Vercel, GitHub Docs, Next.js plus the
+  (developer-service and docs sites plus the
   agent-ready and personal-site lists) and moves to its own module
   (`src/builtin_sites.rs`, imported by `src/suggest.rs`), so growing it
   never touches ranking code or tests.
@@ -1161,7 +1250,7 @@ are cleaned up.
   now visibly heavier instead of color-only. (`src/ui/theme/`,
   `src/viewer/`, `src/ui/error_view.rs`, `src/ui/preferences/`,
   `docs/RENDERING.md`.)
-- GitHub-style footnotes: a `[^label]` reference renders as a small raised
+- Footnotes: a `[^label]` reference renders as a small raised
   NUMBER marker linked to its note (never the source `[^label]` spelling),
   numbered in FIRST-REFERENCE order — so `[^note]` before `[^2]` shows 1 and
   2, and a repeat keeps its number (`AnchorIndex::footnote_number`). The
@@ -1172,8 +1261,8 @@ are cleaned up.
   block that cannot flow inline keeps the marker above it, like a list
   item), and a small vector back-arrow (`Icon::Back`) that scrolls to the
   painted reference.
-  Definitions the document never references still render — GitHub drops
-  them, MDowser never hides what the author wrote — continuing the numbering
+  Definitions the document never references still render — common renderers
+  drop them, MDowser never hides what the author wrote — continuing the numbering
   after the referenced ones. `Copy` keeps the source `[^label]` spelling.
   (`src/markdown/anchors.rs`, `src/viewer/markdown/`,
   `src/viewer/inline/`, `docs/RENDERING.md`, `docs/INTERFACE.md`,
@@ -1183,7 +1272,7 @@ are cleaned up.
   menus, documents) and the monospace family leads with its bundled
   true-monospace cut (Noto Sans Mono CJK JP, face 5 of the CJK
   collection), so code keeps its alignment — instead of both sitting
-  behind epaint's bundled Ubuntu Light/Hack, which are no longer
+  behind epaint's bundled default faces, which are no longer
   registered in the UI stack or loaded into the SVG font
   database; SVG text defaults and generic families resolve to the same
   bundled faces (`serif`/`sans-serif`/`cursive`/`fantasy` to Noto Sans,
@@ -1560,7 +1649,7 @@ are cleaned up.
   (`src/ui/theme/`, `src/viewer/markdown/tests_layout.rs`.)
 - The `about:history` footer's destructive button could grow by 0.7px when
   armed ("Delete history now" no longer fitted the fixed 164px slot under
-  the bundled primary face, which is wider than epaint's Ubuntu Light):
+  the bundled primary face, which is wider than epaint's default face):
   `DELETE_W` is now 168px, so the two-click swap never nudges the footer.
   (`src/ui/history_page/`.)
 - The back-reference arrow was the `↩` character (U+21A9), which the emoji
@@ -1650,16 +1739,16 @@ are cleaned up.
 ### Added
 
 - First-run bookmarks: a fresh profile (no bookmark store yet) starts with
-  a curated default set of five (Accept Markdown, AgentReady leaderboard,
-  Cloudflare, Stripe docs, Is It Agent Ready). Seeded once, never
+  a curated default set of five (Markdown guides, an agent-readiness
+  leaderboard and developer-service docs). Seeded once, never
   recurrently: an existing store — even one the user emptied — is never
   reseeded (existing profiles keep the older eight). Favicons load through
   the usual Home tile pipeline (one probe per origin on first display).
 - Address autocomplete in BOTH address fields (toolbar omnibox and the
   Home capsule), ranked bookmarks → local history → a curated builtin list
   compiled into the binary (`suggest::BUILTIN_SUGGESTIONS`: the five seeded
-  bookmarks plus Vercel/Sentry/Supabase docs — kept out of the first-run
-  grid — plus `developers.cloudflare.com`; append one `(url, title)` line
+  bookmarks plus developer-service docs — kept out of the first-run
+  grid — plus a developers-portal entry; append one `(url, title)` line
   to grow it), deduplicated by exact URL and matched
   case-insensitively on URL + title with or without scheme; an empty field
   offers recent bookmarks. `Down`/`Up` move the selection, `Tab` completes
@@ -1879,7 +1968,7 @@ are cleaned up.
   (`media::decode`): `<filter>`/`fe*` definitions, primitives and every
   `filter` reference (element and attribute spellings, namespace prefixes
   included) are stripped from the source before `usvg` parses it, and the
-  unfiltered content renders — a shields.io badge carrying a blur shadow
+  unfiltered content renders — a status badge carrying a blur shadow
   now shows its flat badge instead of the failure placeholder. Removing the
   references as well is required: usvg DROPS an element whose `filter` link
   dangles. No filter can run (the `numOctaves`/morphology/convolution cost
@@ -2542,7 +2631,7 @@ are cleaned up.
   metadata blocks, existing links and image alt text are never touched;
   bounded by `config::MAX_AUTOLINKS_PER_DOC` / `AUTOLINK_MAX_DOMAIN_CHARS`
   and a linear scan, and Copy still pastes the URL as written.
-- Preferences: a fixed-size, Material-style dialog (custom header with a
+- Preferences: a fixed-size, card-style dialog (custom header with a
   title and close button, grouped section cards, list rows, a toggle switch)
   that no longer resizes when an option changes. The History card holds the
   retention dropdown and the destructive "Delete history" action (two-click
@@ -2606,7 +2695,7 @@ are cleaned up.
   reads one card per row.
 - Lax link joining (`markdown::document::normalize_body`): an inline
   link/image whose text an exporter split with a blank line (`[label` blank
-  line `body](url)`, common in Cloudflare Docs `.md` exports) is repaired
+  line `body](url)`, common in some docs-site `.md` exports) is repaired
   instead of leaking a literal `[` and a stray `](url)`. Only blank lines
   inside a balanced `[...](...)` span are removed (a whitespace-only line
   counts); ordinary paragraph breaks, fenced/indented blocks and inline code
@@ -2725,16 +2814,15 @@ are cleaned up.
   Ordered `N.` items share the same text column.
 - Document typography follows the README scale: body 16px at 1.5 line height,
   headings 2em/1.5em/1.25em/1em/.875em/.85em, inline and block code at 85%.
-- README rendering now tracks GitHub's current markdown stylesheet
-  (`github-markdown-css`): palette tokens are the current Primer values
+- README rendering refreshed with a neutral documentation palette
   (light `#d1d9e0` borders; dark `#151b23` chrome, `#f0f6fc` text,
   `#9198a1` muted, `#3d444d` borders, updated syntax colors), inline code
-  pills use GitHub's `.2em .4em` padding and 6px radius, code cards drop the
-  1px border and use `pre`'s 16px padding and 1.45 line height, tables carry
-  GitHub-like interior cell separators and a tight 5px/11px cell padding
-  (slightly tighter than GitHub's 6px/13px), task
+  pills use `.2em .4em` padding and a 6px radius, code cards drop the
+  1px border and use 16px padding and 1.45 line height, tables carry
+  collapsed interior cell separators and a tight 5px/11px cell padding
+  (slightly tighter than the common 6px/13px), task
   checkboxes paint like the native control (blue fill + white check when
-  done, bordered box when pending), and alert titles read in GitHub's title
+  done, bordered box when pending), and alert titles read in title
   case at body size ("Note", not "NOTE").
 - Quotes and alerts are ONE thick bar in a soft full-width box: egui's
   indent guide line is disabled (`Visuals::indent_has_left_vline`) so the
@@ -3254,7 +3342,7 @@ are cleaned up.
   `media::decode` to `config::MAX_DECODER_ALLOC_BYTES`, like every other
   anti-abuse bound (docs reference the constant).
 - CI `audit` job installs `cargo-audit`/`cargo-deny` from prebuilt
-  binaries (`taiki-e/install-action`), cutting minutes per run; the
+  binaries (an install action), cutting minutes per run; the
   workflow also runs weekly (fresh RustSec DB) and on manual dispatch.
 - Release CI now publishes `SHA256SUMS.txt` next to every artifact, the
   same guarantee `make dist` gives locally.
@@ -3522,8 +3610,8 @@ are cleaned up.
   `cargo clippy -- -D warnings`), and set `strip = "none"` so only
   `scripts/build-dist.sh` strips binaries (matches the documented
   `try_strip` flow).
-- CI now tests all three OSes (Linux, macOS, Windows) with `rust-cache`;
-  Intel macOS runner moved from retired `macos-13` to `macos-15-intel`;
+- CI now tests all three OSes (Linux, macOS, Windows) with a dependency
+  cache; the Intel macOS runner moved to the current runner image;
   release flow unchanged.
 - CI hardening: top-level `permissions: contents: read` (release job
   re-escalates to `write`), per-job `timeout-minutes`, and `concurrency`

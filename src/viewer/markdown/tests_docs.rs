@@ -501,7 +501,7 @@ fn bare_url_renders_as_a_clickable_link() {
     assert!(clicks.is_empty(), "no click was sent");
 }
 
-/// A `:::` admonition renders as a callout badge + body (GitHub title
+/// A `:::` admonition renders as a callout badge + body (badge in title
 /// case: "Tip").
 #[test]
 fn renders_colon_container_as_callout() {
@@ -516,7 +516,7 @@ fn renders_colon_container_as_callout() {
     );
 }
 
-/// An alert renders as a badge (GitHub title case: "Note"), with the raw
+/// An alert renders as a badge (title case: "Note"), with the raw
 /// `[!NOTE]` marker removed (the parser splits the token into several
 /// text events; the renderer coalesces them before detecting the marker).
 #[test]
@@ -1031,7 +1031,7 @@ fn html_comments_are_not_painted() {
 }
 
 /// `<Tabs items={["A", "B"]}>` labels its label-less `<Tab>` children with
-/// the item strings (the Fumadocs/Mintlify convention used by langfuse.com):
+/// the item strings (a common docs-generator convention):
 /// the real labels show instead of the `Tab 1…N` fallback.
 #[test]
 fn tabs_items_label_the_panels() {
@@ -1404,8 +1404,8 @@ fn clicking_a_tab_switches_the_panel() {
 
 /// Two `<Tabs>` sets with the SAME labels keep independent selections: the
 /// per-instance state is keyed by the marker's event index, so clicking a
-/// tab in the first list never flips a "ghost" selection in the second (the
-/// reported langfuse.com/docs behavior).
+/// tab in the first list never flips a "ghost" selection in the second (a
+/// reported docs-site behavior).
 #[test]
 fn identical_tabs_sets_keep_independent_selections() {
     let ctx = egui::Context::default();

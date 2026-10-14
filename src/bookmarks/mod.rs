@@ -63,7 +63,7 @@ const KEY_FILE: &str = crate::settings::STORE_KEY_FILE;
 /// Titles are editable inline like any other bookmark; deleting them never
 /// brings them back (seeding happens once, never recurrently).
 ///
-/// Vercel/Sentry/Supabase docs live ONLY in the omnibox builtin suggestions
+/// Some developer-service docs live ONLY in the omnibox builtin suggestions
 /// (`builtin_sites::builtin_suggestions()`, `assets/builtin_sites.txt`), not
 /// here: the first-run grid stays at
 /// five tiles while the address popup still offers the full builtin list.
@@ -83,7 +83,8 @@ pub(crate) const DEFAULT_BOOKMARKS: [(&str, &str); 5] = [
 pub struct Bookmark {
     /// Normalized absolute `https://` URL, or a local `file://` path.
     pub url: String,
-    /// Sanitized frontmatter title, when the page had one. Editable from
+    /// Sanitized page title (frontmatter `title`, else the first H1), when
+    /// the page has one. Editable from
     /// the Home tile editor.
     pub title: Option<String>,
     /// Unix timestamp (seconds) of when the page was bookmarked.

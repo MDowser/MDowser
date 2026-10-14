@@ -226,8 +226,8 @@ and is the RPM spec's `%install`:
 RPM: `packaging/rpm/mdowser.spec` builds the crate from the full source tree.
 `make dist-rpm` (or `./scripts/build-dist.sh --rpm`) creates the source
 tarball and runs `rpmbuild` with the version from `Cargo.toml`. Offline
-(Koji-style) builds need the crates vendored; COPR and a local `rpmbuild`
-have network.
+(no-network) builds need the crates vendored; a build host with network
+access (or a local `rpmbuild`) does.
 
 Flatpak: `packaging/flatpak/dev.mdowser.app.yaml` builds the same source into
 `dev.mdowser.app`; `make flatpak` / `make dist-flatpak` (and `make dist` when

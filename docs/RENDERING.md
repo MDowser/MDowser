@@ -6,14 +6,17 @@ internals live in [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Markdown
 
-- CommonMark + GFM tables + links + `[^N]` footnotes + `[ ]`/`[x]` tasklists
-  + strikethrough.
+- CommonMark plus GFM-style tables, links, `[^N]` footnotes, `[ ]`/`[x]`
+  tasklists and strikethrough.
 - Optional YAML frontmatter (`--- ... ---`). Malformed YAML (a parse error)
   moves to the next route. A leading `---` without a closing delimiter — or
   a delimited block that parses as YAML but is not a mapping — is CommonMark
   content (thematic break + text), never an error. The `title` goes to the
-  OS window, not the content.
-- Pandoc-style `+++ ... +++` metadata blocks parse (the parser option is
+  OS window, not the content. When there is no frontmatter `title`, the
+  document's first `#` heading names the tab, the OS window, the page-info
+  card and the default bookmark/history entry (the heading still renders as
+  content; the schemeless URL is the last resort).
+- `+++ ... +++` TOML-style metadata blocks parse (the parser option is
   on) and are never rendered or copied: they are invisible, like YAML
   frontmatter that survived the split.
 - `:::` and `!!!` admonitions render as the same callouts as alert
@@ -65,8 +68,8 @@ STRUCTURE and never evaluates it:
   `<Steps>`/`<Step>` as numbered rows and `<CodeGroup>` as one code tab
   per fenced child (the label is the fence `title=`, else its language).
   `<Tabs items={["A", "B"]}>` labels its `<Tab>` children that carry no
-  `label`/`title` (Fumadocs/Mintlify convention), so langfuse.com-style
-  sets show their real names instead of `Tab 1…N`.
+  `label`/`title` (a common docs-generator convention), so tab
+  sets that rely on it show their real names instead of `Tab 1…N`.
   A very long label (tab cell, accordion header, step title) is elided
   (with the full text in the hover tooltip): one 2 000-char label used to
   push every later tab outside the reading sheet.
@@ -141,11 +144,11 @@ STRUCTURE and never evaluates it:
 
 ## Footnotes
 
-`[^label]` follows GitHub's rendering (`markdown::anchors` +
-`viewer::markdown`), never the source spelling:
+`[^label]` renders as a raised marker and a numbered note
+(`markdown::anchors` + `viewer::markdown`), never as the source spelling:
 
-- A **reference** is a small raised marker showing its NUMBER (GitHub's
-  `<sup>1</sup>`), linked to its definition. Numbers follow FIRST REFERENCE
+- A **reference** is a small raised marker showing its NUMBER (a
+  superscript), linked to its definition. Numbers follow FIRST REFERENCE
   order, so `[^note]` before `[^2]` renders as 1 and 2, and a repeated
   reference keeps its number. A label with no definition stays plain text.
 - **Definitions** render as one footnotes section: a single 1px rule before
@@ -162,8 +165,8 @@ STRUCTURE and never evaluates it:
   definition whose first block cannot flow inline (a code fence, list,
   quote, table, rule, image) keeps the marker on its own row above the
   indented block, exactly like a list item.
-- Definitions the document never references still render (GitHub drops
-  them) and continue the numbering after the referenced ones, so nothing the
+- Definitions the document never references still render (common
+  renderers drop them) and continue the numbering after the referenced ones, so nothing the
   author wrote is hidden.
 - `Copy` keeps the source `[^label]` spelling — like an autolinked URL,
   whose copy text is the URL the document wrote — so a copied page pastes
@@ -171,14 +174,18 @@ STRUCTURE and never evaluates it:
 
 ## Styling
 
-README styling: a neutral palette (light/dark) tracking GitHub's current
-Primer tokens, H1/H2 bottom rules, muted H6 and quotes, borderless code
-cards (GitHub's `pre` recipe) at the BODY type size (code is exactly as
-wide as the prose around it) with syntax
-colors, striped bordered tables with GitHub-like interior row/column
-separators, 4px `<hr>`, callout accents, and a soft text selection tint.
+README styling: a neutral palette (light/dark), H1/H2 bottom rules, muted
+H6 and quotes, borderless code cards (a `pre` recipe: muted surface, no
+border) at the BODY type size (code is exactly as wide as the prose around
+it) with syntax colors, striped bordered tables with collapsed interior
+row/column separators, 4px `<hr>`, callout accents, and a soft text
+selection tint.
 Inside a callout or quote, paragraph air goes BETWEEN blocks, not after the
 last one, so the box's bottom edge hugs its text.
+The document itself closes with a `theme::spacing::PAGE_END` (24px) blank
+pad under its last block, so a page scrolled to its end keeps a small
+margin under the text instead of ending flush against the sheet's bottom
+edge.
 
 Body text paints the readable `on_surface` token (light `#1f2328` / dark
 `#f0f6fc`); the muted tone is opt-in (`theme::weak`, plain quote bodies,
@@ -220,7 +227,7 @@ pills, code cards, tables, quotes — is under "Reading surface" in
   Khmer, Myanmar, Ethiopic, Armenian, Georgian, Thaana, N'Ko, Cherokee,
   Canadian Aboriginal, Symbols 2), so non-English documents render
   instead of showing tofu boxes. No system font and none of epaint's
-  bundled Ubuntu/Hack faces is ever registered.
+  bundled default faces is ever registered.
 - Right-to-left runs are reordered
   before layout (`viewer::bidi`): base direction, visual run order,
   word order and mirrored punctuation are resolved and RTL paragraphs are

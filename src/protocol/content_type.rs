@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn recognizes_legacy_image_aliases() {
-        // Old apache/mod_* servers label PNG/JPEG this way; the decoder
+        // Legacy servers label PNG/JPEG this way; the decoder
         // still validates the magic bytes, so the alias is only a gate.
         assert!(is_image_content_type(Some("image/x-png")));
         assert!(is_image_content_type(Some("IMAGE/X-PNG")));

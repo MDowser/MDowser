@@ -242,7 +242,7 @@ fn right_column_keeps_run_order() {
     );
 }
 
-/// GitHub's collapsed interior grid: a 2x2 table (one header row, one
+/// The collapsed interior grid: a 2x2 table (one header row, one
 /// data row) paints exactly one horizontal and one vertical separator
 /// BETWEEN its cells, in the border color. The card frame (RectShape)
 /// stays the outer border, and no interior line is drawn twice.
@@ -342,8 +342,8 @@ fn distributes_leftover_and_shrinks_with_wrap() {
 
 /// Regression: f32 rounding in the grow branch summed past `usable` by an
 /// ulp, and `flush_table` reads that as "even the floors do not fit" — it
-/// re-laid every column out for scrolling, capped at `scroll_max`. On the
-/// Stripe in-person-payments table (`86.25 + 340` grown to fill a 757px
+/// re-laid every column out for scrolling, capped at `scroll_max`. On a
+/// real-world pricing table (`86.25 + 340` grown to fill a 757px
 /// card summed to `757.00006 > 757`) the second column collapsed from
 /// ~604px to 128px and wrapped every couple of words while the card stayed
 /// full width. A fitting layout must never report an overflow.

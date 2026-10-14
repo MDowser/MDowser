@@ -49,7 +49,7 @@ fn body_font_ascent(ui: &egui::Ui) -> f32 {
     ascent
 }
 
-/// Draws one inline code span as a GitHub-style pill hugging its glyphs.
+/// Draws one inline code span as a tight pill hugging its glyphs.
 ///
 /// epaint places a smaller font's baseline at its own ascent, above the
 /// surrounding body text, and `RichText::code()` sizes its background from

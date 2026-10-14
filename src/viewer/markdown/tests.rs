@@ -271,6 +271,19 @@ pub(super) fn render_shapes_with_anchors(
     screen_h: f32,
     anchors: &crate::markdown::anchors::AnchorIndex,
 ) -> Vec<egui::epaint::Shape> {
+    render_shapes_opts(md, screen_w, screen_h, anchors, false).0
+}
+
+/// Like [`render_shapes_with_anchors`], plus the content column's bottom
+/// edge (the parent `Ui`'s `min_rect`): the trailing `spacing::PAGE_END` pad
+/// paints no shape, so a test that measures the blank end margin needs the
+/// laid-out bottom, not the shape bounding box.
+pub(super) fn render_shapes_with_bottom(
+    md: &str,
+    screen_w: f32,
+    screen_h: f32,
+    anchors: &crate::markdown::anchors::AnchorIndex,
+) -> (Vec<egui::epaint::Shape>, f32) {
     render_shapes_opts(md, screen_w, screen_h, anchors, false)
 }
 
@@ -281,7 +294,7 @@ pub(super) fn render_shapes_selected(
     screen_h: f32,
     anchors: &crate::markdown::anchors::AnchorIndex,
 ) -> Vec<egui::epaint::Shape> {
-    render_shapes_opts(md, screen_w, screen_h, anchors, true)
+    render_shapes_opts(md, screen_w, screen_h, anchors, true).0
 }
 
 fn render_shapes_opts(
@@ -290,7 +303,7 @@ fn render_shapes_opts(
     screen_h: f32,
     anchors: &crate::markdown::anchors::AnchorIndex,
     selected: bool,
-) -> Vec<egui::epaint::Shape> {
+) -> (Vec<egui::epaint::Shape>, f32) {
     let ctx = egui::Context::default();
     // Bold text renders through a named family: a bare context must bind
     // the embedded fonts or epaint panics on the lookup.
@@ -307,33 +320,42 @@ fn render_shapes_opts(
     let events = crate::markdown::document::parse_events(&normalized).expect("parse");
     let mut images = crate::media::cache::ImageCache::new();
     let mut emoji = crate::media::emoji::EmojiCache::new();
+    let mut bottom = 0.0f32;
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
-            let mut links = Vec::new();
-            // `interactive = false`: links are inert and no image fetch
-            // starts (the cache would otherwise hit the network).
-            show_markdown(
-                ui,
-                &events,
-                anchors,
-                &crate::protocol::rewrite::DestCache::build(&base, anchors, &events),
-                &mut None,
-                doc_id_salt(&base),
-                selected,
-                false,
-                screen_w,
-                1.0,
-                &mut images,
-                &mut emoji,
-                &mut on_link,
-                &mut links,
-            );
+            // A vertical child, like the real reading column: the panel
+            // `Ui`'s own rect fills the window, so the column's `min_rect`
+            // is what reports the content's laid-out bottom.
+            ui.vertical(|ui| {
+                let mut on_link = |_: &str| {};
+                let mut links = Vec::new();
+                // `interactive = false`: links are inert and no image fetch
+                // starts (the cache would otherwise hit the network).
+                show_markdown(
+                    ui,
+                    &events,
+                    anchors,
+                    &crate::protocol::rewrite::DestCache::build(&base, anchors, &events),
+                    &mut None,
+                    doc_id_salt(&base),
+                    selected,
+                    false,
+                    screen_w,
+                    1.0,
+                    &mut images,
+                    &mut emoji,
+                    &mut on_link,
+                    &mut links,
+                );
+                // Laid-out bottom of the column, pad included (it paints no
+                // shape, so the shape list alone cannot measure it).
+                bottom = ui.min_rect().bottom();
+            });
         });
     });
     let shapes = out.shapes.iter().map(|c| c.shape.clone()).collect();
     out.textures_delta.clear();
-    shapes
+    (shapes, bottom)
 }
 
 /// Text runs and horizontal rules of a painted shape list (the extraction

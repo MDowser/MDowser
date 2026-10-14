@@ -39,9 +39,15 @@ use url::Url;
 pub struct Fetched {
     /// Normalized URL to show (`/love/`).
     pub display_url: Url,
-    /// YAML metadata (when frontmatter existed). Only `title` is surfaced
-    /// (OS window title); the UI shows no metadata box.
+    /// YAML metadata (when frontmatter existed). Only `title` is surfaced,
+    /// through [`Fetched::page_title`] (which falls back to the first `#`
+    /// heading); the UI shows no metadata box.
     pub meta: markdown::frontmatter::Meta,
+    /// Text of the document's first `#` heading, derived once at fetch time
+    /// (`markdown::document::first_h1_title`, bounded): the page-title
+    /// fallback when the frontmatter declares no `title`. Read it through
+    /// [`Fetched::page_title`] so no caller re-implements the precedence.
+    pub h1_title: Option<String>,
     /// Plain text for "Select all"/Copy, derived ONCE here (off the UI
     /// thread): Ctrl/Cmd+C must not re-parse up to 10 MiB on the UI thread.
     pub plain_text: String,
@@ -55,6 +61,23 @@ pub struct Fetched {
     /// Every link/image destination resolved ONCE here, so the per-frame
     /// fragment tree does no URL parsing (`protocol::rewrite::DestCache`).
     pub dests: crate::protocol::rewrite::DestCache,
+}
+
+impl Fetched {
+    /// The page's own title: the frontmatter `title` when it has one, else
+    /// the first `#` heading's text, else `None` (the URL stays the last
+    /// resort of each surface).
+    ///
+    /// Raw and already bounded (`MAX_TITLE_CHARS`): every display site
+    /// sanitizes it (`util::sanitize_title`) and re-caps for its own
+    /// surface (tab rail, OS window, page-info card).
+    pub fn page_title(&self) -> Option<&str> {
+        match self.meta.title.as_deref() {
+            // A whitespace-only `title: ""` is "no title", not a page title.
+            Some(title) if !title.trim().is_empty() => Some(title),
+            _ => self.h1_title.as_deref(),
+        }
+    }
 }
 
 /// Global concurrent-fetch limiter (process-wide, all tabs).

@@ -412,6 +412,10 @@ pub fn show_content(
                             if resp.clicked() && can_retry {
                                 retry_asked = Some(asked.clone());
                             }
+                            // Blank margin after the last element (same
+                            // `spacing::PAGE_END` as a document): the error
+                            // page scrolls too.
+                            ui.add_space(theme::spacing::PAGE_END);
                         }
                     });
                 crate::ui::remember_scroll(

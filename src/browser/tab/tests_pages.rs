@@ -58,7 +58,7 @@ fn settling_counts_as_loading_everywhere() {
 }
 
 /// Ctrl/Cmd+D target: only a LOADED document offers a bookmark; the raw
-/// frontmatter title travels with it (the store sanitizes it).
+/// page title travels with it (the store sanitizes it).
 #[test]
 fn bookmark_target_only_exists_for_loaded_documents() {
     assert!(Tab::new(1).bookmark_target().is_none(), "Home");

@@ -82,9 +82,9 @@ pub(crate) struct OmniboxResponse {
 /// Stable id of an address field (one per tab + surface).
 ///
 /// The parameter is `id_salt`, not `salt`: this is an egui hash-namespace
-/// (not cryptographic key material). CodeQL's `rust/hard-coded-cryptographic-value`
-/// heuristic flags any constant reaching a parameter literally named `salt`,
-/// so the name is chosen to keep intent (and the scan) unambiguous.
+/// (not cryptographic key material). Static-analysis heuristics for
+/// hard-coded cryptographic values flag any constant reaching a parameter
+/// literally named `salt`, so the name keeps intent (and the scan) clear.
 pub(crate) fn address_id(tab_id: usize, id_salt: &'static str) -> egui::Id {
     egui::Id::new((id_salt, tab_id))
 }

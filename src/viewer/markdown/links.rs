@@ -319,7 +319,7 @@ pub(super) fn strip_callout<'a>(frags: &[Frag<'a>]) -> Vec<Frag<'a>> {
 pub(super) fn render_callout_badge(ui: &mut egui::Ui, label: &'static str, selected: bool) {
     let scheme = theme::scheme_ref(ui);
     let badge = callout_color(scheme, label);
-    // GitHub's `.markdown-alert-title`: body size, medium weight, title
+    // Callout title: body size, medium weight, title
     // case ("Note", not "NOTE").
     let title = match label {
         "NOTE" => "Note",

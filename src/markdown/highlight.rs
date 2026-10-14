@@ -82,7 +82,7 @@ pub fn norm_lang(info: &str) -> Lang {
 
 /// The language token of a fenced info string: its first whitespace-delimited
 /// word (`"js title=\"app.js\""` -> `"js"`). This is what the code card shows
-/// as its chip, so Docusaurus/Mintlify `title=` metadata never leaks into it.
+/// as its chip, so docs-generator `title=` metadata never leaks into it.
 pub fn info_lang(info: &str) -> &str {
     let end = info.find(char::is_whitespace).unwrap_or(info.len());
     &info[..end]

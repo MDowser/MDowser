@@ -72,6 +72,8 @@
 //!   table-bomb guard) shared by the viewer and the plain-text path.
 //! - [`plain`]: the whole-page Copy text, derived from the same normalized
 //!   events (never a second parse).
+//! - [`title`]: the page-title fallback, the document's first `#` heading
+//!   (same owned events, never a second parse).
 //!
 //! This file keeps the parser options, the event walk ([`parse_events`])
 //! and the shared HTML-break check.
@@ -258,6 +260,8 @@ mod normalize_markup;
 mod normalize_tables;
 /// Plain-text derivation for whole-page Copy.
 mod plain;
+/// Page-title fallback: the document's first `#` heading.
+mod title;
 
 use normalize::*;
 
@@ -272,6 +276,7 @@ pub(crate) use plain::is_skip_link_label;
 pub use plain::plain_text_from_events;
 #[cfg(test)]
 pub use plain::plain_text_normalized;
+pub use title::first_h1_title;
 
 #[cfg(test)]
 mod tests;

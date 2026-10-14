@@ -144,7 +144,7 @@ pub const IMAGE_CONTENT_TYPES: &[&str] = &[
     "image/png",
     "image/jpeg",
     "image/jpg",
-    // Legacy aliases of the two above (apache/mod_* era servers).
+    // Legacy aliases of the two above (older server spellings).
     "image/x-png",
     "image/pjpeg",
     "image/gif",
@@ -572,9 +572,10 @@ pub const MAX_ADDRESS_DISPLAY_CHARS: usize = 256;
 /// oversized input. Larger than the address display so bug reports keep context.
 pub const MAX_ASKED_DISPLAY_CHARS: usize = 512;
 
-/// Max chars kept for a sanitized frontmatter title. Defense in depth:
-/// callers also truncate for tab (30) / window (60) display, but the helper
-/// itself never returns an unbounded string from remote YAML.
+/// Max chars kept for a sanitized document title: the frontmatter `title`
+/// or the first-H1 fallback. Defense in depth: callers also truncate for
+/// tab (30) / window (60) display, but the helper itself never returns an
+/// unbounded string from remote YAML or heading text.
 pub const MAX_TITLE_CHARS: usize = 256;
 
 /// Per-chunk stall timeout (seconds) while streaming the body.
@@ -755,17 +756,95 @@ pub const ZOOM_STEP: f32 = 0.25;
 // UI layout (chrome geometry shared by the viewer and the Home grid)
 // ---------------------------------------------------------------------------
 
-/// Initial window size (comfortable on a MacBook, resizable).
-/// Centralized here so `main` and tests share the same geometry instead of
-/// local magic numbers.
+/// Creation-time window size (logical points), used by `main`'s
+/// `ViewportBuilder` before the first frame applies the remembered geometry
+/// or the monitor-proportional [`initial_window_size`]. Centralized here so
+/// `main` and tests share the same geometry instead of local magic numbers.
 pub const WINDOW_INITIAL_W: f32 = 1100.0;
-/// Initial window height, see [`WINDOW_INITIAL_W`].
+/// Creation-time window height, see [`WINDOW_INITIAL_W`].
 pub const WINDOW_INITIAL_H: f32 = 750.0;
 /// Minimum window size: below this the toolbar and the reading column
 /// cannot lay out without clipping.
 pub const WINDOW_MIN_W: f32 = 640.0;
 /// Minimum window height, see [`WINDOW_MIN_W`].
 pub const WINDOW_MIN_H: f32 = 480.0;
+
+/// Initial window size as a fraction of the monitor's logical size.
+///
+/// A fraction (instead of a fixed size) keeps the window proportionate on a
+/// small laptop screen and a large desktop alike; [`WINDOW_MIN_W`]/
+/// [`WINDOW_MIN_H`] win on a monitor too small for the result, and
+/// [`WINDOW_INITIAL_MAX_W`]/[`WINDOW_INITIAL_MAX_H`] cap it on a very large,
+/// 100 %-scale one. Used by [`initial_window_size`] (first run only: once a
+/// geometry is stored, the app restores it).
+pub const WINDOW_INITIAL_FRACTION: f32 = 0.8;
+
+/// Largest initial window width (logical points), see
+/// [`WINDOW_INITIAL_FRACTION`].
+pub const WINDOW_INITIAL_MAX_W: f32 = 1680.0;
+/// Largest initial window height, see [`WINDOW_INITIAL_MAX_W`].
+pub const WINDOW_INITIAL_MAX_H: f32 = 1050.0;
+
+/// Quiet period before a changed window geometry is persisted.
+///
+/// Dragging or resizing a window emits many changes; the encrypted
+/// `settings.bin` write happens once the window has been still for this long
+/// (and once more on a clean exit), instead of on every frame.
+pub const WINDOW_GEOMETRY_SAVE_DEBOUNCE_SECS: u64 = 1;
+
+/// Initial inner size (logical points) for a monitor of `monitor_w` ×
+/// `monitor_h` points.
+///
+/// [`WINDOW_INITIAL_FRACTION`] of the monitor, never below
+/// [`WINDOW_MIN_W`]/[`WINDOW_MIN_H`] and never above
+/// [`WINDOW_INITIAL_MAX_W`]/[`WINDOW_INITIAL_MAX_H`] nor the monitor itself.
+/// A monitor smaller than the minimum still gets the minimum (the window
+/// then overflows it, as it always did). Non-finite input falls back to the
+/// minimum.
+pub fn initial_window_size(monitor_w: f32, monitor_h: f32) -> (f32, f32) {
+    let clamp = |monitor: f32, min: f32, max: f32| {
+        if monitor.is_finite() {
+            (monitor * WINDOW_INITIAL_FRACTION)
+                .clamp(min, max)
+                .min(monitor.max(min))
+        } else {
+            min
+        }
+    };
+    (
+        clamp(monitor_w, WINDOW_MIN_W, WINDOW_INITIAL_MAX_W),
+        clamp(monitor_h, WINDOW_MIN_H, WINDOW_INITIAL_MAX_H),
+    )
+}
+
+/// Top-left position (logical points, monitor space) that centers a window
+/// whose OUTER size is `outer_w` × `outer_h` inside a monitor at
+/// `(origin_x, origin_y)` sized `monitor_w` × `monitor_h`.
+///
+/// A negative margin (window larger than its monitor) is clamped to the
+/// monitor origin, so an oversized window opens at the top-left corner
+/// instead of hanging off the top/left edge. Non-finite input falls back to
+/// the monitor origin.
+pub fn centered_window_pos(
+    origin_x: f32,
+    origin_y: f32,
+    monitor_w: f32,
+    monitor_h: f32,
+    outer_w: f32,
+    outer_h: f32,
+) -> (f32, f32) {
+    let center = |origin: f32, monitor: f32, outer: f32| {
+        if origin.is_finite() && monitor.is_finite() && outer.is_finite() {
+            origin + ((monitor - outer) * 0.5).max(0.0)
+        } else {
+            origin
+        }
+    };
+    (
+        center(origin_x, monitor_w, outer_w),
+        center(origin_y, monitor_h, outer_h),
+    )
+}
 
 /// Deadline `secs` seconds from now, fail-closed on overflow.
 ///

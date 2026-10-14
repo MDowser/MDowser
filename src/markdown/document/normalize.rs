@@ -524,7 +524,7 @@ fn expand_containers_depth(text: &str, depth: usize, scan_budget: &mut usize) ->
 }
 
 /// Rewrites the `[#id]` heading-anchor convention (`## Title [#custom-id]`,
-/// used by Fumadocs/Mintlify docs such as langfuse.com) into the heading
+/// a docs-generator convention) into the heading
 /// attribute form `{#custom-id}`. pulldown-cmark parses that attribute: it
 /// sets the heading's explicit anchor id and never renders as text, so the
 /// title stops showing `[#id]` and `#custom-id` links keep resolving.

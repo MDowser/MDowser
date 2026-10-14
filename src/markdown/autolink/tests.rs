@@ -227,7 +227,7 @@ fn bare_domain_never_links_email_domains() {
 #[test]
 fn linkifies_a_bare_domain_that_fills_a_table_cell() {
     let md = "| Domain | Score |\n| --- | --- |\n\
-              | vimal-gandhi.vercel.app | 94 |\n\
+              | team-notes.example.com | 94 |\n\
               | scholar-sidekick.com | 93 |\n\
               | example.com/docs | 90 |\n\
               | example.com. | 89 |\n";
@@ -237,8 +237,8 @@ fn linkifies_a_bare_domain_that_fills_a_table_cell() {
     assert_eq!(
         found[0],
         (
-            "vimal-gandhi.vercel.app".to_string(),
-            "https://vimal-gandhi.vercel.app".to_string()
+            "team-notes.example.com".to_string(),
+            "https://team-notes.example.com".to_string()
         )
     );
     assert_eq!(

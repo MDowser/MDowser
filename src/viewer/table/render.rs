@@ -66,7 +66,7 @@ pub(crate) fn flush_table(
     //   a far horizontal scroll.
     let avail = ui.available_width().max(0.0);
     // The card frame is the table's outer border, so the grid spans its
-    // inner area edge to edge (GitHub's `border-collapse`); the 5px/11px
+    // inner area edge to edge (a collapsed border grid); the 5px/11px
     // cell padding lives INSIDE each cell (`render_table_cell`). The card's
     // 1px stroke narrows the inner `ScrollArea` by 2px, and 1px more of
     // slack keeps rounding from triggering the horizontal scrollbar.
@@ -324,7 +324,7 @@ fn settle_rounding(cols: &mut [f32], usable: f32, min_col: f32) {
     }
 }
 
-/// Paints GitHub's collapsed interior cell grid: 1px separators BETWEEN
+/// Paints the collapsed interior cell grid: 1px separators BETWEEN
 /// rows and columns, at the midpoints of the Grid spacing. The rects come
 /// from the same render pass that drew the cells, so wrapped/multi-line
 /// rows get their real heights; the card frame remains the outer border.
