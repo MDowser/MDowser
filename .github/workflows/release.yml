@@ -196,9 +196,8 @@ jobs:
           # flatpak-builder-tools/cargo publishes no console script (its
           # pyproject sets package-mode = false and defines no
           # [project.scripts]), so `pip install` alone yields no command:
-          # fetch the generator at a PINNED commit and wrap it so it always
-          # runs with the venv's Python. Only the wrapper joins PATH, so
-          # build-flatpak.sh finds it by name whatever the PATH order is.
+          # fetch the generator at a PINNED commit behind a wrapper that
+          # always runs with the venv's Python.
           python3 -m venv /tmp/fcg
           /tmp/fcg/bin/pip install --upgrade pip
           /tmp/fcg/bin/pip install "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1"
@@ -210,8 +209,15 @@ jobs:
             printf 'exec /tmp/fcg/bin/python3 /tmp/fcg/lib/flatpak-cargo-generator.py "$@"\n'
           } > /tmp/fcg/bin/flatpak-cargo-generator
           chmod +x /tmp/fcg/bin/flatpak-cargo-generator
-          echo /tmp/fcg/bin >> "$GITHUB_PATH"
-          /tmp/fcg/bin/flatpak-cargo-generator --help > /dev/null
+          # build-flatpak.sh looks the generator up BY NAME. /usr/local/bin
+          # is always on PATH in every step, so install it there instead of
+          # relying on GITHUB_PATH; and smoke-test it BY NAME, so a
+          # non-discoverable command fails here (with the real PATH) and
+          # never later, mid-build.
+          sudo install -m 0755 /tmp/fcg/bin/flatpak-cargo-generator \
+            /usr/local/bin/flatpak-cargo-generator
+          flatpak-cargo-generator --help > /dev/null
+          command -v flatpak-cargo-generator
       - name: Runtimes (branch pinned by the manifest)
         run: |
           set -eu
@@ -225,6 +231,9 @@ jobs:
       - name: Build Flatpak bundle
         run: |
           set -eu
+          # Belt and braces: the wrapper lives in /usr/local/bin (always on
+          # PATH) and here also on PATH explicitly.
+          export PATH="/tmp/fcg/bin:$PATH"
           SKIP_SETUP=1 ./scripts/build-dist.sh --flatpak
           ls dist/*.flatpak
       - uses: actions/upload-artifact@v4
