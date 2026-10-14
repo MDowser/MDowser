@@ -113,14 +113,14 @@ pub(super) fn draw_task_checkbox(ui: &mut egui::Ui, done: bool) -> f32 {
         let at = |x: f32, y: f32| box_rect.lerp_inside(egui::vec2(x, y));
         painter.add(egui::Shape::line(
             vec![at(0.25, 0.55), at(0.43, 0.73), at(0.76, 0.30)],
-            egui::Stroke::new(2.0, egui::Color32::WHITE),
+            egui::Stroke::new(crate::ui::theme::stroke::EMPHASIS, egui::Color32::WHITE),
         ));
     } else {
         painter.rect(
             box_rect,
             radius,
             s.surface,
-            egui::Stroke::new(1.0, s.on_surface_variant),
+            egui::Stroke::new(crate::ui::theme::stroke::HAIRLINE, s.on_surface_variant),
             egui::StrokeKind::Inside,
         );
     }
@@ -130,7 +130,7 @@ pub(super) fn draw_task_checkbox(ui: &mut egui::Ui, done: bool) -> f32 {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, false, done, "Task list item")
     });
     crate::ui::hover_tooltip(resp, "Read-only");
-    ui.add_space(4.0);
+    ui.add_space(theme::spacing::XS);
     BOX + 4.0
 }
 

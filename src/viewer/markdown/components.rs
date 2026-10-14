@@ -339,7 +339,7 @@ fn render_tabs(
                 .rect_filled(u, egui::CornerRadius::ZERO, scheme.on_surface_variant);
         }
     }
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
     let (start, stop) = tabs[sel];
     render_range(ui, events, start, stop, ctx);
     *i = end;
@@ -386,7 +386,10 @@ fn render_card(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx:
     let scheme = theme::scheme_ref(ui);
     egui::Frame::new()
         .fill(scheme.container_low)
-        .stroke(egui::Stroke::new(1.0, scheme.outline_variant))
+        .stroke(egui::Stroke::new(
+            theme::stroke::HAIRLINE,
+            scheme.outline_variant,
+        ))
         .corner_radius(egui::CornerRadius::same(theme::radius::CARD))
         .inner_margin(egui::Margin::same(CARD_PAD))
         .show(ui, |ui| {
@@ -442,7 +445,7 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
                 render_range(ui, events, *start, *stop, ctx);
             });
         });
-        ui.add_space(4.0);
+        ui.add_space(theme::spacing::XS);
     }
     *i = end;
 }

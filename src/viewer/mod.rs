@@ -392,7 +392,7 @@ pub fn show_content(
                     .show(ui, |ui| {
                         if let TabState::Failed { asked, lines } = &tab.state {
                             crate::ui::error_view::show_error(ui, asked, lines, kind);
-                            ui.add_space(8.0);
+                            ui.add_space(theme::spacing::M);
                             let resp = theme::tonal_button_sized(
                                 ui,
                                 retry_label,

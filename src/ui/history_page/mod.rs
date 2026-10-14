@@ -391,7 +391,7 @@ fn history_row(ui: &mut egui::Ui, index: usize, visit: &Visit, now: u64) -> RowA
         age_anchor(rect, lane),
         egui::Align2::RIGHT_CENTER,
         format_age(now, visit.visited_at),
-        egui::FontId::proportional(11.0),
+        egui::FontId::proportional(theme::typography::EYEBROW),
         s.on_surface_variant,
     );
 
@@ -410,7 +410,7 @@ fn history_row(ui: &mut egui::Ui, index: usize, visit: &Visit, now: u64) -> RowA
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(url)
-                        .size(11.5)
+                        .size(theme::typography::UI_COMPACT)
                         .color(s.on_surface_variant),
                 )
                 .truncate()

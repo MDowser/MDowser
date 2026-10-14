@@ -46,7 +46,7 @@ pub(crate) fn flush_table(
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
 ) -> egui::Rect {
-    ui.add_space(6.0);
+    ui.add_space(theme::spacing::S);
     let narrow = viewport_w < 600.0;
     // Column count from the widest row (headers or body).
     let mut ncols = tb.aligns.len();
@@ -211,7 +211,7 @@ pub(crate) fn flush_table(
             paint_table_grid(ui, &cell_rows);
         });
     });
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
     grid_rect
 }
 
@@ -352,7 +352,10 @@ fn paint_table_grid(ui: &egui::Ui, rows: &[Vec<egui::Rect>]) {
         .iter()
         .map(egui::Rect::right)
         .fold(f32::NEG_INFINITY, f32::max);
-    let stroke = egui::Stroke::new(1.0, theme::scheme_ref(ui).outline_variant);
+    let stroke = egui::Stroke::new(
+        theme::stroke::HAIRLINE,
+        theme::scheme_ref(ui).outline_variant,
+    );
     let painter = ui.painter();
     // Row separators: midpoint between consecutive row bands.
     for pair in bands.windows(2) {

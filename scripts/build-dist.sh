@@ -62,7 +62,8 @@ export COPYFILE_DISABLE
 DIST="$ROOT/dist"
 TARGETS="$ROOT/target"
 
-MODE="${1:---all}"
+MODE="${1:-"--all"}"
+# NOTE: `${1:-word}` (default when unset/empty), not a substring expansion.
 SKIP_SETUP="${SKIP_SETUP:-0}"
 
 BUILT=""    # achieved artifacts
@@ -88,6 +89,8 @@ stage_dirs() {
         "$DIST"/.universal-bin "$DIST"/.flatpak-repo \
         "$DIST"/.flatpak-build "$DIST"/.flatpak-state 2>/dev/null || true
 }
+# `EXIT` (not `0`) for readability: supported by dash, bash and zsh in `sh`
+# mode; the handler is best-effort so it never masks the real exit status.
 trap stage_dirs EXIT
 
 # python3 packs the .deb (stdlib `ar` writer) and is the zip fallback.
@@ -109,7 +112,8 @@ fi
 #   Mach-O (macOS) -> macOS `strip` (always present with Xcode CLT).
 #   ELF (Linux)    -> `llvm-strip` (multi-format, from brew llvm), else
 #                     `x86_64/aarch64-linux-gnu-strip` or `eu-strip`.
-#   PE (.exe)      -> `x86_64-w64-mingw32-strip` (mingw-w64).
+#   PE (.exe)      -> `x86_64-w64-mingw32-strip` (mingw-w64), else
+#                     `llvm-strip` (native Windows MSVC via LLVM).
 # $STRIP still wins when set. Never fatal: warns and keeps going.
 find_llvm_strip() {
     # Prints a working llvm-strip path, or nothing.
@@ -134,6 +138,8 @@ pick_strip_for() {
         *.exe)
             if have x86_64-w64-mingw32-strip; then
                 command -v x86_64-w64-mingw32-strip
+            else
+                find_llvm_strip 2>/dev/null || true
             fi
             unset _f
             return 0
@@ -158,8 +164,14 @@ pick_strip_for() {
         *PE32*|*MS\ Windows*)
             if have x86_64-w64-mingw32-strip; then
                 command -v x86_64-w64-mingw32-strip
-            elif have strip; then
-                command -v strip
+            else
+                _ls="$(find_llvm_strip 2>/dev/null || true)"
+                if [ -n "$_ls" ]; then
+                    printf '%s' "$_ls"
+                elif have strip; then
+                    command -v strip
+                fi
+                unset _ls
             fi
             ;;
         *)
@@ -242,18 +254,28 @@ bin_of() {
 
 # --- .app macOS --------------------------------------------------------------
 mk_app() {
-    # $1 = .app dest dir, $2 = binary
+    # $1 = .app dest dir, $2 = binary. Returns non-zero (never aborts the
+    # caller under `set -e` when used as `if ! mk_app`): `do_mac` turns that
+    # into a SKIP with a reason so `--all` keeps going.
     app="$1"
-    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-    cp "$2" "$app/Contents/MacOS/$APP_UI"
-    chmod +x "$app/Contents/MacOS/$APP_UI"
+    if [ ! -f "$2" ]; then
+        echo "ERROR: mk_app source binary not found: $2" >&2
+        return 1
+    fi
+    if [ ! -f "$ROOT/assets/icons/icon.icns" ]; then
+        echo "ERROR: assets/icons/icon.icns not found (run make icons)" >&2
+        return 1
+    fi
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" || return 1
+    cp "$2" "$app/Contents/MacOS/$APP_UI" || return 1
+    chmod +x "$app/Contents/MacOS/$APP_UI" || return 1
     # Bundle icon: Finder, the Dock and Cmd+Tab read it from here (a bare
     # binary has no icon on macOS; the runtime `with_icon` is ignored).
-    cp "$ROOT/assets/icons/icon.icns" "$app/Contents/Resources/icon.icns"
+    cp "$ROOT/assets/icons/icon.icns" "$app/Contents/Resources/icon.icns" || return 1
     # License compliance: MPL-2.0 for the app, notices for bundled deps
     # and fonts, inside the .app bundle.
     cp "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/LICENSE" \
-        "$app/Contents/Resources/"
+        "$app/Contents/Resources/" || return 1
     cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -497,8 +519,21 @@ do_mac() {
         warn "mac-app-universal (no lipo; install the Xcode Command Line Tools)"
         return 0
     fi
-    lipo -create -output "$DIST/.universal-bin" "$arm_bin" "$x64_bin"
-    mk_app "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/.universal-bin"
+    # Guarded like the builds above: a failed `lipo`/`mk_app` skips the group
+    # instead of aborting the whole `--all` run under `set -e`.
+    if ! lipo -create -output "$DIST/.universal-bin" "$arm_bin" "$x64_bin"; then
+        warn "mac-app-universal (lipo failed)"
+        rm -f "$DIST/.universal-bin"
+        unset arm_bin x64_bin
+        return 0
+    fi
+    if ! mk_app "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/.universal-bin"; then
+        warn "mac-app-universal (staging the .app failed)"
+        rm -f "$DIST/.universal-bin"
+        rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
+        unset arm_bin x64_bin
+        return 0
+    fi
     rm -f "$DIST/.universal-bin"
     # Guarded like the deb/zip steps: a failed packaging step skips the
     # artifact with a reason instead of aborting the whole `--all` run
@@ -725,7 +760,13 @@ do_host() {
             return 0
             ;;
     esac
-    cargo build --locked --release
+    # Guarded like the cross builds: a failed host build warns instead of
+    # aborting under `set -e` with no summary.
+    if ! cargo build --locked --release; then
+        warn "host (${_host_triple:-unknown} build failed)"
+        unset _host_triple
+        return 0
+    fi
     _host_bin="$TARGETS/release/$APP_LC"
     [ -f "$_host_bin.exe" ] && _host_bin="$_host_bin.exe"
     try_strip "$_host_bin"
@@ -874,6 +915,8 @@ rm -f "$DIST/SHA256SUMS.txt"
         # `&&` list would abort the loop (and the script) when the name that
         # sorts last is skipped (`SHA256SUMS.txt`).
         if [ -f "$f" ] && [ "$f" != "SHA256SUMS.txt" ]; then
+            # shellcheck disable=SC2086: `_HASH` is a command plus its args
+            # (`shasum -a 256` vs `sha256sum`); splitting is intended.
             $_HASH "$f"
         fi
     done

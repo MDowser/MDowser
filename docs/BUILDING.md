@@ -10,7 +10,8 @@
   MinGW on Windows.
 - NASM on x86/x86_64 hosts (Linux, Intel macOS, Windows): the AVIF decoder
   (`rav1d`) and the rustls crypto provider (`aws-lc-sys`) compile assembly.
-  `brew install nasm`, `sudo apt-get install nasm` or `choco install nasm`.
+  `brew install nasm`, `sudo apt-get install nasm` or (Windows, used by
+  `windows.ps1`) `winget install NASM.NASM`.
 - No `PATH` setup needed: the `Makefile` and `scripts/lib.sh` resolve the
   toolchain from `$HOME`-relative locations (`~/.cargo/env`, `~/.cargo/bin`,
   `rustup which cargo`, `brew --prefix`, toolchain glob) and keep cargo's own
@@ -133,7 +134,9 @@ found, assuming macOS" notes. Benign upstream noise (the binary links and
 runs fine): `[lints.rust] linker_messages = "allow"` in `Cargo.toml`
 silences them until NASM/`rav1d` emit the load command.
 
-Direct equivalents without make:
+Direct equivalents without make (the scripts alone skip the `make deps`
+bootstrap and, for dist, the host `cargo build --locked --release` that
+`make`/`make dist` run first; pass `SKIP_SETUP=1` to keep auto-install off):
 
 ```sh
 ./scripts/build-test.sh            # same as make test
@@ -159,9 +162,9 @@ every artifact carries: on macOS the universal `.app.zip`; on Linux
   `cargo-deb`; installs the binary, the hicolor icon ladder plus a scalable
   SVG, AppStream metadata and a `.desktop` entry with
   `Icon=`/`StartupWMClass=`, and the man page). When `rpmbuild` is present
-  (Fedora/RHEL/openSUSE host) the same run also builds
-  `mdowser-<ver>-1.<dist>.rpm` from source, and when `flatpak-builder` is
-  present it adds the `mdowser-<ver>.flatpak` bundle.
+  (Fedora/RHEL/openSUSE host) the same run also builds the RPM from source
+  (copied verbatim from `rpmbuild`'s `RPMS/*/` output into `dist/`), and when
+  `flatpak-builder` is present it adds the `mdowser-<ver>.flatpak` bundle.
 - Windows x86_64: `mdowser-<ver>-windows-x86_64.zip` (with `.exe` at root;
   the icon, the `VERSIONINFO` block and the DPI/version manifest are embedded
   in the executable's resources, so the shell, the taskbar, Alt-Tab and
@@ -172,6 +175,34 @@ and `LICENSE`; the macOS `.app` bundles the notices and license under
 `Contents/Resources/` and the `.deb` under
 `/usr/share/doc/mdowser/` (the notices as `copyright`); a `SHA256SUMS.txt` is
 written next to the artifacts.
+
+### Native Windows
+
+On native Windows no `make` or `/bin/sh` is needed: `windows.ps1` (repo root)
+is the winget-only, idempotent equivalent of `make` (deps + host release +
+current-OS dist into `dist/`). It self-elevates via UAC unless `-NoElevate`
+is passed, installs what is missing (Rustup 1.98, MSVC Build Tools + the C++
+workload, NASM, Git with Git Bash — the `sh`/`tar`/`sha256sum` runtime the
+packaging needs — Python 3.12 with a `python3` shim, LLVM for `llvm-strip`),
+runs `cargo build --locked --release`, then calls
+`scripts/build-dist.sh --host-only` through Git Bash for the `.exe` zip
+(`mdowser-<ver>-windows-x86_64.zip` + `SHA256SUMS.txt`). `build-dist.sh`
+prefers `x86_64-w64-mingw32-strip` and falls back to `llvm-strip`; the
+`windows.ps1` path installs LLVM, so a native MSVC build strips with
+`llvm-strip`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows.ps1
+powershell -ExecutionPolicy Bypass -File windows.ps1 -Test
+powershell -ExecutionPolicy Bypass -File windows.ps1 -SkipSetup   # use what is present, like SKIP_SETUP=1
+```
+
+Flags: `-Test` (also run `scripts/build-test.sh`), `-Validate` (also run
+`scripts/validate.sh`), `-SkipBuild` (deps + dist only), `-SkipDist` (deps +
+build only), `-SkipSetup` (install nothing, fail when a tool is missing),
+`-NoElevate` (no UAC self-elevation; installs may fail). With `-SkipBuild`
+and `-SkipDist` (or `-SkipDist` without `-Test`/`-Validate`) it is
+setup-only.
 
 ### Desktop integration and package formats
 
@@ -246,7 +277,7 @@ docker run --rm -v "$PWD:/w" -w /w debian:bookworm bash -lc '
 # RPM spec syntax + rpmlint (real build: `./scripts/build-dist.sh --rpm`)
 docker run --rm -v "$PWD:/w" -w /w fedora:latest bash -lc '
   dnf -y install rpm-build rpmlint &&
-  VER=$(sed -n "/^\[package\]/,/^\[/s/^version = \"\(.*\)\"/\1/p" Cargo.toml | head -1) &&
+  VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1) &&
   rpmspec -P packaging/rpm/mdowser.spec --define "ver $VER" >/dev/null &&
   rpmlint packaging/rpm/mdowser.spec'
 ```

@@ -58,7 +58,9 @@ pub fn tonal_button_sized(
     size: egui::Vec2,
     enabled: bool,
 ) -> egui::Response {
-    let s = scheme_for(ui);
+    // Borrowed palette: the 50-field `Scheme` is interned per theme, so a
+    // per-button copy is pure waste on a surface with many actions.
+    let s = scheme_ref(ui);
     let (fg, fill, hover, active) = if enabled {
         // Dark mode must LIGHTEN on hover/press: darkening an already dark
         // gray gave no feedback.
@@ -91,21 +93,21 @@ pub fn tonal_button_sized(
             v.inactive.weak_bg_fill = fill;
             v.hovered.weak_bg_fill = hover;
             v.active.weak_bg_fill = active;
-            v.inactive.fg_stroke = egui::Stroke::new(1.0, fg);
-            v.hovered.fg_stroke = egui::Stroke::new(1.0, fg);
-            v.active.fg_stroke = egui::Stroke::new(1.0, fg);
+            v.inactive.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, fg);
+            v.hovered.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, fg);
+            v.active.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, fg);
             // Flat buttons: no visible outline ring. A TRANSPARENT 1px
             // stroke, never `Stroke::NONE`: `Frame::total_margin` adds the
             // stroke width back to the inner margin, so a 0-width stroke
             // would make these buttons 2px tighter than every other button.
-            let flat = egui::Stroke::new(1.0, egui::Color32::TRANSPARENT);
+            let flat = egui::Stroke::new(stroke::HAIRLINE, egui::Color32::TRANSPARENT);
             v.inactive.bg_stroke = flat;
             v.hovered.bg_stroke = flat;
             v.active.bg_stroke = flat;
             if !enabled {
                 v.noninteractive.bg_fill = fill;
                 v.noninteractive.weak_bg_fill = fill;
-                v.noninteractive.fg_stroke = egui::Stroke::new(1.0, fg);
+                v.noninteractive.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, fg);
                 v.noninteractive.bg_stroke = flat;
             }
         }
@@ -166,14 +168,14 @@ pub fn code_card(ui: &egui::Ui) -> egui::Frame {
 
 /// Shared card frame: one recipe for card/code/table surfaces.
 pub fn card_with(fill: egui::Color32, stroke: egui::Color32, margin: i8) -> egui::Frame {
-    // Note: `scheme_for` is read by callers; this stays `Ui`-free so tests
+    // Note: the palette is read by callers; this stays `Ui`-free so tests
     // and non-Ui code can build the same frame deterministically.
     egui::Frame::new()
         .fill(fill)
         .corner_radius(egui::CornerRadius::same(radius::CARD))
         // Keep the invariant from `apply`: every widget state owns a 1px
         // stroke width so controls never resize between states.
-        .stroke(egui::Stroke::new(1.0, stroke))
+        .stroke(egui::Stroke::new(stroke::HAIRLINE, stroke))
         .inner_margin(egui::Margin::same(margin))
 }
 
@@ -188,7 +190,7 @@ pub fn table_card(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::new()
         .fill(s.surface)
         .corner_radius(egui::CornerRadius::same(radius::CARD))
-        .stroke(egui::Stroke::new(1.0, s.outline_variant))
+        .stroke(egui::Stroke::new(stroke::HAIRLINE, s.outline_variant))
         .inner_margin(egui::Margin::ZERO)
 }
 
@@ -249,7 +251,7 @@ pub(crate) fn shadow_recipe(
 /// right edge and a scrolled document was clipped one gutter short of the
 /// flush top/bottom edges (its letters "vanished" before the edge).
 pub fn content_frame(ui: &egui::Ui) -> egui::Frame {
-    let s = scheme_for(ui);
+    let s = scheme_ref(ui);
     egui::Frame::new()
         .fill(s.surface)
         .stroke(egui::Stroke::NONE)
@@ -297,7 +299,7 @@ pub fn scrollbar_lane(ui: &egui::Ui) -> i8 {
 /// transparent). `Frame` cannot do gradients, so this draws ~16 thin
 /// 1px rects. Call AFTER the scroll content, as a non-interactive overlay.
 pub fn paint_content_fade(ui: &egui::Ui, rect: egui::Rect) {
-    let s = scheme_for(ui);
+    let s = scheme_ref(ui);
     let base = s.container_low;
     let steps = 16;
     let height = 20.0;
@@ -343,6 +345,44 @@ pub const BODY_FONT_SIZE: f32 = 16.0;
 /// Applied to body/inline text in `viewer::inline` and to code lines; headings
 /// keep the font's natural line height (their glyphs are taller than 24px).
 pub const BODY_LINE_HEIGHT: f32 = 24.0;
+
+/// Type scale for chrome and document helpers: one token per size so the
+/// omnibox, Preferences, history rows and the display face cannot drift.
+/// Values are pixel-identical to the literals they replace.
+pub mod typography {
+    /// Compact muted lines (omnibox card detail, suggestion URLs): 11.5px.
+    pub const UI_COMPACT: f32 = 11.5;
+    /// Small chrome text (`TextStyle::Small`, captions, section labels): 12px.
+    pub const UI_SMALL: f32 = 12.0;
+    /// Preferences section label (uppercase eyebrow): 11px.
+    pub const EYEBROW: f32 = 11.0;
+    /// Link/list measure in Preferences (`text_link` galley): 13px.
+    pub const UI_LINK: f32 = 13.0;
+    /// Buttons (`TextStyle::Button`) and omnibox titles: 14px.
+    pub const BUTTON: f32 = 14.0;
+    /// Dropdown rows: 14.5px.
+    pub const DROPDOWN: f32 = 14.5;
+    /// Setting rows and danger rows: 15px.
+    pub const ROW: f32 = 15.0;
+    /// Headings (`TextStyle::Heading`): 18px.
+    pub const HEADING: f32 = 18.0;
+    /// Preferences dialog title: 21px.
+    pub const DIALOG_TITLE: f32 = 21.0;
+    /// Landing display face: 38px.
+    pub const DISPLAY: f32 = 38.0;
+}
+
+/// Stroke-width tokens: one scale so frames, dividers and focus rings keep
+/// the 1px invariant documented in `apply` (a 0-width state shrinks `small`
+/// buttons by 2px and shifts neighbours).
+pub mod stroke {
+    /// Hairline frames, dividers, focus rings, table borders: 1px.
+    pub const HAIRLINE: f32 = 1.0;
+    /// Hand-painted icon ink (close X, check marks, switch ring): 1.8px.
+    pub const ICON: f32 = 1.8;
+    /// Check-mark ink over its tile wash: 2px.
+    pub const EMPHASIS: f32 = 2.0;
+}
 
 /// Corner-radius tokens: one scale for the whole chrome so cards, pills,
 /// dialogs and sheets stay consistent. Callers must use these instead of
@@ -408,7 +448,7 @@ pub fn focus_ring_stroke(ui: &egui::Ui, rect: egui::Rect, radius: u8, color: egu
     ui.painter().rect_stroke(
         rect.shrink(1.0),
         egui::CornerRadius::same(radius),
-        egui::Stroke::new(1.0, color),
+        egui::Stroke::new(stroke::HAIRLINE, color),
         egui::StrokeKind::Inside,
     );
 }
@@ -467,7 +507,7 @@ pub fn type_scale(avail: f32) -> f32 {
 
 /// Display type (landing): large, bold, primary color.
 pub fn display(ui: &egui::Ui, text: &str) -> egui::RichText {
-    strong(egui::RichText::new(text).size(38.0)).color(scheme_ref(ui).primary)
+    strong(egui::RichText::new(text).size(typography::DISPLAY)).color(scheme_ref(ui).primary)
 }
 
 /// Muted secondary text.

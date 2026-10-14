@@ -786,9 +786,11 @@ Key contracts:
   crisp line-icon set; buttons ease the glyph from the muted tone to the
   accent while it grows ~10% on hover (and pulls back on press), and
   keyboard focus draws the shared `theme::focus_ring`. Corners share the
-  `theme::radius` scale (`SMALL/CARD/MENU/TILE/SHEET/FULL` + `theme::pill_radius`;
+  `theme::radius` scale (`SMALL/HAIRLINE/CARD/MENU/TILE/SHEET/FULL` + `theme::pill_radius`;
   rows use `row::ROW_RADIUS = radius::MENU`, switch/zoom tracks use
-  `pill_radius`); suggestion/history row caps (`config::ROW_TITLE_CHARS /
+  `pill_radius`), type shares `theme::typography` (`UI_COMPACT/UI_SMALL/EYEBROW/UI_LINK/BUTTON/DROPDOWN/ROW/HEADING/DIALOG_TITLE/DISPLAY`),
+  strokes share `theme::stroke` (`HAIRLINE/ICON/EMPHASIS`) and gaps share
+  `theme::spacing` (`XS/S/M/L/XL`); suggestion/history row caps (`config::ROW_TITLE_CHARS /
   ROW_URL_CHARS`), the page-info card's address cap
   (`config::SITE_INFO_ADDRESS_CHARS`), delete confirmations
   (`config::DELETE_CONFIRM_SECS`) and
@@ -888,7 +890,9 @@ Key contracts:
   Linux reads the hicolor ladder (`.deb`, `.rpm`, Flatpak, `make install`)
   plus a shared `.desktop` with `Icon=`/`StartupWMClass=` and AppStream
   metadata the Software centers render
-  (`packaging/linux/`, staged by `scripts/packaging.sh`).
+  (`packaging/linux/`, staged by `scripts/packaging.sh` `install_linux_tree`,
+  which pre-flights every source and renders the metainfo fail-closed via
+  `render_metainfo`).
 - Shortcuts in `app::handle_shortcuts` (consume_key so typing never
   triggers them): Ctrl/Cmd+T/W/R/L/A, Ctrl/Cmd+1..9, F5, Esc (stop loading
   when no field/menu owns the key; a focused omnibox reverts its text
@@ -1028,8 +1032,8 @@ Key contracts:
   key slice (`String: Borrow<str>`) every lookup, tile or tab, is one hash
   probe with no `String` allocation and no parse, and parsing happens on
   the first frame of an unknown origin alone — the palette
-  (`theme::scheme_ref`) is interned per theme instead of rebuilt at ~40
-  call sites per frame, the OS window title comes from the same per-tab
+  (`theme::scheme_ref`, borrowed per surface; one-off callers use
+  `theme::scheme_for`) is interned per theme instead of rebuilt per element, the OS window title comes from the same per-tab
   memo (`Tab::window_title_cached`, compared as a borrowed `&str`);
   the omnibox suggestion cache is rebuilt only while its field is editing
   (so Home never runs the doubly-scheduled 20 000-entry scan per keystroke)

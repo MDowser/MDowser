@@ -57,14 +57,14 @@ pub(super) fn skip_cell(events: &[Event<'static>], i: &mut usize) {
 /// document text itself stays complete: `Copy` uses `Fetched.plain_text`.
 pub(super) fn render_truncation_notice(ui: &mut egui::Ui) {
     let s = theme::scheme_ref(ui);
-    ui.add_space(6.0);
+    ui.add_space(theme::spacing::S);
     ui.label(
         egui::RichText::new("... more content hidden (the full text is still copied)")
             .small()
             .italics()
             .color(s.on_surface_variant),
     );
-    ui.add_space(6.0);
+    ui.add_space(theme::spacing::S);
 }
 
 /// Appends `part` to `text` without letting the buffer grow past the

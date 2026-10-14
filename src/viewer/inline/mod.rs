@@ -512,7 +512,7 @@ pub(super) fn render_badge(
             rect,
             radius,
             fill,
-            egui::Stroke::new(1.0, stroke),
+            egui::Stroke::new(theme::stroke::HAIRLINE, stroke),
             egui::StrokeKind::Inside,
         );
     }

@@ -23,6 +23,8 @@
 #
 # What this CANNOT check off-Linux: lintian (Debian-only), a real .deb/.rpm
 # build and flatpak-builder. See docs/BUILDING.md for the container recipes.
+# `set -u` (not `set -eu`) on purpose: best-effort means a failing probe must
+# fall through to the SKIP path, never abort the script.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"

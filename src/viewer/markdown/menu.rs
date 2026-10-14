@@ -269,7 +269,7 @@ pub(super) fn split_frags_at<'a>(
 /// "shrink-wrap then center" layout); when it cannot fit the column it
 /// falls back to a left-aligned wrapping row.
 pub(super) fn flush_menu(ui: &mut egui::Ui, menu: &Menu<'_>, ctx: &mut RenderCtx) {
-    ui.add_space(4.0);
+    ui.add_space(theme::spacing::XS);
     let sep = menu.sep.to_string();
     let sep_w = {
         let font = egui::TextStyle::Small.resolve(ui.style());
@@ -344,7 +344,7 @@ pub(super) fn flush_menu(ui: &mut egui::Ui, menu: &Menu<'_>, ctx: &mut RenderCtx
             }
         });
     }
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
 }
 
 /// Approximate rendered width of one inline fragment (body font): used to

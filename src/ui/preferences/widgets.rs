@@ -37,8 +37,11 @@ pub(super) fn dialog_header(ui: &mut egui::Ui, s: &theme::Scheme, open: &mut boo
                     icons::paint(ui, icon_rect, icons::Icon::Settings, s.primary);
                     ui.add_space(10.0);
                     ui.label(
-                        theme::strong(egui::RichText::new("Preferences").size(21.0))
-                            .color(s.on_surface),
+                        theme::strong(
+                            egui::RichText::new("Preferences")
+                                .size(theme::typography::DIALOG_TITLE),
+                        )
+                        .color(s.on_surface),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if close_button(ui, s).clicked() {
@@ -73,7 +76,9 @@ pub(super) fn card(ui: &mut egui::Ui, s: &theme::Scheme, add: impl FnOnce(&mut e
 /// `text` is expected ALREADY uppercase (the labels are static: a per-frame
 /// `to_uppercase()` allocation bought nothing).
 pub(super) fn section_title(ui: &mut egui::Ui, s: &theme::Scheme, text: &str) {
-    ui.label(theme::strong(egui::RichText::new(text).size(11.0)).color(s.primary));
+    ui.label(
+        theme::strong(egui::RichText::new(text).size(theme::typography::EYEBROW)).color(s.primary),
+    );
 }
 
 /// Small text link: content-sized, clickable, with a hover underline. Painted
@@ -87,7 +92,7 @@ pub(super) fn text_link(
 ) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(
         text.to_string(),
-        egui::FontId::proportional(13.0),
+        egui::FontId::proportional(theme::typography::UI_LINK),
         s.primary,
     );
     let size = galley.size();
@@ -102,7 +107,7 @@ pub(super) fn text_link(
                 egui::pos2(rect.min.x, rect.max.y),
                 egui::pos2(rect.max.x, rect.max.y),
             ],
-            egui::Stroke::new(1.0, s.primary),
+            egui::Stroke::new(theme::stroke::HAIRLINE, s.primary),
         );
     }
     ui.painter().galley(rect.min, galley, s.primary);
@@ -129,7 +134,11 @@ pub(super) fn setting_row(
         egui::vec2(ui.available_width(), ROW_H),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            ui.label(egui::RichText::new(label).size(15.0).color(s.on_surface));
+            ui.label(
+                egui::RichText::new(label)
+                    .size(theme::typography::ROW)
+                    .color(s.on_surface),
+            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 control(ui);
             });
@@ -157,9 +166,13 @@ pub(super) fn history_caption(ui: &mut egui::Ui, s: &theme::Scheme, store: &Hist
         None => (count_label(store.entries().len()), s.on_surface_variant),
     };
     let response = ui.add(
-        egui::Label::new(egui::RichText::new(text).size(12.0).color(color))
-            .truncate()
-            .selectable(false),
+        egui::Label::new(
+            egui::RichText::new(text)
+                .size(theme::typography::UI_SMALL)
+                .color(color),
+        )
+        .truncate()
+        .selectable(false),
     );
     response.on_hover_ui(|ui| {
         if matches!(store.retention(), Retention::Session) {
@@ -211,7 +224,7 @@ pub(super) fn danger_row(
         egui::pos2(rect.min.x + 38.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
-        egui::FontId::proportional(15.0),
+        egui::FontId::proportional(theme::typography::ROW),
         s.error,
     );
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
@@ -239,7 +252,7 @@ pub(super) fn switch(
     let radius = theme::pill_radius(SWITCH_H);
     let fill = theme::mix(s.container_high, s.primary, t);
     let stroke = if t < 0.5 {
-        egui::Stroke::new(1.0, s.outline_variant)
+        egui::Stroke::new(theme::stroke::HAIRLINE, s.outline_variant)
     } else {
         egui::Stroke::NONE
     };
@@ -251,7 +264,7 @@ pub(super) fn switch(
         ui.painter().rect_stroke(
             track.expand(2.0),
             ring_radius,
-            egui::Stroke::new(1.0, s.primary),
+            egui::Stroke::new(theme::stroke::HAIRLINE, s.primary),
             egui::StrokeKind::Inside,
         );
     }
@@ -289,7 +302,7 @@ pub(super) fn close_button(ui: &mut egui::Ui, s: &theme::Scheme) -> egui::Respon
     }
     let c = rect.center();
     let d = 5.0;
-    let stroke = egui::Stroke::new(1.8, s.on_surface_variant);
+    let stroke = egui::Stroke::new(theme::stroke::ICON, s.on_surface_variant);
     ui.painter()
         .line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], stroke);
     ui.painter()
@@ -325,12 +338,12 @@ pub(super) fn dropdown_row(
         egui::pos2(rect.min.x + 10.0, rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
-        egui::FontId::proportional(14.5),
+        egui::FontId::proportional(theme::typography::DROPDOWN),
         color,
     );
     if selected {
         let c = egui::pos2(rect.max.x - 14.0, rect.center().y);
-        let stroke = egui::Stroke::new(1.8, s.primary);
+        let stroke = egui::Stroke::new(theme::stroke::ICON, s.primary);
         ui.painter().line_segment(
             [c + egui::vec2(-4.5, 0.5), c + egui::vec2(-1.5, 3.5)],
             stroke,

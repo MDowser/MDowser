@@ -18,10 +18,10 @@
 #
 # The wrapper generates `cargo-sources.json` when the generator is installed
 # and explains what is missing otherwise. A manual build from the repository
-# root is:
+# root is (the wrapper also passes `--state-dir` under `dist/`):
 #
-#   flatpak-builder --repo=dist/.flatpak-repo --force-clean \
-#       dist/.flatpak-build packaging/flatpak/dev.mdowser.app.yaml
+#   flatpak-builder --repo=dist/.flatpak-repo --state-dir=dist/.flatpak-state \
+#       --force-clean dist/.flatpak-build packaging/flatpak/dev.mdowser.app.yaml
 #
 app-id: dev.mdowser.app
 runtime: org.freedesktop.Platform
@@ -65,12 +65,13 @@ modules:
       - install -Dm755 target/release/mdowser /app/bin/mdowser
       # Desktop integration: same files the .deb/.rpm install, from the one
       # shared copy in packaging/linux/. The metainfo is rendered HERE with
-      # the Cargo version, the build date and the Flatpak launchable/icon
-      # ids, so it can never advertise a stale release or a desktop file /
-      # icon that does not exist after the app-id renames above.
+      # the Cargo `[package]` version (same scoped parse as
+      # `scripts/packaging.sh` `app_version`), the build date and the Flatpak
+      # launchable/icon ids, so it can never advertise a stale release or a
+      # desktop file / icon that does not exist after the app-id renames above.
       - install -Dm644 packaging/linux/mdowser.desktop
         /app/share/applications/mdowser.desktop
-      - VER="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; DATE="$(date -u +%Y-%m-%d)"; sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$VER\"/" -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$DATE\"/" -e 's|>mdowser\.desktop</launchable>|>dev.mdowser.app.desktop</launchable>|' -e 's|>mdowser</icon>|>dev.mdowser.app</icon>|' packaging/linux/dev.mdowser.app.metainfo.xml > dev.mdowser.app.metainfo.xml; install -Dm644 dev.mdowser.app.metainfo.xml /app/share/metainfo/dev.mdowser.app.metainfo.xml
+      - VER="$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)"; DATE="$(date -u +%Y-%m-%d)"; sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$VER\"/" -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$DATE\"/" -e 's|>mdowser\.desktop</launchable>|>dev.mdowser.app.desktop</launchable>|' -e 's|>mdowser</icon>|>dev.mdowser.app</icon>|' packaging/linux/dev.mdowser.app.metainfo.xml > dev.mdowser.app.metainfo.xml; install -Dm644 dev.mdowser.app.metainfo.xml /app/share/metainfo/dev.mdowser.app.metainfo.xml
       - install -Dm644 packaging/linux/mdowser.1
         /app/share/man/man1/mdowser.1
       - for s in 16 32 48 64 128 256 512; do

@@ -322,7 +322,7 @@ impl PreferencesState {
                                                 egui::RichText::new(
                                                     "Off while history is set to Forget on exit: tab URLs are never written to disk.",
                                                 )
-                                                .size(12.0)
+                                                .size(theme::typography::UI_SMALL)
                                                 .color(s.on_surface_variant),
                                             )
                                             .selectable(false),
@@ -334,7 +334,7 @@ impl PreferencesState {
                                         let resp = ui.add(
                                             egui::Label::new(
                                                 egui::RichText::new(error)
-                                                    .size(12.0)
+                                                    .size(theme::typography::UI_SMALL)
                                                     .color(s.error),
                                             )
                                             .truncate()
@@ -351,7 +351,7 @@ impl PreferencesState {
                                         let resp = ui.add(
                                             egui::Label::new(
                                                 egui::RichText::new(error)
-                                                    .size(12.0)
+                                                    .size(theme::typography::UI_SMALL)
                                                     .color(s.error),
                                             )
                                             .truncate()
@@ -366,7 +366,7 @@ impl PreferencesState {
                                         let resp = ui.add(
                                             egui::Label::new(
                                                 egui::RichText::new(error)
-                                                    .size(12.0)
+                                                    .size(theme::typography::UI_SMALL)
                                                     .color(s.error),
                                             )
                                             .truncate()
@@ -419,7 +419,7 @@ impl PreferencesState {
                                         let resp = ui.add(
                                             egui::Label::new(
                                                 egui::RichText::new(error)
-                                                    .size(12.0)
+                                                    .size(theme::typography::UI_SMALL)
                                                     .color(s.error),
                                             )
                                             .truncate()

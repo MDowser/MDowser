@@ -39,7 +39,18 @@ render_metainfo() {
     _metainfo_out="$1"
     _metainfo_ver="$2"
     _metainfo_date="$(date -u +%Y-%m-%d 2>/dev/null || printf '1970-01-01')"
-    sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$_metainfo_ver\"/" \
+    # Fail closed on an unexpected version (never let `&` or `/` through to
+    # the `sed` replacement, where `&` would expand to the matched text).
+    case "$_metainfo_ver" in
+        '' | *[!0-9A-Za-z._+-]*)
+            echo "ERROR: refusing to render metainfo with version '$_metainfo_ver'" >&2
+            return 1
+            ;;
+    esac
+    # Escape `&` and `\` for the replacement side (the case above already
+    # rejects `/`, so the `/` delimiter stays safe).
+    _metainfo_esc="$(printf '%s' "$_metainfo_ver" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g')"
+    sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$_metainfo_esc\"/" \
         -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$_metainfo_date\"/" \
         "${ROOT:?ROOT must be set}/packaging/linux/dev.mdowser.app.metainfo.xml" \
         > "$_metainfo_out"
@@ -74,6 +85,33 @@ install_linux_tree() {
         echo "ERROR: install source binary not found: $_ilt_bin" >&2
         return 1
     fi
+    # Pre-flight (fail closed before a partial tree): every source the tree
+    # copies must exist, so a missing icon or man page aborts before the
+    # destination is touched instead of leaving a half-installed prefix
+    # (fatal for the RPM `%install`).
+    if [ ! -f "${ROOT:?}/packaging/linux/mdowser.desktop" ]; then
+        echo "ERROR: packaging/linux/mdowser.desktop not found" >&2
+        return 1
+    fi
+    if [ ! -f "${ROOT}/packaging/linux/dev.mdowser.app.metainfo.xml" ]; then
+        echo "ERROR: packaging/linux/dev.mdowser.app.metainfo.xml not found" >&2
+        return 1
+    fi
+    if [ ! -f "${ROOT}/packaging/linux/mdowser.1" ]; then
+        echo "ERROR: packaging/linux/mdowser.1 not found" >&2
+        return 1
+    fi
+    if [ ! -f "${ROOT}/assets/icon.svg" ]; then
+        echo "ERROR: assets/icon.svg not found" >&2
+        return 1
+    fi
+    for _ilt_pre in 16 32 48 64 128 256 512; do
+        if [ ! -f "${ROOT}/assets/icons/icon-$_ilt_pre.png" ]; then
+            echo "ERROR: assets/icons/icon-$_ilt_pre.png not found (run make icons)" >&2
+            return 1
+        fi
+    done
+    unset _ilt_pre
     install -d "$_ilt_appdir/bin" \
         "$_ilt_appdir/share/applications" \
         "$_ilt_appdir/share/metainfo" \

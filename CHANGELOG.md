@@ -7,8 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-10-14
+
+A professionalization pass: one type/stroke/spacing scale for the whole
+chrome (pixel-identical), the interned palette borrowed on hot draw paths,
+fail-closed packaging helpers, one version-parse recipe, and the root/docs
+sync closed — plus the native Windows bootstrap.
+
+### Added
+
+- `windows.ps1`: native Windows bootstrap (winget-only, idempotent),
+  equivalent to `make` without `make`: installs Rustup 1.98, MSVC Build Tools
+  + the C++ workload, NASM, Git (Git Bash), Python 3.12 (with a `python3`
+  shim) and LLVM (`llvm-strip`), then `cargo build --locked --release` plus
+  the host `.exe` zip via `scripts/build-dist.sh --host-only`. Flags
+  `-Test`/`-Validate`/`-SkipBuild`/`-SkipDist`/`-SkipSetup`/`-NoElevate`.
+  (`windows.ps1`, `docs/BUILDING.md`.)
+- `.exe` strip falls back to `llvm-strip` when `x86_64-w64-mingw32-strip` is
+  missing, so a native MSVC build (which ships LLVM, not mingw) no longer
+  ships unstripped; `$STRIP` still wins. (`scripts/build-dist.sh`.)
+
 ### Changed
 
+- Standardization: chrome type, strokes and gaps share one scale —
+  `theme::typography` (`UI_COMPACT`/`UI_SMALL`/`EYEBROW`/`UI_LINK`/`BUTTON`/
+  `DROPDOWN`/`ROW`/`HEADING`/`DIALOG_TITLE`/`DISPLAY`), `theme::stroke`
+  (`HAIRLINE`/`ICON`/`EMPHASIS`) and `theme::spacing` (`XS`/`S`/`M`/`L`/`XL`)
+  back the omnibox card, suggestion rows, history rows, Preferences dialog,
+  task checkboxes, badges, cards and tables instead of repeated literals
+  (same pixel values; graphics stay pixel-identical). (`src/ui/theme/`,
+  `src/ui/`, `src/viewer/`, `docs/ARCHITECTURE.md`.)
+- Hot draw paths borrow the interned palette (`theme::scheme_ref`) instead of
+  copying the 50-field `Scheme`: `tonal_button_sized`, `content_frame` and
+  `paint_content_fade` no longer rebuild it per button/surface; the one-off
+  `theme::scheme_for` copy stays for non-hot callers.
+  (`src/ui/theme/`, `docs/ARCHITECTURE.md`.)
+- Build tooling, fail-closed and best-effort: `render_metainfo` rejects a
+  version outside `[0-9A-Za-z._+-]` and escapes `&`/`\` before the `sed`
+  replacement; `install_linux_tree` pre-flights every source (binary,
+  desktop entry, metainfo, icons, SVG, man page) before touching the
+  destination; `mk_app` checks its binary/icon sources and returns instead of
+  aborting; `do_mac` guards `lipo`/`mk_app` and `do_host` guards the host
+  build so `--all` warns and continues with a reason; `MODE` default and the
+  `EXIT` trap read without POSIX trivia; intentional word-splits carry
+  `shellcheck` disables; `deps.sh`/`validate.sh` document their `set -u`
+  (best-effort, never abort). (`scripts/`, `docs/BUILDING.md`.)
+- Single version-parse recipe: the RPM spec, the Flatpak manifest and the
+  `BUILDING.md` container recipes use the same scoped `[package]` parse as
+  `scripts/packaging.sh` `app_version`; the spec comment matches the real
+  `build-dist.sh --rpm` defines and the Flatpak manual recipe matches
+  `build-flatpak.sh` (`--state-dir`). (`packaging/`, `docs/BUILDING.md`.)
 - Version-control policy is documented and active: the repository lives on
   GitHub (`origin`) and commits are created only on explicit request, never
   automatically, with no AI attribution in messages. (`AGENTS.md`,
@@ -18,7 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the AppStream `homepage`/`bugtracker`/`vcs-browser` links, the Cargo
   `homepage`/`repository` fields and the man page homepage. (`packaging/`,
   `scripts/build-dist.sh`, `Cargo.toml`.)
-- README: dropped the "PRs welcome" badge. (`README.md`.)
+- README: dropped the "PRs welcome" badge; the build section points native
+  Windows at `windows.ps1` and the security link uses the `docs/` label like
+  every other link. (`README.md`.)
+- Docs sync: `BUILDING.md` no longer offers `choco` for NASM (winget, like
+  `windows.ps1`), states that the `scripts/` equivalents skip `make deps`
+  and the host build, names the RPM as copied verbatim from `rpmbuild`, and
+  attributes the `.exe` strip fallback to `build-dist.sh`; `ARCHITECTURE.md`
+  documents the new theme scales and the pre-flighted Linux tree.
+  (`docs/`, `packaging/`.)
 
 ## [0.4.5] - 2026-10-13
 

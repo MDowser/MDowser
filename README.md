@@ -88,7 +88,9 @@ make run    # debug build + run
 
 `make` and `make dist` install what the host is missing first (`make deps`;
 `SKIP_SETUP=1` opts out). Requires stable Rust ≥ 1.98 and a C compiler (plus
-NASM on x86/x86_64). Full requirements, the `make test` pipeline and multi-OS
+NASM on x86/x86_64). On native Windows without `make`, `windows.ps1` is the
+equivalent entry point (see [`docs/BUILDING.md`](docs/BUILDING.md#native-windows)).
+Full requirements, the `make test` pipeline and multi-OS
 `make dist` packaging: [`docs/BUILDING.md`](docs/BUILDING.md).
 
 ## Usage
@@ -136,7 +138,7 @@ name or load a local path. Every read
 and decode path is hard-capped (10 MiB documents, 16 MiB / 48 MP images,
 1M events, bounded encrypted history and bookmarks), SVG is rasterized
 statically and `unsafe_code = "forbid"`. The full threat model and caps are
-in [`SECURITY.md`](docs/SECURITY.md).
+in [`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Roadmap
 

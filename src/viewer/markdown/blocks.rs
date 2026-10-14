@@ -106,7 +106,7 @@ pub(super) fn render_paragraph(ui: &mut egui::Ui, mut frags: Vec<Frag<'_>>, ctx:
     // which used to leave the callout's bottom edge visibly loose.
     if ctx.item.is_none() && ctx.quote > 0 {
         if ctx.quote_blocks > 0 {
-            ui.add_space(8.0);
+            ui.add_space(theme::spacing::M);
         }
         ctx.quote_blocks += 1;
     }
@@ -114,7 +114,7 @@ pub(super) fn render_paragraph(ui: &mut egui::Ui, mut frags: Vec<Frag<'_>>, ctx:
     // Inside a list item the implicit item spacing separates blocks, so the
     // list reads as one compact block instead of a loose, airy stack.
     if ctx.item.is_none() && ctx.quote == 0 {
-        ui.add_space(8.0);
+        ui.add_space(theme::spacing::M);
     }
 }
 
@@ -182,7 +182,7 @@ pub(super) fn render_wrapped_lines(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &
     for line in lines.iter() {
         if line.is_empty() {
             if multi {
-                ui.add_space(4.0);
+                ui.add_space(theme::spacing::XS);
             }
             continue;
         }
@@ -405,7 +405,7 @@ pub(super) fn render_paragraph_around_blocks(
     // air BETWEEN blocks), and inside a list item the item spacing already
     // separates, so an unconditional 8px left the quote's bottom loose.
     if ctx.quote == 0 && ctx.item.is_none() {
-        ui.add_space(8.0);
+        ui.add_space(theme::spacing::M);
     }
 }
 

@@ -7,13 +7,17 @@
 # and .zip artifacts `make dist` produces ship the prebuilt binary instead).
 #
 # Build from the repository root with the version pinned by the caller (single
-# source of truth is Cargo.toml):
+# source of truth is Cargo.toml, scoped to `[package]` like
+# `scripts/packaging.sh` `app_version`):
 #
-#   VER=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+#   VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)
 #   rpmbuild -bb packaging/rpm/mdowser.spec \
+#       --define "_topdir $PWD/dist/.rpmbuild" \
 #       --define "ver $VER" \
-#       --define "_sourcedir $PWD/.." \
-#       --define "_rpmdir $PWD/../rpmout"
+#       --define "_sourcedir $PWD/dist/.rpmbuild/SOURCES" \
+#       --define "_builddir $PWD/dist/.rpmbuild/BUILD" \
+#       --define "_rpmdir $PWD/dist/.rpmbuild/RPMS" \
+#       --define "_srcrpmdir $PWD/dist/.rpmbuild/SRPMS"
 #
 # `make dist-rpm` does all of that (and builds the source tarball first). The
 # spec also builds under COPR/`fedpkg` once the tree is exported as
@@ -26,7 +30,7 @@
 # network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.4.5}
+Version:        %{?ver}%{!?ver:0.4.6}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
@@ -87,6 +91,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.4.6-1
+- Professionalization pass: shared theme scales, hardened packaging, docs sync (see CHANGELOG.md 0.4.6).
 * Tue Oct 13 2026 MDowser <noreply@mdowser.invalid> - 0.4.5-1
 - Security, rendering and packaging fixes (see CHANGELOG.md 0.4.5).
 * Tue Oct 13 2026 MDowser <noreply@mdowser.invalid> - 0.4.4-1

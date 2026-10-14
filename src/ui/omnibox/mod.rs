@@ -793,16 +793,20 @@ fn site_info_card(
                 });
                 if let Some(title) = &info.page_title {
                     ui.add(
-                        egui::Label::new(egui::RichText::new(title).size(14.0).color(s.on_surface))
-                            .wrap()
-                            .selectable(false),
+                        egui::Label::new(
+                            egui::RichText::new(title)
+                                .size(theme::typography::BUTTON)
+                                .color(s.on_surface),
+                        )
+                        .wrap()
+                        .selectable(false),
                     );
                 }
                 if let Some(address) = &info.address {
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(address)
-                                .size(11.5)
+                                .size(theme::typography::UI_COMPACT)
                                 .color(s.on_surface_variant),
                         )
                         .wrap()
@@ -812,7 +816,7 @@ fn site_info_card(
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(info.detail)
-                            .size(11.5)
+                            .size(theme::typography::UI_COMPACT)
                             .color(s.on_surface_variant),
                     )
                     .wrap()
@@ -911,7 +915,7 @@ fn suggest_row(ui: &mut egui::Ui, item: &Suggestion, selected: bool) -> egui::Re
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(url)
-                        .size(11.5)
+                        .size(theme::typography::UI_COMPACT)
                         .color(s.on_surface_variant),
                 )
                 .truncate()

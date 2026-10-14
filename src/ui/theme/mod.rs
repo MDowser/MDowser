@@ -191,6 +191,11 @@ const fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
 }
 
 /// Scheme for the active `Ui` theme (light/dark from the OS).
+///
+/// One-off convenience for non-hot callers (dialog setup, tooltips). Hot draw
+/// paths must use [`scheme_ref`] instead: it borrows the interned palette
+/// instead of copying the 50-field struct per element.
+#[allow(dead_code)]
 pub fn scheme_for(ui: &egui::Ui) -> Scheme {
     if ui.visuals().dark_mode {
         dark()
@@ -201,12 +206,10 @@ pub fn scheme_for(ui: &egui::Ui) -> Scheme {
 
 /// Shared `'static` schemes, built once per process.
 ///
-/// The palette is constant data (no `egui::Context` input), and
-/// [`scheme_for`] is called at ~40 sites per frame — several inside
-/// per-fragment loops (headings, list markers, table cells, tiles). Callers
-/// that paint many elements should resolve the scheme ONCE per surface with
+/// The palette is constant data (no `egui::Context` input). Callers that
+/// paint many elements resolve the scheme ONCE per surface with
 /// [`scheme_ref`] and pass the reference down instead of rebuilding the
-/// 50-field struct per element.
+/// 50-field struct per element (see [`scheme_for`] for the one-off copy).
 static LIGHT: std::sync::OnceLock<Scheme> = std::sync::OnceLock::new();
 static DARK: std::sync::OnceLock<Scheme> = std::sync::OnceLock::new();
 
@@ -421,15 +424,24 @@ fn apply_spacing_type(style: &mut egui::Style) {
     );
     style.text_styles.insert(
         TextStyle::Button,
-        FontId::new(14.0, FontFamily::Proportional),
+        FontId::new(
+            crate::ui::theme::typography::BUTTON,
+            FontFamily::Proportional,
+        ),
     );
     style.text_styles.insert(
         TextStyle::Small,
-        FontId::new(12.0, FontFamily::Proportional),
+        FontId::new(
+            crate::ui::theme::typography::UI_SMALL,
+            FontFamily::Proportional,
+        ),
     );
     style.text_styles.insert(
         TextStyle::Heading,
-        FontId::new(18.0, FontFamily::Proportional),
+        FontId::new(
+            crate::ui::theme::typography::HEADING,
+            FontFamily::Proportional,
+        ),
     );
     style.text_styles.insert(
         TextStyle::Monospace,

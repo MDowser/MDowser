@@ -136,7 +136,7 @@ pub(super) fn render_link_stack(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &mut
                 continue;
             }
             if !first {
-                ui.add_space(6.0);
+                ui.add_space(theme::spacing::S);
             }
             first = false;
             let link = frags[i].link.clone();
@@ -182,7 +182,7 @@ pub(super) fn render_link_stack(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &mut
             });
         }
     });
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
 }
 
 /// Callout markers (`> [!NOTE]`, `> [!WARNING]`...).

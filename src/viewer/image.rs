@@ -340,7 +340,7 @@ pub(crate) fn render_image_block(
     let clickable = interactive && link.is_some();
     let tooltip = tooltip_for(img, alt);
     let status = status_for(images, img, interactive);
-    ui.add_space(6.0);
+    ui.add_space(theme::spacing::S);
     match &status {
         Status::Ready { tex, .. } => {
             // Natural size clamped to the column (block position: centered).
@@ -423,7 +423,7 @@ pub(crate) fn render_image_block(
             ui.label(rt);
         });
     }
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
 }
 
 /// Wires a rendered image response to its enclosing link: clicking
@@ -477,7 +477,7 @@ fn image_placeholder(
                 ui.set_min_width(box_w.max(0.0));
                 ui.set_max_width(box_w.max(0.0));
                 ui.vertical_centered(|ui| {
-                    ui.add_space(4.0);
+                    ui.add_space(theme::spacing::XS);
                     let (rect, _) =
                         ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
                     icons::paint(ui, rect, icon, s.on_surface_variant);

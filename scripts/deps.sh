@@ -24,6 +24,8 @@
 #     set ALLOW_RUSTUP=1 to let this script run it, or install rustup yourself.
 #   - The Xcode Command Line Tools (the macOS C compiler) cannot be installed
 #     from Homebrew: this script only reports the command to run.
+# `set -u` (not `set -eu`) on purpose: best-effort means a failing probe must
+# fall through to the SKIP path, never abort the script.
 set -u
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -92,8 +94,12 @@ ensure_pkg() {
     printf '  get   %s (%s)\n' "$_ep_pkg" "$PM"
     case "$PM" in
         brew) brew install "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "brew install $_ep_pkg failed"; return 0; } ;;
+        # shellcheck disable=SC2086: `$PM_SUDO` is empty (root) or `sudo`;
+        # splitting is intended.
         apt) $PM_SUDO apt-get install -y "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "apt-get install $_ep_pkg failed"; return 0; } ;;
+        # shellcheck disable=SC2086: see above.
         dnf) $PM_SUDO dnf install -y "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "dnf install $_ep_pkg failed"; return 0; } ;;
+        # shellcheck disable=SC2086: see above.
         pacman) $PM_SUDO pacman -S --noconfirm "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "pacman -S $_ep_pkg failed"; return 0; } ;;
     esac
     if have "$_ep_cmd"; then

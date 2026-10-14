@@ -435,7 +435,7 @@ fn code_card(
     doc_salt: u64,
     budget: &mut usize,
 ) {
-    ui.add_space(6.0);
+    ui.add_space(theme::spacing::S);
     // Code block: GitHub's `pre` — `#f6f8fa` surface, no border, 6px
     // corners, 16px padding (see `theme::code_card`); a subtle header with
     // the language and a Copy button (READMEs do not show a header, but the
@@ -516,7 +516,7 @@ fn code_card(
                 render_body(ui, block, lang, selected, budget);
             });
     });
-    ui.add_space(8.0);
+    ui.add_space(theme::spacing::M);
 }
 
 /// Draws the cached block: highlighted spans when available, plain
