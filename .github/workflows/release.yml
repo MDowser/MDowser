@@ -277,6 +277,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
+          # Fixed release body (no --generate-notes): only the tag changes, so
+          # every release reads the same. Blank lines and the body stay at
+          # column 0 (YAML block scalar dedents the whole run script).
+          NOTES="$(mktemp)"
+          cat > "$NOTES" <<EOF
+          ## $GITHUB_REF_NAME
+
+          **Alpha release of MDowser.** See [CHANGELOG.md](https://github.com/MDowser/MDowser/blob/main/CHANGELOG.md) for update details.
+
+          Download the attached binaries from the **Assets** section below.
+
+          **Disclaimer:** Binaries are built in CI and some targets are cross-compiled; they may not work correctly on every platform. You can try [building from source](https://github.com/MDowser/MDowser/blob/main/docs/BUILDING.md). This software is provided as-is, with no guarantees or warranties of any kind, including stability, compatibility, reliability, or security. Use at your own risk.
+          EOF
+          # Pre-release tags stay out of the repo page's "Latest release".
+          PRERELEASE=()
+          case "$GITHUB_REF_NAME" in
+            *-alpha*|*-beta*|*-rc*) PRERELEASE=(--prerelease) ;;
+          esac
           gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "MDowser ${GITHUB_REF_NAME#v}" --generate-notes \
+            --title "MDowser ${GITHUB_REF_NAME#v}" \
+            "${PRERELEASE[@]}" --notes-file "$NOTES" \
           || gh release upload "$GITHUB_REF_NAME" dist/* --clobber
