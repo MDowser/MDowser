@@ -59,7 +59,7 @@ allow = [
   "Unicode-3.0",
   # Fonts `epaint_default_fonts` compiles into the binary (Ubuntu Light,
   # Hack, Noto Emoji; MDowser never registers them, see
-  # `THIRD_PARTY_NOTICES.md`) and the OFL-1.1 Noto faces under `assets/`
+  # `THIRD_PARTY_NOTICES.md`) and the OFL-1.1 Noto faces under `assets/fonts/`
   # (Emoji, Color Emoji, Sans CJK, Sans and the per-script set). Hack's
   # Bitstream Vera component is not part of the crate's declared
   # expression; it is called out in `THIRD_PARTY_NOTICES.md`:

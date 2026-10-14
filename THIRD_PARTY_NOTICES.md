@@ -29,7 +29,7 @@ attribution (all satisfied by this file plus each crate's own `LICENSE`):
 | Unicode-3.0 | `icu_*`, `litemap`, `tinystr`, `writeable`, `yoke`, `zerovec`, ... |
 | BSL-1.0 | `clipboard-win`, `error-code` (Windows-only) |
 | MPL-2.0 | `avif-parse` (file-level copyleft; unmodified, see below) |
-| OFL-1.1 + Ubuntu-font-1.0 + Bitstream Vera | `epaint_default_fonts` (Ubuntu Light, Hack, Noto Emoji; compiled into the binary but never registered by MDowser) + the bundled Noto faces under `assets/` (see below) |
+| OFL-1.1 + Ubuntu-font-1.0 + Bitstream Vera | `epaint_default_fonts` (Ubuntu Light, Hack, Noto Emoji; compiled into the binary but never registered by MDowser) + the bundled Noto faces under `assets/fonts/` (see below) |
 
 ## Direct dependencies (shipped binary)
 
@@ -166,7 +166,7 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-## Bundled fonts (`epaint_default_fonts` + `assets/`)
+## Bundled fonts (`epaint_default_fonts` + `assets/fonts/`)
 
 `egui`/`epaint` compile Ubuntu Light, Hack, Noto Emoji and emoji-icon-font
 into the binary. The crate's declared expression is
@@ -177,16 +177,16 @@ stacks bind only the Noto faces below, so those faces are present in the
 executable but never painted.
 
 MDowser embeds the SIL Open Font License 1.1 (OFL-1.1)
-faces under `assets/` listed below, shipped unmodified and registered both
+faces under `assets/fonts/` listed below, shipped unmodified and registered both
 for UI text (`ui::theme::apply`) and for statically rasterized SVG text
 (`media::decode`):
 
 | Asset | Face (version) | Copyright notice | SHA-256 |
 | --- | --- | --- | --- |
-| `assets/NotoEmoji-Variable.ttf` (1.9 MB) | Noto Emoji, variable `wght` (3.002) | Copyright 2013 Google LLC | `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551` |
-| `assets/NotoSansCJK-Regular.ttc` (18.6 MB) | Noto Sans CJK + Noto Sans Mono CJK, TTC faces 0-4 proportional / 5-9 mono in JP, KR, SC, TC and HK order (2.004) | © 2014-2021 Adobe (<http://www.adobe.com/>). | `b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a` |
-| `assets/NotoSans-Variable.ttf` (2.0 MB) | Noto Sans, variable `wdth`/`wght` (2.015) | Copyright 2022 The Noto Project Authors (<https://github.com/notofonts/latin-greek-cyrillic>) | `bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d` |
-| `assets/NotoColorEmoji-Regular.ttf` (24.2 MB) | Noto Color Emoji, COLRv1 + SVG-in-OpenType (2.055) | Copyright 2022 Google Inc. | `4d82a18d8d95f60ba883ce242bbadbf84a576e987745dd7ba38d71c67cff2d73` |
+| `assets/fonts/NotoEmoji-Variable.ttf` (1.9 MB) | Noto Emoji, variable `wght` (3.002) | Copyright 2013 Google LLC | `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551` |
+| `assets/fonts/NotoSansCJK-Regular.ttc` (18.6 MB) | Noto Sans CJK + Noto Sans Mono CJK, TTC faces 0-4 proportional / 5-9 mono in JP, KR, SC, TC and HK order (2.004) | © 2014-2021 Adobe (<http://www.adobe.com/>). | `b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a` |
+| `assets/fonts/NotoSans-Variable.ttf` (2.0 MB) | Noto Sans, variable `wdth`/`wght` (2.015) | Copyright 2022 The Noto Project Authors (<https://github.com/notofonts/latin-greek-cyrillic>) | `bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d` |
+| `assets/fonts/NotoColorEmoji-Regular.ttf` (24.2 MB) | Noto Color Emoji, COLRv1 + SVG-in-OpenType (2.055) | Copyright 2022 Google Inc. | `4d82a18d8d95f60ba883ce242bbadbf84a576e987745dd7ba38d71c67cff2d73` |
 
 Provenance and purpose:
 
@@ -222,7 +222,7 @@ Provenance and purpose:
   used by document emoji and stored bookmark-tile glyphs; anything
   that fails falls back to the monochrome Noto Emoji face.
 
-`SCRIPT_FONTS` (`assets/NotoSans*-Variable.ttf` / `-Regular.ttf`), one face
+`SCRIPT_FONTS` (`assets/fonts/NotoSans*-Variable.ttf` / `-Regular.ttf`), one face
 per writing system, all from the Google Fonts repository
 (<https://github.com/google/fonts>, `ofl/<family>/`): the major non-CJK
 scripts and Noto Sans Symbols 2. Harfrust applies their complex shaping
@@ -231,30 +231,30 @@ display order for RTL scripts.
 
 | Asset | Script | Version | Copyright notice | SHA-256 |
 | --- | --- | --- | --- | --- |
-| `assets/NotoSansArabic-Variable.ttf` (0.81 MB) | Arabic | 2.012 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic) | `63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e` |
-| `assets/NotoSansArmenian-Variable.ttf` (0.21 MB) | Armenian | 2.008 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/armenian) | `0870908d8318435a5daf1cd280ae15063f990cd9ad60f3e94c734ce9e1ffef71` |
-| `assets/NotoSansBengali-Variable.ttf` (0.44 MB) | Bengali | 3.011 | Copyright 2025 The Noto Project Authors (https://github.com/notofonts/bengali) | `dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a` |
-| `assets/NotoSansCanadianAboriginal-Variable.ttf` (0.28 MB) | Canadian Aboriginal | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/canadian-aboriginal) | `81b0f7e7ca48b28e343bb6a523a066743acedfbb29f374cbe4501e6d5f08f7af` |
-| `assets/NotoSansCherokee-Variable.ttf` (0.21 MB) | Cherokee | 2.001 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/cherokee) | `865d9e644f5011f2020a10325b7242f85c9c8ef0edece00e5ed743e5dfb275fd` |
-| `assets/NotoSansDevanagari-Variable.ttf` (0.61 MB) | Devanagari | 2.007 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari) | `14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e` |
-| `assets/NotoSansEthiopic-Variable.ttf` (1.09 MB) | Ethiopic | 2.102 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/ethiopic) | `0dbccc00b22d180ebd6a4bd8a733918a29e709fa6798023adc3e6cd40da65077` |
-| `assets/NotoSansGeorgian-Variable.ttf` (0.22 MB) | Georgian | 2.005 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/georgian) | `dc591156f36842d38996c4a7a17fee9bb58e45da3e2cac7a31b7d33de700adb9` |
-| `assets/NotoSansGujarati-Variable.ttf` (0.64 MB) | Gujarati | 2.106 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/gujarati) | `9901d8552f1dd5d2c50dbd4caa6f6e174e74e8264f06594ab259ae6e7b1ac428` |
-| `assets/NotoSansGurmukhi-Variable.ttf` (0.26 MB) | Gurmukhi | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/gurmukhi) | `1e6f728fa620e566f842d81e220265813faa12771214765d289c98e035adc5f2` |
-| `assets/NotoSansHebrew-Variable.ttf` (0.11 MB) | Hebrew | 3.001 | Copyright 2024 The Noto Project Authors (https://github.com/notofonts/hebrew) | `7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88` |
-| `assets/NotoSansKannada-Variable.ttf` (0.61 MB) | Kannada | 2.006 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/kannada) | `cca4f3b3a8cb12fb261f1b43baf5d2f7f59d90fe123d41f0065ed3a183997ec9` |
-| `assets/NotoSansKhmer-Variable.ttf` (0.34 MB) | Khmer | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer) | `f37a8431a0c5d5ed2f81a767417546aca576a81fb7eff9c924d46aecf828f2ca` |
-| `assets/NotoSansLao-Variable.ttf` (0.17 MB) | Lao | 2.003 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/lao) | `9608b94603a82d09a8038946f9775242f99e3b3459b7f1e4d5b335b578cd7ab3` |
-| `assets/NotoSansMalayalam-Variable.ttf` (0.48 MB) | Malayalam | 2.104 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/malayalam) | `312e0e7c3cc15fa09eb42a8f749eeb246b593ed420e3c81aafe8d910c3a6fb56` |
-| `assets/NotoSansMyanmar-Variable.ttf` (0.75 MB) | Myanmar | 2.107 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/myanmar) | `7abbbfbe2514105d7ce94937aee3feb2ba89b73a256c8b77b5866bd9b83e32ec` |
-| `assets/NotoSansNKo-Regular.ttf` (0.08 MB) | N'Ko | 2.004; ttfautohint (v1.8.4.7-5d5b) | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/nko) | `97954444367ad6708c36e85a89aec2830720e34968398d9caf07e7c3307c7993` |
-| `assets/NotoSansOriya-Variable.ttf` (0.58 MB) | Odia | 2.007 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/oriya) | `910342275d619081b896b4ed25fd9ad6ff320c25591b810de1fcc4beb153ba82` |
-| `assets/NotoSansSinhala-Variable.ttf` (1.13 MB) | Sinhala | 2.006 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/sinhala) | `9bd93e407a278075be403324063bc94a7e306c44de4df81214e932330c22eecf` |
-| `assets/NotoSansSymbols2-Regular.ttf` (1.18 MB) | Symbols 2 | 2.008; ttfautohint (v1.8.4.7-5d5b) | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols) | `7d5fb73b7ca67a6798101741f5d280a3d016a56a197afcd4199dbb57b4b82a21` |
-| `assets/NotoSansTamil-Variable.ttf` (0.32 MB) | Tamil | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/tamil) | `aa3a9b321f4b0bb2c40203ffbde9af89713227866e0e13f76e5b9eeea727cf88` |
-| `assets/NotoSansTelugu-Variable.ttf` (0.85 MB) | Telugu | 2.005 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/telugu) | `e618af7bf999df192ed4f388eba2e563f2b5015034e9cbb317b5bd793bd7334d` |
-| `assets/NotoSansThaana-Variable.ttf` (0.11 MB) | Thaana | 3.001 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thaana) | `a296795c892a9ec2b0f4d3af315568506ef9fd55920386170992d3935d8866ca` |
-| `assets/NotoSansThai-Variable.ttf` (0.21 MB) | Thai | 2.002 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai) | `5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8` |
+| `assets/fonts/NotoSansArabic-Variable.ttf` (0.81 MB) | Arabic | 2.012 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/arabic) | `63111b5b2e074dd48cc67692e0a2726d86ee94c1c37fe8598257b7b4e87e869e` |
+| `assets/fonts/NotoSansArmenian-Variable.ttf` (0.21 MB) | Armenian | 2.008 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/armenian) | `0870908d8318435a5daf1cd280ae15063f990cd9ad60f3e94c734ce9e1ffef71` |
+| `assets/fonts/NotoSansBengali-Variable.ttf` (0.44 MB) | Bengali | 3.011 | Copyright 2025 The Noto Project Authors (https://github.com/notofonts/bengali) | `dcd42978094e584a849c84a51450eeac40c8826057d566ea6d4b9627a403a05a` |
+| `assets/fonts/NotoSansCanadianAboriginal-Variable.ttf` (0.28 MB) | Canadian Aboriginal | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/canadian-aboriginal) | `81b0f7e7ca48b28e343bb6a523a066743acedfbb29f374cbe4501e6d5f08f7af` |
+| `assets/fonts/NotoSansCherokee-Variable.ttf` (0.21 MB) | Cherokee | 2.001 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/cherokee) | `865d9e644f5011f2020a10325b7242f85c9c8ef0edece00e5ed743e5dfb275fd` |
+| `assets/fonts/NotoSansDevanagari-Variable.ttf` (0.61 MB) | Devanagari | 2.007 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/devanagari) | `14ec4af41f27482216d1c2229f417ff9b1425e1babb014e57d1d40d03229853e` |
+| `assets/fonts/NotoSansEthiopic-Variable.ttf` (1.09 MB) | Ethiopic | 2.102 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/ethiopic) | `0dbccc00b22d180ebd6a4bd8a733918a29e709fa6798023adc3e6cd40da65077` |
+| `assets/fonts/NotoSansGeorgian-Variable.ttf` (0.22 MB) | Georgian | 2.005 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/georgian) | `dc591156f36842d38996c4a7a17fee9bb58e45da3e2cac7a31b7d33de700adb9` |
+| `assets/fonts/NotoSansGujarati-Variable.ttf` (0.64 MB) | Gujarati | 2.106 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/gujarati) | `9901d8552f1dd5d2c50dbd4caa6f6e174e74e8264f06594ab259ae6e7b1ac428` |
+| `assets/fonts/NotoSansGurmukhi-Variable.ttf` (0.26 MB) | Gurmukhi | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/gurmukhi) | `1e6f728fa620e566f842d81e220265813faa12771214765d289c98e035adc5f2` |
+| `assets/fonts/NotoSansHebrew-Variable.ttf` (0.11 MB) | Hebrew | 3.001 | Copyright 2024 The Noto Project Authors (https://github.com/notofonts/hebrew) | `7ef36a2c3593758cdb622e1bdef4f84523e92fbc3ccc667438dd80ff54c2de88` |
+| `assets/fonts/NotoSansKannada-Variable.ttf` (0.61 MB) | Kannada | 2.006 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/kannada) | `cca4f3b3a8cb12fb261f1b43baf5d2f7f59d90fe123d41f0065ed3a183997ec9` |
+| `assets/fonts/NotoSansKhmer-Variable.ttf` (0.34 MB) | Khmer | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/khmer) | `f37a8431a0c5d5ed2f81a767417546aca576a81fb7eff9c924d46aecf828f2ca` |
+| `assets/fonts/NotoSansLao-Variable.ttf` (0.17 MB) | Lao | 2.003 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/lao) | `9608b94603a82d09a8038946f9775242f99e3b3459b7f1e4d5b335b578cd7ab3` |
+| `assets/fonts/NotoSansMalayalam-Variable.ttf` (0.48 MB) | Malayalam | 2.104 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/malayalam) | `312e0e7c3cc15fa09eb42a8f749eeb246b593ed420e3c81aafe8d910c3a6fb56` |
+| `assets/fonts/NotoSansMyanmar-Variable.ttf` (0.75 MB) | Myanmar | 2.107 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/myanmar) | `7abbbfbe2514105d7ce94937aee3feb2ba89b73a256c8b77b5866bd9b83e32ec` |
+| `assets/fonts/NotoSansNKo-Regular.ttf` (0.08 MB) | N'Ko | 2.004; ttfautohint (v1.8.4.7-5d5b) | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/nko) | `97954444367ad6708c36e85a89aec2830720e34968398d9caf07e7c3307c7993` |
+| `assets/fonts/NotoSansOriya-Variable.ttf` (0.58 MB) | Odia | 2.007 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/oriya) | `910342275d619081b896b4ed25fd9ad6ff320c25591b810de1fcc4beb153ba82` |
+| `assets/fonts/NotoSansSinhala-Variable.ttf` (1.13 MB) | Sinhala | 2.006 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/sinhala) | `9bd93e407a278075be403324063bc94a7e306c44de4df81214e932330c22eecf` |
+| `assets/fonts/NotoSansSymbols2-Regular.ttf` (1.18 MB) | Symbols 2 | 2.008; ttfautohint (v1.8.4.7-5d5b) | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/symbols) | `7d5fb73b7ca67a6798101741f5d280a3d016a56a197afcd4199dbb57b4b82a21` |
+| `assets/fonts/NotoSansTamil-Variable.ttf` (0.32 MB) | Tamil | 2.004 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/tamil) | `aa3a9b321f4b0bb2c40203ffbde9af89713227866e0e13f76e5b9eeea727cf88` |
+| `assets/fonts/NotoSansTelugu-Variable.ttf` (0.85 MB) | Telugu | 2.005 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/telugu) | `e618af7bf999df192ed4f388eba2e563f2b5015034e9cbb317b5bd793bd7334d` |
+| `assets/fonts/NotoSansThaana-Variable.ttf` (0.11 MB) | Thaana | 3.001 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thaana) | `a296795c892a9ec2b0f4d3af315568506ef9fd55920386170992d3935d8866ca` |
+| `assets/fonts/NotoSansThai-Variable.ttf` (0.21 MB) | Thai | 2.002 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/thai) | `5a1c559bb539583c8a1fd99d1c5b9491e5e14478c9cd2bd0970d5c3096cc9ef8` |
 
 epaint rasterizes glyphs with fontations (`skrifa`) and shapes with
 `harfrust` (complex LTR scripts get their reordering and shaping, and RTL

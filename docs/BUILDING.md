@@ -108,7 +108,7 @@ missing or outdated (`build.rs` + `build_support/gen_icons.rs`), so a fresh
 checkout needs no manual step.
 
 The build also Brotli-compresses the two largest embedded fonts
-(`assets/NotoColorEmoji-Regular.ttf`, `assets/NotoSansCJK-Regular.ttc`)
+(`assets/fonts/NotoColorEmoji-Regular.ttf`, `assets/fonts/NotoSansCJK-Regular.ttc`)
 into `OUT_DIR` (`build_support/gen_fonts.rs`), saving ~26.5 MB in the
 installed binary (44.8 MB raw -> 18.3 MB at quality 10) with byte-identical
 rendering; the runtime decompresses

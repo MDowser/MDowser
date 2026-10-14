@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Assets layout: the bundled Noto faces moved to `assets/fonts/` (every
+  `include_bytes!` site, the `build_support/gen_fonts.rs` inputs and the
+  `THIRD_PARTY_NOTICES.md` paths updated; embedded bytes unchanged), and the
+  omnibox builtin suggestion list moved from a Rust `const` to
+  `assets/builtin_sites.txt` (one `<url><TAB><title>` line per entry),
+  embedded with `include_str!` and parsed once per process by
+  `builtin_sites::builtin_suggestions()`. The list content and order are
+  unchanged. (`assets/`, `src/`, `build_support/`, `docs/`.)
+
+### Fixed
+
+- The internal egui id-salt parameters (`ui::omnibox::address_id`,
+  `ui::scroll_id_key`, `ui::remember_scroll`, `ui::forget_scroll_state`) are
+  named `id_salt` instead of `salt`, so CodeQL's
+  `rust/hard-coded-cryptographic-value` heuristic no longer misreads a UI
+  hash namespace as hard-coded cryptographic material (no behavior change;
+  the stored ids are identical).
+
 ## [0.4.6] - 2026-10-14
 
 A professionalization pass: one type/stroke/spacing scale for the whole

@@ -128,8 +128,9 @@ the capsule while the field is editing (`src/suggest.rs`), capped at
 `config::MAX_OMNIBOX_SUGGESTIONS` (8):
 
 - Bookmarks first (newest first), then local-history visits (newest first),
-  then the curated builtin list shipped in `builtin_sites::BUILTIN_SUGGESTIONS`
-  (append-only: add one `(url, title)` line). Duplicates by exact URL keep
+  then the curated builtin list compiled in from `assets/builtin_sites.txt`
+  (`builtin_sites::builtin_suggestions()`; append-only: add one
+  `<url><TAB><title>` line). Duplicates by exact URL keep
   the higher-priority source.
 - Matching is case-insensitive on the URL and the title; a schemeless query
   (`ex.com/love`) matches the stored `https://` URL. An empty field offers

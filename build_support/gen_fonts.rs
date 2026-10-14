@@ -4,13 +4,14 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! `gen_fonts`: build-time Brotli compression of the two largest embedded
-//! fonts (`assets/NotoColorEmoji-Regular.ttf`, `assets/NotoSansCJK-Regular.ttc`).
+//! fonts (`assets/fonts/NotoColorEmoji-Regular.ttf`,
+//! `assets/fonts/NotoSansCJK-Regular.ttc`).
 //!
 //! Why build-time: `src/assets.rs` embeds the COMPRESSED blobs with
 //! `include_bytes!` and decompresses them once at runtime, which saves
 //! ~26.5 MB in the installed binary (the two large faces are 44.8 MB raw
 //! and compress to 18.3 MB at quality 10). The raw files
-//! under `assets/` stay the source of truth and keep feeding the icon
+//! under `assets/fonts/` stay the source of truth and keep feeding the icon
 //! pipeline, tests and packaging untouched.
 //!
 //! - Regenerates only when NEEDED: a hash of both inputs (plus this
@@ -29,8 +30,11 @@ use std::path::Path;
 
 /// Inputs as `(path relative to the manifest dir, generated const prefix)`.
 pub const INPUTS: [(&str, &str); 2] = [
-    ("assets/NotoColorEmoji-Regular.ttf", "NOTO_COLOR_EMOJI"),
-    ("assets/NotoSansCJK-Regular.ttc", "NOTO_SANS_CJK"),
+    (
+        "assets/fonts/NotoColorEmoji-Regular.ttf",
+        "NOTO_COLOR_EMOJI",
+    ),
+    ("assets/fonts/NotoSansCJK-Regular.ttc", "NOTO_SANS_CJK"),
 ];
 
 /// Brotli quality: q10 costs ~90 s for both faces and saves ~1.8 MB over
@@ -180,7 +184,7 @@ fn input_stats(manifest_dir: &Path) -> Vec<InputStat> {
 }
 
 /// Output file name inside `OUT_DIR` for one input: the base name plus
-/// `.br` (`assets/NotoSansCJK-Regular.ttc` -> `NotoSansCJK-Regular.ttc.br`).
+/// `.br` (`assets/fonts/NotoSansCJK-Regular.ttc` -> `NotoSansCJK-Regular.ttc.br`).
 fn output_name(name: &str) -> String {
     let base = name.rsplit('/').next().unwrap_or(name);
     format!("{base}.br")

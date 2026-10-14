@@ -6,11 +6,12 @@
 //! `builtin_sites`: the single curated site list behind the suggestions.
 //!
 //! - ONE source of truth for the builtin omnibox entries:
-//!   [`BUILTIN_SUGGESTIONS`], imported by `suggest` (ranking) and nowhere
-//!   else. The first-run bookmark grid (`bookmarks::DEFAULT_BOOKMARKS`)
-//!   keeps its own five-tile selection, but every seeded default must also
-//!   appear here (enforced by `suggest`'s test), so the omnibox always
-//!   offers the full set.
+//!   `assets/builtin_sites.txt`, embedded here with `include_str!` and
+//!   parsed once per process by [`builtin_suggestions`], which `suggest`
+//!   imports (ranking) and nobody else. The first-run bookmark grid
+//!   (`bookmarks::DEFAULT_BOOKMARKS`) keeps its own five-tile selection,
+//!   but every seeded default must also appear in the list (enforced by
+//!   `suggest`'s test), so the omnibox always offers the full set.
 //! - Entries are `(url, title)` in display order: `suggest` walks them in
 //!   listed order, skipping URLs already covered by bookmarks/history.
 //! - URLs must be pages this browser can open (`https://`, or a local
@@ -19,107 +20,49 @@
 //!   and the test asserts `util::normalize_stored_url` keeps every entry
 //!   byte-for-byte.
 //!
-//! TO GROW THE LIST: append one `(url, title)` line at the end of
-//! [`BUILTIN_SUGGESTIONS`]. Nothing else needs to change: no count to
+//! TO GROW THE LIST: append one `<url><TAB><title>` line at the end of
+//! `assets/builtin_sites.txt`. Nothing else needs to change: no count to
 //! bump, no test list to mirror.
 
-/// Curated builtin suggestions: the seeded bookmarks plus the docs kept
-/// out of the first-run grid and the curated site/docs list.
-/// Append new entries at the end to grow the list.
-pub const BUILTIN_SUGGESTIONS: &[(&str, &str)] = &[
-    ("https://acceptmarkdown.com/", "Accept Markdown"),
-    (
-        "https://agentready.md/leaderboard",
-        "AgentReady Leaderboard",
-    ),
-    ("https://www.cloudflare.com/", "Cloudflare"),
-    ("https://docs.stripe.com/", "Stripe Docs"),
-    ("https://vercel.com/docs", "Vercel Docs"),
-    ("https://isitagentready.com/", "Is It Agent Ready"),
-    ("https://docs.sentry.io/", "Sentry Docs"),
-    ("https://supabase.com/", "Supabase"),
-    (
-        "https://developers.cloudflare.com/",
-        "Cloudflare Developers",
-    ),
-    ("https://resend.com/", "Resend"),
-    ("https://airbyte.com/", "Airbyte"),
-    ("https://langfuse.com/", "Langfuse"),
-    ("https://lattice.com/", "Lattice"),
-    ("https://vercel.com/", "Vercel"),
-    ("https://vapi.ai/", "Vapi"),
-    ("https://www.pagerduty.com/", "PagerDuty"),
-    ("https://retool.com/", "Retool"),
-    ("https://www.browserbase.com/", "Browserbase"),
-    ("https://www.mintlify.com/", "Mintlify"),
-    ("https://www.algolia.com/", "Algolia"),
-    ("https://zapier.com/", "Zapier"),
-    ("https://www.brex.com/", "Brex"),
-    ("https://www.deel.com/", "Deel"),
-    ("https://www.amplitude.com/", "Amplitude"),
-    ("https://sentry.io/", "Sentry"),
-    ("https://cal.com/", "Cal.com"),
-    ("https://neon.com/", "Neon"),
-    ("https://upstash.com/", "Upstash"),
-    ("https://workos.com/", "WorkOS"),
-    ("https://planetscale.com/", "PlanetScale"),
-    ("https://www.astronomer.io/", "Astronomer"),
-    ("https://clerk.com/", "Clerk"),
-    ("https://exa.ai/", "Exa"),
-    ("https://www.greptile.com/", "Greptile"),
-    ("https://laravel.com/", "Laravel"),
-    ("https://fly.io/", "Fly.io"),
-    ("https://asana.com/", "Asana"),
-    ("https://composio.dev/", "Composio"),
-    ("https://docs.github.com/", "GitHub Docs"),
-    ("https://blog.cloudflare.com/", "Cloudflare Blog"),
-    ("https://docs.browser-use.com/", "Browser Use Docs"),
-    ("https://docs.browserbase.com/", "Browserbase Docs"),
-    ("https://docs.langchain.com/", "LangChain Docs"),
-    ("https://docs.ollama.com/", "Ollama Docs"),
-    ("https://docs.cohere.com/", "Cohere Docs"),
-    ("https://docs.replit.com/", "Replit Docs"),
-    ("https://developers.notion.com/", "Notion Developers"),
-    ("https://docs.discord.com/", "Discord Docs"),
-    ("https://docs.firecrawl.dev/", "Firecrawl Docs"),
-    ("https://docs.baseten.co/", "Baseten Docs"),
-    ("https://docs.cartesia.ai/", "Cartesia Docs"),
-    (
-        "https://inference-docs.cerebras.ai/",
-        "Cerebras Inference Docs",
-    ),
-    ("https://docs.lovable.dev/", "Lovable Docs"),
-    ("https://docs.poolside.ai/", "Poolside Docs"),
-    ("https://docs.slack.dev/", "Slack Docs"),
-    ("https://confidence.spotify.com/", "Spotify Confidence"),
-    ("https://nextjs.org/", "Next.js"),
-    ("https://agentgrade.com/", "AgentGrade"),
-    ("https://promptwatch.com/", "Promptwatch"),
-    ("https://snezzi.com/", "Snezzi"),
-    ("https://is-agentic.com/", "Is-Agentic"),
-    ("https://agent-ready.dev/", "Agent Ready"),
-    ("https://agentready.md/", "AgentReady.md"),
-    ("https://roots.io/", "Roots"),
-    ("https://www.heinz.com/", "Heinz"),
-    ("https://ai.virustotal.com/", "VirusTotal AI"),
-    ("https://www.lusha.com/", "Lusha"),
-    ("https://monogram.io/", "Monogram"),
-    ("https://daliso.com/", "Daliso Ngoma"),
-    ("https://israynotarray.com/", "Is Ray Not Array"),
-    ("https://scholar-sidekick.com/", "Scholar Sidekick"),
-    ("https://correctdocs.com/", "Correct Docs"),
-    ("https://davidbuenov.com/", "David Bueno Vallejo"),
-    ("https://admintoolkit.io/", "Admin Toolkit"),
-    ("https://beel.es/", "BeeL"),
-    ("https://zentract.io/", "Zentract"),
-    (
-        "https://www.poderosamentesimple.com/",
-        "Poderosamente Simple",
-    ),
-    ("https://cyberkov.com/", "Cyberkov"),
-    ("https://kamilolczyk.com/", "Kamil Olczyk"),
-    ("https://webcarespro.com/", "WebCare Pro"),
-    ("https://bild.systems/", "bild"),
-    ("https://www.baticarla.com/", "Carla Salvador"),
-    ("https://modelcontextprotocol.io/", "Model Context Protocol"),
-];
+use std::sync::OnceLock;
+
+/// The curated list, compiled into the binary from
+/// `assets/builtin_sites.txt` (one `<url><TAB><title>` line per entry;
+/// blank lines and `#` comments are allowed).
+const BUILTIN_SITES: &str = include_str!("../assets/builtin_sites.txt");
+
+/// The curated builtin suggestions as `(url, title)`, in display order:
+/// the seeded bookmarks plus the docs kept out of the first-run grid and
+/// the curated site/docs list.
+///
+/// Parsed once per process (`OnceLock`); every slice borrows the embedded
+/// file, so no per-entry allocation. Panics only on a malformed embedded
+/// line, which is a source bug [`parse`] reports with its line number.
+pub fn builtin_suggestions() -> &'static [(&'static str, &'static str)] {
+    static PARSED: OnceLock<Vec<(&'static str, &'static str)>> = OnceLock::new();
+    PARSED.get_or_init(|| parse(BUILTIN_SITES)).as_slice()
+}
+
+/// Parses the embedded list: blank lines and `#` comments are skipped;
+/// every other line must be `<url><TAB><title>` (both sides trimmed).
+///
+/// The file is compiled into the binary, so a malformed line cannot be
+/// fixed at runtime: panic with the file and line instead of silently
+/// dropping an entry or misreading a space-split title.
+fn parse(raw: &'static str) -> Vec<(&'static str, &'static str)> {
+    let mut out = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((url, title)) = line.split_once('\t') else {
+            panic!(
+                "assets/builtin_sites.txt:{}: expected `<url><TAB><title>`: {line}",
+                index + 1
+            );
+        };
+        out.push((url.trim(), title.trim()));
+    }
+    out
+}

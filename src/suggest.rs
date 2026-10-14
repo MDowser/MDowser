@@ -9,7 +9,7 @@
 //!   draw `ui::omnibox`, so they share these suggestions.
 //! - Sources, in display priority: bookmarks (explicit user data, newest
 //!   first), history visits (newest first), then the curated builtin list
-//!   (`crate::builtin_sites::BUILTIN_SUGGESTIONS`, listed order, skipping
+//!   (`crate::builtin_sites::builtin_suggestions()`, listed order, skipping
 //!   URLs already covered).
 //! - Matching is a case-insensitive substring on URL + title. An empty query
 //!   shows recent bookmarks instead of nothing (confirmed product choice).
@@ -21,14 +21,14 @@
 //!   caches the result on the query text + both store generations, so this
 //!   20000-entry scan runs on keystrokes, never per frame.
 //!
-//! TO GROW THE LIST: append one `(url, title)` line to
-//! [`crate::builtin_sites::BUILTIN_SUGGESTIONS`]. URLs must be pages this
-//! browser can open (`https://` or a local `file://` path) in their
-//! normalized form (trailing `/` for HTTPS roots/paths, like the stores
-//! keep them).
+//! TO GROW THE LIST: append one `<url><TAB><title>` line to
+//! `assets/builtin_sites.txt` (embedded with `include_str!` by
+//! [`crate::builtin_sites`]). URLs must be pages this browser can open
+//! (`https://` or a local `file://` path) in their normalized form
+//! (trailing `/` for HTTPS roots/paths, like the stores keep them).
 
 use crate::bookmarks::Bookmark;
-use crate::builtin_sites::BUILTIN_SUGGESTIONS;
+use crate::builtin_sites::builtin_suggestions;
 use crate::history::Visit;
 use std::collections::HashSet;
 
@@ -39,7 +39,7 @@ pub enum SuggestSource {
     Bookmark,
     /// Past visits, newest first.
     History,
-    /// The curated [`crate::builtin_sites::BUILTIN_SUGGESTIONS`] list.
+    /// The curated [`crate::builtin_sites::builtin_suggestions`] list.
     Builtin,
 }
 
@@ -121,7 +121,7 @@ pub fn suggest(query: &str, history: &[Visit], bookmarks: &[Bookmark]) -> Vec<Su
             });
         }
     }
-    for (url, title) in BUILTIN_SUGGESTIONS {
+    for (url, title) in builtin_suggestions() {
         if out.len() >= cap {
             break;
         }
@@ -168,7 +168,7 @@ pub(crate) fn matches_candidate(url: &str, title: Option<&str>, needle: &str) ->
 mod tests {
     use super::{suggest, SuggestSource};
     use crate::bookmarks::{Bookmark, BookmarkStore};
-    use crate::builtin_sites::BUILTIN_SUGGESTIONS;
+    use crate::builtin_sites::builtin_suggestions;
     use crate::history::{HistoryStore, Visit};
 
     fn bookmark(url: &str, title: Option<&str>) -> Bookmark {
@@ -195,20 +195,22 @@ mod tests {
         // Single source of truth: the expected core is owned by
         // `bookmarks::DEFAULT_BOOKMARKS`, and the rest of the list is
         // variable-length, so this test never hard-codes a count nor
-        // repeats the full list — growing `BUILTIN_SUGGESTIONS` touches
-        // only the list itself.
+        // repeats the full list — growing `assets/builtin_sites.txt`
+        // touches only that file.
+        let list = builtin_suggestions();
         for (url, _) in crate::bookmarks::DEFAULT_BOOKMARKS {
             assert!(
-                BUILTIN_SUGGESTIONS.iter().any(|(u, _)| *u == url),
+                list.iter().any(|(u, _)| *u == url),
                 "builtin list must hold seeded default {url}"
             );
         }
+        assert!(!list.is_empty(), "builtin list must not be empty");
         assert!(
-            !BUILTIN_SUGGESTIONS.is_empty(),
-            "builtin list must not be empty"
+            std::ptr::eq(list, builtin_suggestions()),
+            "the embedded list is parsed once and shared"
         );
         let mut seen = HashSet::new();
-        for (url, title) in BUILTIN_SUGGESTIONS {
+        for (url, title) in list {
             assert!(
                 !title.trim().is_empty(),
                 "builtin entry needs a title: {url}"

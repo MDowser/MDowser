@@ -159,30 +159,30 @@ pub(crate) const ERROR_SCROLL_ID: &str = "error-scroll";
 
 /// The real egui id of a per-tab `ScrollArea`, recorded by [`remember_scroll`]
 /// under a key of our own.
-fn scroll_id_key(salt: &'static str, tab_id: usize) -> egui::Id {
-    egui::Id::new((salt, "id", tab_id))
+fn scroll_id_key(id_salt: &'static str, tab_id: usize) -> egui::Id {
+    egui::Id::new((id_salt, "id", tab_id))
 }
 
 /// Records the REAL id of a per-tab `ScrollArea` (`ScrollAreaOutput::id`).
 ///
 /// A `ScrollArea` derives its persistent id from the PARENT `Ui`
-/// (`ui.make_persistent_id(id_salt)`), so `Id::new((salt, tab_id))` never
+/// (`ui.make_persistent_id(id_salt)`), so `Id::new((id_salt, tab_id))` never
 /// matches it (the old `forget_tab` removed five keys that did not exist and
 /// leaked one scroll state per closed tab). The recorded id is what
 /// [`forget_scroll_state`] removes.
 pub(crate) fn remember_scroll(
     ctx: &egui::Context,
-    salt: &'static str,
+    id_salt: &'static str,
     tab_id: usize,
     real: egui::Id,
 ) {
-    ctx.data_mut(|d| d.insert_temp(scroll_id_key(salt, tab_id), real));
+    ctx.data_mut(|d| d.insert_temp(scroll_id_key(id_salt, tab_id), real));
 }
 
 /// Drops the persisted state of one per-tab `ScrollArea` recorded by
 /// [`remember_scroll`]. A no-op when the surface was never shown.
-pub(crate) fn forget_scroll_state(ctx: &egui::Context, salt: &'static str, tab_id: usize) {
-    let key = scroll_id_key(salt, tab_id);
+pub(crate) fn forget_scroll_state(ctx: &egui::Context, id_salt: &'static str, tab_id: usize) {
+    let key = scroll_id_key(id_salt, tab_id);
     let recorded = ctx.data_mut(|d| d.get_temp::<egui::Id>(key));
     if let Some(real) = recorded {
         ctx.data_mut(|d| {
@@ -213,7 +213,7 @@ mod tests {
     /// The registry must remove the REAL id a `ScrollArea` used. A
     /// `ScrollArea` derives its persistent id from the parent `Ui`
     /// (`ui.make_persistent_id(id_salt)`), so the old
-    /// `Id::new((salt, tab_id))` removals never matched and every closed tab
+    /// `Id::new((id_salt, tab_id))` removals never matched and every closed tab
     /// leaked one scroll state per surface.
     #[test]
     fn the_scroll_registry_removes_the_real_scroll_area_id() {

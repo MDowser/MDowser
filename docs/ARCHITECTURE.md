@@ -29,7 +29,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │             holds the line format + background write)
   ├─ suggest (address-suggestion ranking shared by both omniboxes:
   │           bookmarks → history → builtin, deduped)
-  ├─ builtin_sites (the single curated builtin suggestion list)
+  ├─ builtin_sites (the single curated omnibox site list, embedded from
+  │                 `assets/builtin_sites.txt` and parsed once)
   ├─ settings (encrypted preferences + session: theme, startup zoom,
   │            session restore; settings.bin/session.bin + store.key,
   │            atomic file helpers; `session`, `file`, `platform`
@@ -832,8 +833,9 @@ Key contracts:
 - Omnibox autocomplete (`suggest.rs` + `ui::omnibox`): while either
   address field is editing, a popup lists up to
   `config::MAX_OMNIBOX_SUGGESTIONS` suggestions ranked bookmarks → history →
-  builtin (`builtin_sites::BUILTIN_SUGGESTIONS`, the append-only curated
-  `(url, title)` list compiled into the binary), deduplicated by exact
+  builtin (`builtin_sites::builtin_suggestions()`, the append-only curated
+  `(url, title)` list in `assets/builtin_sites.txt`, embedded at compile
+  time), deduplicated by exact
   normalized URL and matched case-insensitively on URL + title (schemeless
   queries included; ASCII candidates compare in place, so the scan does
   not allocate a lowercase `String` per candidate per keystroke); an empty

@@ -64,7 +64,8 @@ const KEY_FILE: &str = crate::settings::STORE_KEY_FILE;
 /// brings them back (seeding happens once, never recurrently).
 ///
 /// Vercel/Sentry/Supabase docs live ONLY in the omnibox builtin suggestions
-/// (`builtin_sites::BUILTIN_SUGGESTIONS`), not here: the first-run grid stays at
+/// (`builtin_sites::builtin_suggestions()`, `assets/builtin_sites.txt`), not
+/// here: the first-run grid stays at
 /// five tiles while the address popup still offers the full builtin list.
 pub(crate) const DEFAULT_BOOKMARKS: [(&str, &str); 5] = [
     ("https://acceptmarkdown.com/", "Accept Markdown"),
