@@ -343,8 +343,8 @@ guarantees are the same as `make dist`: the publishing job re-runs
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
 
 Artifact names are identical to `make dist`, so a CI release is the same
-set a local build produces. The Release body is a fixed text (the tag as
-heading, a CHANGELOG link, the assets pointer and the use-at-your-own-risk
+set a local build produces. The Release is titled with the tag and its body
+is a fixed text (CHANGELOG link, assets pointer and the use-at-your-own-risk
 disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as
 pre-releases. A manual run (`workflow_dispatch`) with
 `dry_run: true` compiles everything without publishing: use it to validate

@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   universal `.app.zip`; Linux x86_64/arm64 `.tar.gz` + `.deb`; Windows
   x86_64 `.zip` via the mingw cross; `.rpm` from source in a Fedora
   container; `.flatpak` bundle), re-runs the `dist/` privacy gate over the
-  merged set and publishes ONE GitHub Release with a fixed body (tag
-  heading, changelog link and disclaimer; `-alpha`/`-beta`/`-rc` tags as
+  merged set and publishes ONE GitHub Release titled with the tag, with a
+  fixed body (changelog link and disclaimer; `-alpha`/`-beta`/`-rc` tags as
   pre-releases) and a single `SHA256SUMS.txt`. No Actions cache: every
   release compiles from scratch
   and only the packaged files travel between jobs. A manual dispatch
