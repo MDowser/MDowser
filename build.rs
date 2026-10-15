@@ -221,7 +221,7 @@ const MANIFEST_XML: &str = r#"<?xml version="1.0" encoding="UTF-8" standalone="y
 "#;
 
 /// `FILEVERSION` quad (`a,b,c,d`, four `u16`) and the display string for a
-/// Cargo version like `0.5.1`.
+/// Cargo version like `0.5.2`.
 ///
 /// A pre-release/build suffix (`1.2.3-rc.1`, `1.2.3+build`) is kept in the
 /// string Windows shows but dropped from the numeric quad, which must be four

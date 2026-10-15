@@ -30,7 +30,7 @@
 # `rpmbuild` has network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.5.1}
+Version:        %{?ver}%{!?ver:0.5.2}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
@@ -107,8 +107,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
-* Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.5.1-1
-- Build-artifact privacy gate, CI release automation for every target, and Flatpak runtime 26.08 (see CHANGELOG.md 0.5.1).
+* Thu Oct 15 2026 MDowser <noreply@mdowser.invalid> - 0.5.2-1
+- Build-artifact privacy gate, CI release automation for every target, and Flatpak runtime 26.08 (see CHANGELOG.md 0.5.2).
 * Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.5.0-1
 - Feature release: first-heading page titles, remembered window geometry, external-open action (see CHANGELOG.md 0.5.0).
 * Wed Oct 14 2026 MDowser <noreply@mdowser.invalid> - 0.4.6-1
