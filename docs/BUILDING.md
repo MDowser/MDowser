@@ -354,8 +354,8 @@ set a local build produces, plus the Windows arm64 `.zip` (native MSVC on a
 Windows on ARM runner; it is not cross-built, so only CI — or a Windows on
 ARM host running `--host-only` — produces it). The Release is titled with
 the tag and its body
-is a fixed text (CHANGELOG link, assets pointer and the use-at-your-own-risk
-disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as
+is a fixed text (CHANGELOG link, per-platform first-run and install notes,
+assets pointer and the use-at-your-own-risk disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as
 pre-releases. A manual run (`workflow_dispatch`) with
 `dry_run: true` compiles everything without publishing: use it to validate
 the pipeline before pushing a tag. Standard runners are free for public

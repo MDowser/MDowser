@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Windows on ARM host uses), with the embedded icon/version/manifest
   verified after the build. `README.md` and `docs/BUILDING.md` document
   both Windows downloads and the native arm64 source build.
+- The release body also lists the Linux install commands
+  (`dpkg`/`rpm`/`flatpak` and the `.tar.gz` alternative) and the Windows
+  `x86_64`/`aarch64` zip choice, next to the macOS Gatekeeper and
+  SmartScreen notes.
 
 ### Fixed
 
