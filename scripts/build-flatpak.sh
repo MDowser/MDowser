@@ -44,9 +44,9 @@ fi
 MANIFEST="$ROOT/packaging/flatpak/dev.mdowser.app.yaml"
 SOURCES="$ROOT/packaging/flatpak/cargo-sources.json"
 # Runtime branch: single source of truth is the manifest's `runtime-version`
-# (its pinned `rust-stable//<branch>` extension matches it). A runtime bump is
-# a one-line manifest change; `flatpak info`/`flatpak install` here and the
-# error hints below all follow it.
+# (the `rust-stable` sandbox extension resolves against it automatically). A
+# runtime bump is a one-line manifest change; `flatpak info`/`flatpak
+# install` here and the error hints below all follow it.
 FDO_VER="$(sed -n "s/^runtime-version:[[:space:]]*'\([0-9.]*\)'.*$/\1/p" "$MANIFEST")"
 if [ -z "$FDO_VER" ]; then
     echo "ERROR: could not parse runtime-version from $MANIFEST" >&2

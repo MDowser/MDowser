@@ -43,8 +43,8 @@ tools there, best-effort):
 - Flatpak: `flatpak-builder` plus the `org.freedesktop.Platform` /
   `org.freedesktop.Sdk` 26.08 runtimes and the
   `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`; the
-  branch is pinned in `packaging/flatpak/dev.mdowser.app.yaml` and
-  `scripts/build-flatpak.sh` derives it from there).
+  branch is the manifest's `runtime-version`, the single source of truth
+  `scripts/build-flatpak.sh` derives the refs from).
 
 ## Installing dependencies
 

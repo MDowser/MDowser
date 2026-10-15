@@ -29,9 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Flatpak builds now target the freedesktop SDK 26.08 runtime (24.08 is
-  end-of-life); the `rust-stable` extension branch is pinned in the manifest
-  and `scripts/build-flatpak.sh` derives the runtime branch from
-  `packaging/flatpak/dev.mdowser.app.yaml` (single source of truth).
+  end-of-life); `runtime-version` in
+  `packaging/flatpak/dev.mdowser.app.yaml` is the single source of truth
+  and `scripts/build-flatpak.sh` derives the runtime and extension refs
+  from it.
 
 ### Fixed
 
