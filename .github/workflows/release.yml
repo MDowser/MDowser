@@ -50,7 +50,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Toolchain (rust-toolchain.toml) + Windows target
         run: |
           cargo --version
@@ -75,7 +75,7 @@ jobs:
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-x64
           path: dist/*
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Toolchain (rust-toolchain.toml)
         run: |
           # The arm64 image ships rustup like the other hosted images, but the
@@ -107,7 +107,7 @@ jobs:
           set -eu
           SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
           ls dist/*.tar.gz dist/*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-arm64
           path: dist/*
@@ -120,7 +120,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Toolchain (rust-toolchain.toml) + Intel target
         run: |
           cargo --version
@@ -132,7 +132,7 @@ jobs:
           set -eu
           SKIP_SETUP=1 ./scripts/build-dist.sh --mac
           ls dist/*.app.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-macos
           path: dist/*
@@ -153,7 +153,7 @@ jobs:
     steps:
       - name: Container essentials (checkout needs git)
         run: dnf -y install git
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Build dependencies (spec BuildRequires)
         run: |
           dnf -y install rpm-build nasm gcc gcc-c++ make patch curl \
@@ -170,7 +170,7 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           SKIP_SETUP=1 ./scripts/build-dist.sh --rpm
           ls dist/*.rpm
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-rpm
           path: dist/*
@@ -183,7 +183,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Free disk space (runtime + SDK + build need several GB)
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup \
@@ -236,7 +236,7 @@ jobs:
           export PATH="/tmp/fcg/bin:$PATH"
           SKIP_SETUP=1 ./scripts/build-dist.sh --flatpak
           ls dist/*.flatpak
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: dist-flatpak
           path: dist/*
@@ -254,8 +254,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           pattern: dist-*
           path: dist

@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The RPM spec no longer discloses the build hostname (`%_buildhost`) and its
   payload can no longer inherit the builder's ownership
   (`%defattr(-, root, root, -)`).
+- The Flatpak bundle builds again: the module installed `LICENSE` and
+  `THIRD_PARTY_NOTICES.md` with one `install` whose destination directory did
+  not exist yet; each file installs with its own name now.
 
 ## [0.5.0] - 2026-10-14
 
