@@ -310,6 +310,10 @@ mk_app() {
 EOF
     # Best-effort ad-hoc signing (no substitute for a Developer ID signature).
     codesign -s - --deep --force "$app" 2>/dev/null || true
+    # Verify the signature survived staging: informational only (an unsigned
+    # .app still opens via System Settings > Privacy & Security > Open Anyway).
+    codesign --verify --deep --strict "$app" 2>/dev/null || \
+        printf '··· WARN: ad-hoc signature did not verify for %s\n' "$app"
 }
 
 # --- minimal .deb with no external dependencies --------------------------------
@@ -557,7 +561,15 @@ do_mac() {
     # Guarded like the deb/zip steps: a failed packaging step skips the
     # artifact with a reason instead of aborting the whole `--all` run
     # (`set -e` would otherwise kill the script on a plain `return 1`).
-    if (cd "$DIST" && zip_of "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/$APP_UI-$VER-macos-universal.app.zip"); then
+    # `ditto` preserves the .app signature/resource metadata better than
+    # Info-ZIP, so it packs the macOS artifact when present.
+    if have ditto; then
+        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip"); then
+            BUILT="$BUILT mac-app-universal"
+        else
+            warn "mac-app-universal (zip failed)"
+        fi
+    elif (cd "$DIST" && zip_of "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/$APP_UI-$VER-macos-universal.app.zip"); then
         BUILT="$BUILT mac-app-universal"
     else
         warn "mac-app-universal (zip failed)"

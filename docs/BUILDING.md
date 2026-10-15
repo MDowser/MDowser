@@ -258,8 +258,9 @@ ships the builder's home path (`/Users/<user>/.cargo/registry/src/...` on
 macOS, `/home/<user>/...` on Linux); `strip` cannot remove those strings
 (they are runtime data, not symbols). `scripts/lib.sh`
 `export_remap_rustflags` therefore sets `CARGO_ENCODED_RUSTFLAGS` with
-`--remap-path-prefix=$HOME=/build` (and the Cargo home to `/cargo`) before
-every DISTRIBUTABLE build: `make build`, `make dist` /
+`--remap-path-prefix=$HOME=/build` (plus `USERPROFILE`, in both slash
+styles, on Windows) and the Cargo home to `/cargo` before every
+DISTRIBUTABLE build: `make build`, `make dist` /
 `scripts/build-dist.sh`, `windows.ps1` and the RPM spec's `%build`. Debug
 builds keep their real paths so debuggers still resolve sources.
 
@@ -337,13 +338,17 @@ guarantees are the same as `make dist`: the publishing job re-runs
 | --- | --- | --- |
 | `linux-x64` | ubuntu-24.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
 | `linux-arm64` | ubuntu-24.04-arm | Linux arm64 `.tar.gz` + `.deb` |
+| `windows-arm64` | windows-11-arm | Windows arm64 `.zip` (native MSVC) |
 | `macos` | macos-15 | universal `.app.zip` (arm64 + Intel, `lipo`) |
 | `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
 
 Artifact names are identical to `make dist`, so a CI release is the same
-set a local build produces. The Release is titled with the tag and its body
+set a local build produces, plus the Windows arm64 `.zip` (native MSVC on a
+Windows on ARM runner; it is not cross-built, so only CI — or a Windows on
+ARM host running `--host-only` — produces it). The Release is titled with
+the tag and its body
 is a fixed text (CHANGELOG link, assets pointer and the use-at-your-own-risk
 disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as
 pre-releases. A manual run (`workflow_dispatch`) with
@@ -362,12 +367,16 @@ and out of the repository history.
 ## Runtime
 
 - macOS: macOS 13+ (the `.app` carries an ad-hoc signature, not a Developer
-  ID: on first launch use right-click > Open if macOS warns).
+  ID and no notarization: double-click once so Gatekeeper registers the
+  block, then allow it in System Settings > Privacy & Security >
+  `Open Anyway`; right-click > Open no longer bypasses this on current
+  macOS).
 - Linux: system graphics libraries (X11/Wayland, Mesa) and `ca-certificates`
   for TLS verification; the `.deb` and the `.rpm` depend only on
   `ca-certificates` and install with `sudo dpkg -i mdowser_*_amd64.deb` or
   `sudo rpm -i mdowser-*.rpm`.
-- Windows: the GNU `.exe` needs nothing extra in practice; if some old
+- Windows: the GNU `.exe` needs nothing extra in practice (it is unsigned:
+  on the SmartScreen warning click `More info` > `Run anyway`); if some old
   Windows asks for MinGW DLLs, build with the MSVC toolchain instead.
 
 ## Development commands

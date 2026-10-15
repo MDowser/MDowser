@@ -5,6 +5,39 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Windows on ARM64: the release workflow also ships
+  `mdowser-<ver>-windows-aarch64.zip`, built natively with MSVC on a
+  GitHub-hosted `windows-11-arm` runner (the same `--host-only` path a
+  Windows on ARM host uses), with the embedded icon/version/manifest
+  verified after the build.
+
+### Fixed
+
+- macOS first launch: right-click > Open no longer bypasses Gatekeeper for
+  the ad-hoc signed, not notarized `.app` on current macOS. `README.md`,
+  `docs/BUILDING.md` and the release notes now document the working flow
+  (double-click once, then System Settings > Privacy & Security >
+  `Open Anyway`), the `.app.zip` is packed with `ditto --keepParent` when
+  present so the signature survives, and `mk_app` verifies it
+  (`codesign --verify`). (`README.md`, `docs/BUILDING.md`,
+  `.github/workflows/release.yml`, `scripts/build-dist.sh`.)
+- Windows first run: the unsigned `.exe` trips SmartScreen, which shows only
+  `Don't run` until `More info` is opened. `README.md`,
+  `docs/BUILDING.md` and the release notes now document the working flow
+  (`More info` > `Run anyway`). Linux formats need no equivalent bypass:
+  the `.tar.gz` binary ships executable, the local `.deb`/`.rpm` install
+  without a repository signature, and the unsigned `.flatpak` bundle
+  installs from file (`scripts/packaging.sh` stages the binary `0755`;
+  `scripts/build-flatpak.sh` exports an unsigned bundle).
+- Windows builds driven from Git Bash (`--host-only`) now remap
+  `USERPROFILE` (both slash styles) like `windows.ps1` already did, so the
+  builder's home cannot leak into the binary through panic locations when
+  the build does not go through `windows.ps1`.
+
 ## [0.5.2] - 2026-10-15
 
 ### Added

@@ -120,6 +120,17 @@ export_remap_rustflags() {
         [ "$_r_cargo" = "$HOME" ] ||
             _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_cargo=/cargo"
     fi
+    # Windows: rustc emits the USERPROFILE form (`C:\Users\...`), which the
+    # MSYS-style $HOME above never matches (Git Bash HOME is `/c/Users/...`).
+    # Mirror windows.ps1 and remap both slash styles, so a Windows build
+    # driven from Git Bash (`--host-only` in CI included) stays clean.
+    if [ -n "${USERPROFILE:-}" ]; then
+        for _r_up in "$USERPROFILE" "$(printf '%s' "$USERPROFILE" | tr '\\' '/')"; do
+            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_up=/build"
+            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_up/.cargo=/cargo"
+        done
+        unset _r_up
+    fi
     if [ -n "$_r_enc" ]; then
         CARGO_ENCODED_RUSTFLAGS="$_r_enc"
         export CARGO_ENCODED_RUSTFLAGS

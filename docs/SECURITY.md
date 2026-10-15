@@ -408,6 +408,13 @@ enforced by `make dist` and `make validate`) fails the build if any `dist/`
 artifact still carries the builder's paths, hostname, uid/gid or xattrs. See
 `BUILDING.md` ("Build-artifact privacy").
 
+Release builds themselves run in CI (`.github/workflows/release.yml`) on
+fresh GitHub-hosted runners from the tagged commit: macOS universal, Linux
+x86_64/arm64, Windows x86_64 (MinGW cross) and Windows arm64 (native
+MSVC), plus the RPM and Flatpak packages. The publish job re-runs
+`check-dist.sh` over the merged artifact set, so no target can bypass the
+gate before a release exists.
+
 ## Reporting a vulnerability
 
 Open an issue in the project tracker with `[security]` in the title, or

@@ -66,13 +66,16 @@ Prebuilt archives for macOS, Linux and Windows are attached to every
 | Linux | `mdowser-<ver>-linux-<arch>.tar.gz`, the matching `.deb` / `.rpm`, or the `mdowser-<ver>.flatpak` bundle |
 | Windows | `mdowser-<ver>-windows-x86_64.zip` |
 
-- **macOS**: the `.app` is ad-hoc signed, so the first launch may need
-  right-click → Open.
+- **macOS**: the `.app` is ad-hoc signed, not notarized: double-click it
+  once so Gatekeeper registers the block, then allow it in System Settings >
+  Privacy & Security > `Open Anyway` (right-click > Open no longer
+  bypasses this on current macOS).
 - **Linux**: `sudo dpkg -i mdowser_<ver>_amd64.deb` (or `arm64`), or
   `sudo rpm -i mdowser-<ver>-*.rpm`, or `flatpak install mdowser-<ver>.flatpak`.
   The package installs the desktop entry, hicolor icon and AppStream metadata,
   so MDowser appears in the applications menu and its Software-center page.
-- **Windows**: unzip and run `mdowser.exe`; see
+- **Windows**: unzip and run `mdowser.exe` (the `.exe` is unsigned: on
+  the SmartScreen warning click `More info` > `Run anyway`); see
   [`docs/NAVIGATION.md`](docs/NAVIGATION.md) to register `.md` files.
 
 `SHA256SUMS.txt` travels with every release.

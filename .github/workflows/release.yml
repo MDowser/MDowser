@@ -9,6 +9,7 @@
 # from scratch and only the packaged files travel between jobs):
 #   linux-x64    Linux x86_64 (.tar.gz + .deb) + Windows x86_64 (.zip, mingw)
 #   linux-arm64  Linux arm64 (.tar.gz + .deb)
+#   windows-arm64 Windows arm64 (.zip, native MSVC on a windows-11-arm runner)
 #   macos        universal .app.zip (arm64 + Intel, via lipo)
 #   rpm          .rpm from source (Fedora container, rpmbuild)
 #   flatpak      .flatpak bundle (runtime branch read from the manifest)
@@ -110,6 +111,64 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: dist-linux-arm64
+          path: dist/*
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
+
+  windows-arm64:
+    name: Windows arm64
+    # Native MSVC build on a GitHub-hosted Windows 11 arm64 runner (VS 2026,
+    # Rust, LLVM and Python are preinstalled): the same `--host-only` path a
+    # Windows on ARM host uses, no cross toolchain involved. NASM is not
+    # needed (arm64 assembles with the system toolchain).
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: Toolchain (rust-toolchain.toml, arm64 host)
+        shell: bash
+        run: cargo --version
+      - name: python3 shim (the zip fallback of build-dist.sh needs it)
+        shell: bash
+        run: |
+          set -eu
+          if ! command -v python3 >/dev/null 2>&1; then
+            py="$(command -v python || command -v py || true)"
+            if [ -z "$py" ]; then
+              echo "no Python available for the zip fallback" >&2
+              exit 1
+            fi
+            # Forward slashes: MSYS execs `C:/...` fine; backslash forms are
+            # ambiguous in the generated shebang.
+            py="$(printf '%s' "$py" | tr '\\' '/')"
+            mkdir -p "$HOME/bin"
+            {
+              printf '#!/bin/sh\n'
+              printf "exec '%s' \"\$@\"\n" "$py"
+            } > "$HOME/bin/python3"
+            chmod +x "$HOME/bin/python3"
+            echo "$HOME/bin" >> "$GITHUB_PATH"
+            export PATH="$HOME/bin:$PATH"
+          fi
+          python3 --version
+      - name: Build + package
+        shell: bash
+        run: |
+          set -eu
+          SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
+          ls dist/*windows-aarch64.zip
+      # build.rs only WARNS when rc.exe is missing: without this check a
+      # resource-less .exe (no icon/version/manifest) would ship silently.
+      - name: Embedded resources present (icon / version / manifest)
+        shell: pwsh
+        run: |
+          $vi = (Get-Item target/release/mdowser.exe).VersionInfo
+          if (-not $vi.FileVersion) { throw "mdowser.exe has no VERSIONINFO resource" }
+          Write-Host "FileVersion: $($vi.FileVersion)"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dist-windows-arm64
           path: dist/*
           retention-days: 1
           compression-level: 0
@@ -246,7 +305,7 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [linux-x64, linux-arm64, macos, rpm, flatpak]
+    needs: [linux-x64, linux-arm64, windows-arm64, macos, rpm, flatpak]
     # Only a tag publishes (or an explicit dry_run=false manual dispatch).
     if: ${{ github.event_name == 'push' || inputs.dry_run == false }}
     runs-on: ubuntu-24.04
@@ -285,6 +344,10 @@ jobs:
           **Alpha release of MDowser.** See [CHANGELOG.md](https://github.com/MDowser/MDowser/blob/main/CHANGELOG.md) for update details.
 
           Download the attached binaries from the **Assets** section below.
+
+          macOS 13+: the `.app` is ad-hoc signed, not notarized. Double-click it once so Gatekeeper registers the block, then allow it in System Settings > Privacy & Security > Open Anyway.
+
+          Windows: the `.exe` is unsigned. On the SmartScreen warning click More info > Run anyway.
 
           **Disclaimer:** Binaries are built in CI and some targets are cross-compiled; they may not work correctly on every platform. You can try [building from source](https://github.com/MDowser/MDowser/blob/main/docs/BUILDING.md). This software is provided as-is, with no guarantees or warranties of any kind, including stability, compatibility, reliability, or security. Use at your own risk.
           EOF
