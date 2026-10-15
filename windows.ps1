@@ -7,14 +7,15 @@
 # Equivalent to `make` (deps + host release + current-OS dist into dist/).
 # The Makefile needs GNU make + /bin/sh, so on PowerShell this script
 # calls the same entry points directly: `cargo build` for the binary and
-# `scripts/build-dist.sh --host-only` (via Git Bash) for the .exe zip.
+# `scripts/build-dist.sh --host-only` (via Git Bash) for the host .exe zip
+# (x86_64, or aarch64 on Windows on ARM).
 <#
 .SYNOPSIS
     Installs the Windows build toolchain and compiles MDowser.
 .DESCRIPTION
-    Winget-only, idempotent: Rustup 1.98, MSVC Build Tools, NASM, Git
-    (Git Bash: the sh/tar/sha256sum runtime packaging needs), Python
-    (with a python3 shim, which build-dist.sh requires) and LLVM
+    Winget-only, idempotent: Rustup 1.98, MSVC Build Tools, NASM (x86/x86_64
+    hosts) and Git (Git Bash: the sh/tar/sha256sum runtime packaging needs),
+    Python (with a python3 shim, which build-dist.sh requires) and LLVM
     (llvm-strip for the .exe). Self-elevates through UAC unless
     -NoElevate is passed. Then `cargo build --locked --release` plus
     the host zip in dist/.

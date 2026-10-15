@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `mdowser-<ver>-windows-aarch64.zip`, built natively with MSVC on a
   GitHub-hosted `windows-11-arm` runner (the same `--host-only` path a
   Windows on ARM host uses), with the embedded icon/version/manifest
-  verified after the build.
+  verified after the build. `README.md` and `docs/BUILDING.md` document
+  both Windows downloads and the native arm64 source build.
 
 ### Fixed
 

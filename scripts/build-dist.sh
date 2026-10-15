@@ -24,7 +24,8 @@
 #   Linux:   mdowser-<ver>-linux-<arch>.tar.gz + mdowser_<ver>_<debarch>.deb
 #            (+ mdowser-<ver>-*.rpm when rpmbuild is available)
 #            + mdowser-<ver>.flatpak (when flatpak-builder is available)
-#   Windows: mdowser-<ver>-windows-x86_64.zip (with .exe)
+#   Windows: mdowser-<ver>-windows-<arch>.zip (with .exe; x86_64, or
+#            aarch64 on Windows on ARM, native MSVC)
 #   Always: SHA256SUMS.txt
 #
 # HONEST NOTE: GUI cross from macOS is best-effort (C + wgpu involved).

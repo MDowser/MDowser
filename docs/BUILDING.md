@@ -11,7 +11,8 @@
 - NASM on x86/x86_64 hosts (Linux, Intel macOS, Windows): the AVIF decoder
   (`rav1d`) and the rustls crypto provider (`aws-lc-sys`) compile assembly.
   `brew install nasm`, `sudo apt-get install nasm` or (Windows, used by
-  `windows.ps1`) `winget install NASM.NASM`.
+  `windows.ps1`) `winget install NASM.NASM`. ARM64 hosts (Apple Silicon,
+  Linux arm64, Windows on ARM) use the system toolchain and need no NASM.
 - No `PATH` setup needed: the `Makefile` and `scripts/lib.sh` resolve the
   toolchain from `$HOME`-relative locations (`~/.cargo/env`, `~/.cargo/bin`,
   `rustup which cargo`, `brew --prefix`, toolchain glob) and keep cargo's own
@@ -172,6 +173,9 @@ every artifact carries: on macOS the universal `.app.zip`; on Linux
   the icon, the `VERSIONINFO` block and the DPI/version manifest are embedded
   in the executable's resources, so the shell, the taskbar, Alt-Tab and
   Explorer's Details tab all read them).
+- Windows arm64: `mdowser-<ver>-windows-aarch64.zip`, the same `.exe` zip
+  built natively (MSVC) on a Windows on ARM host; it is not cross-built, so
+  only such a host — or CI, on a `windows-11-arm` runner — produces it.
 
 Every `.tar.gz`/`.zip` archive carries `README.md`, `THIRD_PARTY_NOTICES.md`
 and `LICENSE`; the macOS `.app` bundles the notices and license under
@@ -190,10 +194,11 @@ workload, NASM, Git with Git Bash — the `sh`/`tar`/`sha256sum` runtime the
 packaging needs — Python 3.12 with a `python3` shim, LLVM for `llvm-strip`),
 runs `cargo build --locked --release`, then calls
 `scripts/build-dist.sh --host-only` through Git Bash for the `.exe` zip
-(`mdowser-<ver>-windows-x86_64.zip` + `SHA256SUMS.txt`). `build-dist.sh`
-prefers `x86_64-w64-mingw32-strip` and falls back to `llvm-strip`; the
-`windows.ps1` path installs LLVM, so a native MSVC build strips with
-`llvm-strip`.
+(`mdowser-<ver>-windows-<arch>.zip` — `x86_64`, or `aarch64` on Windows on
+ARM — plus `SHA256SUMS.txt`). `build-dist.sh` prefers
+`x86_64-w64-mingw32-strip` and falls back to `llvm-strip` (arm64 has no
+MinGW strip, so `llvm-strip` is used there); the `windows.ps1` path
+installs LLVM, so a native MSVC build strips with `llvm-strip`.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File windows.ps1
@@ -375,9 +380,11 @@ and out of the repository history.
   for TLS verification; the `.deb` and the `.rpm` depend only on
   `ca-certificates` and install with `sudo dpkg -i mdowser_*_amd64.deb` or
   `sudo rpm -i mdowser-*.rpm`.
-- Windows: the GNU `.exe` needs nothing extra in practice (it is unsigned:
-  on the SmartScreen warning click `More info` > `Run anyway`); if some old
-  Windows asks for MinGW DLLs, build with the MSVC toolchain instead.
+- Windows x86_64: the GNU `.exe` needs nothing extra in practice (it is
+  unsigned: on the SmartScreen warning click `More info` > `Run anyway`); if
+  some old Windows asks for MinGW DLLs, build with the MSVC toolchain
+  instead. Windows on ARM64: use the MSVC `-windows-aarch64.zip` (Windows 11
+  on ARM); the x86_64 `.exe` also runs there under emulation.
 
 ## Development commands
 

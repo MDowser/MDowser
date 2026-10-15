@@ -64,7 +64,7 @@ Prebuilt archives for macOS, Linux and Windows are attached to every
 | --- | --- |
 | macOS 13+ | `MDowser-<ver>-macos-universal.app.zip` (Apple Silicon + Intel) |
 | Linux | `mdowser-<ver>-linux-<arch>.tar.gz`, the matching `.deb` / `.rpm`, or the `mdowser-<ver>.flatpak` bundle |
-| Windows | `mdowser-<ver>-windows-x86_64.zip` |
+| Windows | `mdowser-<ver>-windows-x86_64.zip` (x64) or `mdowser-<ver>-windows-aarch64.zip` (Windows on ARM) |
 
 - **macOS**: the `.app` is ad-hoc signed, not notarized: double-click it
   once so Gatekeeper registers the block, then allow it in System Settings >
@@ -74,9 +74,10 @@ Prebuilt archives for macOS, Linux and Windows are attached to every
   `sudo rpm -i mdowser-<ver>-*.rpm`, or `flatpak install mdowser-<ver>.flatpak`.
   The package installs the desktop entry, hicolor icon and AppStream metadata,
   so MDowser appears in the applications menu and its Software-center page.
-- **Windows**: unzip and run `mdowser.exe` (the `.exe` is unsigned: on
-  the SmartScreen warning click `More info` > `Run anyway`); see
-  [`docs/NAVIGATION.md`](docs/NAVIGATION.md) to register `.md` files.
+- **Windows**: unzip and run `mdowser.exe` (on Windows on ARM use the
+  `aarch64` zip; the x86_64 one also runs there via emulation). The `.exe`
+  is unsigned: on the SmartScreen warning click `More info` > `Run anyway`;
+  see [`docs/NAVIGATION.md`](docs/NAVIGATION.md) to register `.md` files.
 
 `SHA256SUMS.txt` travels with every release.
 
@@ -92,7 +93,8 @@ make run    # debug build + run
 
 `make` and `make dist` install what the host is missing first (`make deps`;
 `SKIP_SETUP=1` opts out). Requires stable Rust ≥ 1.98 and a C compiler (plus
-NASM on x86/x86_64). On native Windows without `make`, `windows.ps1` is the
+NASM on x86/x86_64 hosts; ARM64 hosts assemble with the system toolchain and
+need none). On native Windows without `make`, `windows.ps1` is the
 equivalent entry point (see [`docs/BUILDING.md`](docs/BUILDING.md#native-windows)).
 Full requirements, the `make test` pipeline and multi-OS
 `make dist` packaging: [`docs/BUILDING.md`](docs/BUILDING.md).
