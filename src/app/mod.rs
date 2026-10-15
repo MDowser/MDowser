@@ -416,6 +416,31 @@ impl MdowserApp {
         self.activate_tab(idx);
     }
 
+    /// Moves the tab at `from` to slot `to` (rail drag reorder, or
+    /// `Alt+Up`/`Alt+Down` on a focused row): the same remove+insert as
+    /// `bookmarks::move_entry`.
+    ///
+    /// The ACTIVE tab follows its own `Tab`: moving it keeps it selected, and
+    /// moving another tab across it keeps the shown page (an index is shifted
+    /// to match the reordered list). Both indices are validated, so a stale
+    /// pair from a frame that also closed a tab can never panic.
+    fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.tabs.len() || to >= self.tabs.len() || from == to {
+            return;
+        }
+        let tab = self.tabs.remove(from);
+        self.tabs.insert(to, tab);
+        self.active = if self.active == from {
+            to
+        } else if from < self.active && self.active <= to {
+            self.active - 1
+        } else if to <= self.active && self.active < from {
+            self.active + 1
+        } else {
+            self.active
+        };
+    }
+
     /// Closes tab `idx`. At least one always remains. `ctx` drops the
     /// closed tab's egui-memory state (history search, bookmark drafts):
     /// ids are never reused, so without this every closed tab would park

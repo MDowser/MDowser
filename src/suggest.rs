@@ -21,8 +21,9 @@
 //!   caches the result on the query text + both store generations, so this
 //!   20000-entry scan runs on keystrokes, never per frame.
 //!
-//! TO GROW THE LIST: append one `<url><TAB><title>` line to
-//! `assets/builtin_sites.txt` (embedded with `include_str!` by
+//! TO GROW THE LIST: propose one `<url> | <title>` line upstream in
+//! MDowser-Sites (vendored with `make sync-sites` into
+//! `assets/builtin_sites.txt`, embedded with `include_str!` by
 //! [`crate::builtin_sites`]). URLs must be pages this browser can open
 //! (`https://` or a local `file://` path) in their normalized form
 //! (trailing `/` for HTTPS roots/paths, like the stores keep them).

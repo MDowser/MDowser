@@ -31,8 +31,9 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │             holds the line format + background write)
   ├─ suggest (address-suggestion ranking shared by both omniboxes:
   │           bookmarks → history → builtin, deduped)
-  ├─ builtin_sites (the single curated omnibox site list, embedded from
-  │                 `assets/builtin_sites.txt` and parsed once)
+  ├─ builtin_sites (the single curated omnibox site list, vendored from
+  │                 MDowser-Sites (`make sync-sites`) into
+  │                 `assets/builtin_sites.txt`, embedded and parsed once)
   ├─ settings (encrypted preferences + session: theme, startup zoom,
   │            session restore, window geometry; settings.bin/session.bin
   │            + store.key, atomic file helpers; `session`, `file`,
@@ -93,7 +94,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │    ├─ table (measure/layout `mod` + paint `render`)
   │    ├─ image, `code/`, overlays, bidi, cache
   └─ ui (browser chrome: `theme/` document styling + widget kit, icons,
-          tabs (`TabsResponse`, `rows`), navbar, omnibox, home (with the
+          tabs (`TabsResponse`, `rows`) with the live drag reorder, navbar,
+          omnibox, home (with the
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
           preferences (Preferences window incl. the licenses
           link; `widgets` kit), history_page (internal about:history
@@ -112,7 +114,9 @@ Key contracts:
   Documents go through `fetch_with_fallback`; image/favicon subresources
   through `media::fetch`, which reuses the same `get_bytes` (cancellable
   connect, redirect/https check, per-chunk stall timeout, running byte cap).
-  The `Content-Type` gate runs BEFORE the body is streamed: a concrete
+  The `Content-Type` gate runs BEFORE the body is streamed, on EVERY
+  declared value in full (untruncated: a bounded copy could hide a
+  `charset=` beyond the cut): a concrete
   non-accepted type is rejected without downloading or decompressing it.
 - Local files go through `protocol::local` on the same job thread (no
   runtime): `parse_navigable` is the ONLY navigation parser (https plus
@@ -371,6 +375,26 @@ Key contracts:
   space while armed (fit content: arming may push the cards below, with the
   inner scroll covering small viewports). `App` owns its
   visibility.
+- Tabs (`ui::tabs`): the rail reports select/close/reorder/new/history
+  through one `TabsResponse`. A row's interaction id is keyed by the TAB
+  (never by its slot), so focus, hover, tooltip and the in-flight drag follow
+  the page when the list reorders (`Alt+Up`/`Alt+Down` would otherwise walk
+  the focus onto whichever tab arrived at the slot). The drag reorder is the
+  bookmark grid's contract (state in egui memory, applied live while the
+  pointer moves, persisted only on start/stop) with ONE deliberate
+  difference: drop targets are found GEOMETRICALLY (`Context::rect_contains_pointer`
+  on THIS frame's row rect, which still honors what is on top), not with
+  `Response::contains_pointer` — that snapshot is computed at frame start
+  from the PREVIOUS frame's widget rects, and a live reorder moves the rows,
+  so the lagged hit test kept targeting the slot a row no longer occupied and
+  the dragged tab bounced between two slots instead of advancing. The same
+  geometric read drives the row's hover wash. A drag also keeps the overlay open
+  wherever the pointer goes (the rail is hover-driven and a drag leaves it),
+  the dragged tab's id self-heals when its row is closed mid-gesture (so
+  `ui::forget_tab` needs no entry), and `App::move_tab` is the grid's
+  remove+insert with `active` re-indexed so the shown page never changes. The
+  session snapshot compares URLs per index, so a reorder persists through
+  "restore tabs on startup" with no file-format change.
 - Bookmarks (`bookmarks/`): explicit user data, encrypted like history
   with the shared recipe (`crypto`: magic `MDBM`, random 96-bit nonce,
   256-bit shared key in `store.key`, 0600/0700 on Unix; `store::writer` for the
@@ -407,7 +431,13 @@ Key contracts:
   dialog): the hover pencil opens the rename field whose same spot becomes
   a check that saves. Enter or a click elsewhere commits (sanitized by the
   store, saved debounced), Esc drops the draft (`Tab::tile_editing` keeps
-  the shortcut handler off the key) and the hover X removes the tile.
+  the shortcut handler off the key) and the hover X removes the tile. Once a
+  tile has keyboard focus, `Tab` reaches the pencil and the X (the frame
+  that moves focus off the tile keeps the hover-only buttons allocated, so
+  the chain is tile → pencil → X → next tile). The URL index only forgets a
+  URL when NO entry carries it any more (`toggle` and `remove_entry` share
+  the rule), so a hand-edited body with duplicate URLs can never leave a
+  visible tile reported as "not bookmarked".
   There is no
   retention: bookmarks persist until removed and survive restarts; the
   store is capped at `MAX_BOOKMARK_STORE_ENTRIES` and an add at the cap is
@@ -569,7 +599,11 @@ Key contracts:
   cache with a byte budget; the event index is stable per document, so
   switching a `<Tabs>` panel or opening an accordion (which change what the
   walk renders, not the document) can never hand a block a sibling's cached
-  body. Token spans fill LAZILY: a block first rendered while the line
+  body. The SAME rule keys a blockquote's inner `ui.indent`
+  (`quote_indent_id`: document salt + nesting level + the block's own
+  `Start(BlockQuote)` event index, never a per-pass counter), so two quotes
+  can never alias onto one set of nested widget ids when the visible block
+  set changes. Token spans fill LAZILY: a block first rendered while the line
   budget was spent is cached body-only and highlights on a later frame that
   can show it. The salt
   mixes a per-tab `doc_generation` bumped whenever the visible document is
@@ -578,14 +612,20 @@ Key contracts:
   eviction pass is shared with the table-width cache
   (`viewer::cache::evict_oldest`). Each block also
   caches its laid-out line galleys (keyed by theme/selection/font size), so a
-  repaint reuses an `Arc` per line instead of rebuilding a `LayoutJob`, and
-  the block body is VIRTUALIZED on the vertical axis
+  repaint reuses an `Arc` per line instead of rebuilding a `LayoutJob`; a
+  growing line window (a `<Tabs>` switch or accordion release handing the
+  block more budget) EXTENDS the laid-out prefix instead of rebuilding it,
+  and the block body is VIRTUALIZED on the vertical axis
   (`viewer::code::code_viewport`): only the rows the scroll viewport shows
   are built and painted, placed on a uniform measured row grid with the
   full height reserved, so the widget count per frame no longer scales with
   the line budget, plain blocks included (highlighted rows are painted
   galleys, so per-line drag selection is gone inside them; Copy copies the
-  whole block). The viewport math uses the MEASURED row stride (epaint
+  whole block). Both paths keep the horizontal scroll range MONOTONIC: the
+  highlighted path measures every laid-out line, and the plain path
+  remembers the widest row it has ever painted (`CachedBlock::plain_max_w`),
+  so a vertical scroll past a long line cannot shrink the range and clamp
+  the offset back to the left edge. The viewport math uses the MEASURED row stride (epaint
   rounds a row to a whole device pixel), not the design token, or a
   long block scrolled past a couple of screens left an unpainted band. It
   also bounds the visible rect with the WINDOW-LOCAL viewport
@@ -855,9 +895,9 @@ Key contracts:
 - Omnibox autocomplete (`suggest.rs` + `ui::omnibox`): while either
   address field is editing, a popup lists up to
   `config::MAX_OMNIBOX_SUGGESTIONS` suggestions ranked bookmarks → history →
-  builtin (`builtin_sites::builtin_suggestions()`, the append-only curated
-  `(url, title)` list in `assets/builtin_sites.txt`, embedded at compile
-  time), deduplicated by exact
+  builtin (`builtin_sites::builtin_suggestions()`, the curated `(url, title)`
+  list vendored from MDowser-Sites (`make sync-sites`) into
+  `assets/builtin_sites.txt` and embedded at compile time), deduplicated by exact
   normalized URL and matched case-insensitively on URL + title (schemeless
   queries included; ASCII candidates compare in place, so the scan does
   not allocate a lowercase `String` per candidate per keystroke); an empty
@@ -928,7 +968,10 @@ Key contracts:
   full table is `docs/INTERFACE.md`.
 - Right-click menu (`viewer/overlays`): minimal Copy / Select all, plus
   "Open link in new tab" when the click hit a link (link hitboxes are
-  collected by the renderer each frame). The rows carry explicit widget ids
+  collected by the renderer each frame). `Cmd/Ctrl+click` on a link is the
+  direct route: the renderer's `on_link` callback hands the viewer a
+  background-tab request instead of a same-tab navigation (an in-page
+  `#anchor` becomes its absolute URL plus fragment). The rows carry explicit widget ids
   and are keyboard-navigable: opening with the pointer leaves NO row
   focused (the old pending-focus seed ringed the first row on every open),
   `Up`/`Down` move focus into the rows — the first press lands on the first
@@ -1107,7 +1150,8 @@ Key contracts:
   of re-validating itself with a probe over the whole table text, and a
   table's overflow/lane decision compares against the width the inner
   `ScrollArea` really sees. A code block's widest line is computed when its
-  galleys are built (not from the visible rows each frame), so the
+  galleys are built (not from the visible rows each frame) and the plain
+  path keeps a monotonic widest-row memory, so the
   horizontal scroll range cannot shrink while a long line is off screen;
   its token spans are tokenized on first need, and the error view's
   scheme-stripping helper borrows (`Cow`) when nothing is stripped.

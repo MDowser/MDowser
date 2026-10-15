@@ -268,6 +268,61 @@ fn select_tab_keeps_overlay_state_scoped_per_page() {
     assert_eq!(app.active, 1);
 }
 
+/// The rail's reorder (`move_tab`) moves the entry and keeps the ACTIVE tab
+/// pointing at the same `Tab`: moving it keeps it selected, and moving
+/// another tab across it keeps the shown page.
+#[test]
+fn move_tab_keeps_the_active_tab() {
+    let order = |app: &MdowserApp| app.tabs.iter().map(|t| t.id).collect::<Vec<_>>();
+
+    // Moving the ACTIVE tab: it stays selected, now at the target slot.
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 0);
+    app.move_tab(0, 2);
+    assert_eq!(order(&app), vec![2, 3, 1]);
+    assert_eq!(app.tabs[app.active].id, 1, "the moved tab is still shown");
+
+    // Moving another tab ACROSS the active one: the shown page is unchanged.
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 2);
+    app.move_tab(0, 2);
+    assert_eq!(order(&app), vec![2, 3, 1]);
+    assert_eq!(app.tabs[app.active].id, 3, "the shown tab is the same one");
+
+    // A move before the active tab shifts its index, never its identity.
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 2);
+    app.move_tab(1, 0);
+    assert_eq!(order(&app), vec![2, 1, 3]);
+    assert_eq!(app.tabs[app.active].id, 3);
+
+    // No-op and out-of-range pairs are ignored (defensive: a stale pair can
+    // arrive from a frame that also closed a tab).
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2)], 1);
+    app.move_tab(0, 0);
+    app.move_tab(1, 5);
+    app.move_tab(5, 0);
+    assert_eq!(order(&app), vec![1, 2]);
+    assert_eq!(app.active, 1);
+}
+
+/// A reorder changes the URLs the session snapshot remembers per index, so
+/// "restore tabs on startup" persists the new order with no format change.
+#[test]
+fn move_tab_marks_the_session_for_save() {
+    let mut a = Tab::new(1);
+    a.current = Some(url::Url::parse("https://ex.com/a/").unwrap());
+    let mut b = Tab::new(2);
+    b.current = Some(url::Url::parse("https://ex.com/b/").unwrap());
+    let mut app = app_with(vec![a, b], 0);
+    app.session_restore_enabled = true;
+    app.session_saved = super::session_snapshot(&app.tabs);
+    app.session_saved_active = app.active;
+    assert!(!super::session_needs_save(&app), "the start state is saved");
+    app.move_tab(0, 1);
+    assert!(
+        super::session_needs_save(&app),
+        "the reordered session must be written"
+    );
+}
+
 /// One session entry per tab, `None` for a `Home` tab, so the tab count
 /// and active index survive a restore.
 #[test]

@@ -23,15 +23,16 @@
 #   SKIP_SETUP=1  # do not install the runtimes (best-effort) before building.
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # Toolchain PATH without machine-specific absolute dirs (see lib.sh); the
 # Flatpak SDK provides cargo inside the sandbox, but the generator may want
 # the host toolchain. Shared helpers give the version and the file layout.
-. "$(dirname "$0")/lib.sh"
+. "$SCRIPT_DIR/lib.sh"
 ensure_toolchain_path
-. "$(dirname "$0")/packaging.sh"
+. "$SCRIPT_DIR/packaging.sh"
 
 SKIP_SETUP="${SKIP_SETUP:-0}"
 APP_ID="dev.mdowser.app"

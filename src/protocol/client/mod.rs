@@ -507,10 +507,14 @@ fn is_scheme_syntax(s: &str) -> bool {
 /// - A bare `user@host` (no `:` in the userinfo) carries no secret.
 pub(crate) fn sanitize_for_display(input: &str) -> String {
     let stripped = crate::util::strip_credentials_for_log(input);
-    let authority_end = stripped
-        .find(['/', '?', '#', ' '])
-        .unwrap_or(stripped.len());
-    let Some(at) = stripped[..authority_end].rfind('@') else {
+    // One address token inside an error line is whitespace-bounded, and the
+    // LAST `@` inside it marks the userinfo. The bound is whitespace only
+    // (never `/`, `?` or `#`): a pasted password may itself contain any of
+    // those (`user:pa/ss@host`), and the old authority cut hid the `@`
+    // beyond them, echoing the password into the address bar, the error
+    // view and "Copy log".
+    let token_end = stripped.find([' ', '\t']).unwrap_or(stripped.len());
+    let Some(at) = stripped[..token_end].rfind('@') else {
         // The shared sanitizer already removed the userinfo. One display
         // nuance survives only when IT did the stripping for a blocked
         // non-hierarchical scheme (`mailto:user:pass@b.com` became
@@ -522,6 +526,21 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
     let Some(colon) = pre.find(':') else {
         return stripped;
     };
+    let after = &pre[colon + 1..];
+    // `scheme://…` / `scheme:/…` with no other colon before the `@`: the
+    // colon is the SCHEME separator, not a `user:pass` pair, and the `@`
+    // is path/query data (`https://host/a@b`) — keep the token. A colon
+    // after the separators is credential-shaped and falls through.
+    if (after.starts_with('/') || after.starts_with('\\')) && !after.contains(':') {
+        return stripped;
+    }
+    // `host:port/…@…` (`nas:5000/x@y`): digits followed by a path separator
+    // right after the colon read as a port, not as a password — keep the
+    // token readable. Every other shape falls through to the strip below.
+    let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+    if (1..=5).contains(&digits) && matches!(after.as_bytes().get(digits), Some(b'/' | b'\\')) {
+        return stripped;
+    }
     let scheme = pre[..colon].trim();
     if BLOCKED_SCHEMES
         .iter()
@@ -530,7 +549,7 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
         // `mailto:a@b` has no second colon and stays intact, but
         // `mailto:user:pass@b` carries a pasted password: keep only the
         // domain, exactly like the hierarchical spellings above.
-        let has_userinfo_password = pre[colon + 1..].contains(':');
+        let has_userinfo_password = after.contains(':');
         return if has_userinfo_password {
             stripped[at + 1..].to_string()
         } else {

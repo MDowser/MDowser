@@ -189,7 +189,8 @@ edge.
 
 Body text paints the readable `on_surface` token (light `#1f2328` / dark
 `#f0f6fc`); the muted tone is opt-in (`theme::weak`, plain quote bodies,
-H6), so a quote visibly recedes while its neighbors stay high-contrast.
+H6 — list markers included, which follow the enclosing scope's text
+override), so a quote visibly recedes while its neighbors stay high-contrast.
 Proportional text (chrome, menus, body) draws the bundled Noto Sans
 variable font, the primary face of that family; code draws the bundled
 Noto Sans Mono CJK JP cut (face 5 of the CJK collection), the primary face

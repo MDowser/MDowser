@@ -37,8 +37,9 @@ where the load landed (`ex.com/hola` found at `ex.com/hola/` shows
 Both address fields (the toolbar and the large Home capsule) suggest pages
 while editing: bookmarks first (newest first), then local-history visits
 (newest first), then the curated builtin list embedded in the binary
-(`builtin_sites::builtin_suggestions()`, sourced from
-`assets/builtin_sites.txt`; append one `<url><TAB><title>` line to grow it).
+(`builtin_sites::builtin_suggestions()`, vendored from MDowser-Sites with
+`make sync-sites` into `assets/builtin_sites.txt`: one `<url> | <title>`
+line per entry).
 Matching is case-insensitive on URL and title and works with or
 without the scheme, up to `config::MAX_OMNIBOX_SUGGESTIONS` rows; an empty
 field offers recent bookmarks. No row is highlighted until you pick one: the

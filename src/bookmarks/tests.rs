@@ -250,6 +250,41 @@ fn toggling_a_duplicated_url_keeps_the_remaining_entry_bookmarked() {
     assert!(!store.is_bookmarked_url(&url), "now the page is gone");
 }
 
+/// `remove_entry` (the tile's X) follows the same duplicate-URL rule as
+/// `toggle`: removing one of two duplicated entries must not clear the
+/// index while the other's tile is still on screen.
+#[test]
+fn removing_a_duplicated_entry_keeps_the_remaining_one_bookmarked() {
+    let mut store = BookmarkStore::in_memory();
+    store.entries = vec![
+        super::Bookmark {
+            url: "https://dup.example/".to_string(),
+            title: Some("older".to_string()),
+            added_at: 1,
+            icon: None,
+            color: None,
+        },
+        super::Bookmark {
+            url: "https://dup.example/".to_string(),
+            title: Some("newer".to_string()),
+            added_at: 2,
+            icon: None,
+            color: None,
+        },
+    ];
+    store.rebuild_url_index();
+    store.rebuild_plain_bytes();
+    let url = url::Url::parse("https://dup.example/").expect("url");
+    store.remove_entry(0);
+    assert_eq!(store.entries.len(), 1, "one duplicate remains");
+    assert!(
+        store.is_bookmarked_url(&url),
+        "the ribbon must still report the remaining tile as bookmarked"
+    );
+    store.remove_entry(0);
+    assert!(!store.is_bookmarked_url(&url), "now the page is gone");
+}
+
 /// `plain_bytes` is the exact size of what `serialize` writes: the two
 /// cannot drift (the byte budget check depends on it).
 #[test]

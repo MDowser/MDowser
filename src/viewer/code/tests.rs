@@ -238,6 +238,7 @@ fn plain_lines_paint_at_their_absolute_rows() {
     crate::ui::theme::apply(&ctx);
     let body: String = (0..200).map(|i| format!("line {i:03}\n")).collect();
     let body = body.trim_end();
+    let block = plain_test_block(body);
     let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
     let mut out = ctx.run_ui(
         egui::RawInput {
@@ -251,7 +252,7 @@ fn plain_lines_paint_at_their_absolute_rows() {
                 egui::vec2(760.0, 200.0 * 20.0),
             );
             root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
-                super::render_plain_lines(ui, body, false, 100..110, 20.0);
+                super::render_plain_lines(ui, &block, false, 100..110, 20.0);
             });
         },
     );
@@ -275,4 +276,58 @@ fn plain_lines_paint_at_their_absolute_rows() {
     assert_eq!(y_of("line 100"), 0.0, "row 100 at its absolute offset");
     assert_eq!(y_of("line 109"), 180.0, "row 109 at its absolute offset");
     assert_eq!(rows.len(), 10, "only the visible rows are built");
+}
+
+/// The plain path's content width is MONOTONIC: once a long row was
+/// measured, scrolling it out of view must not shrink the returned width
+/// (egui clamps the horizontal offset to the content width, which snapped
+/// a scrolled-right log back to column 0).
+#[test]
+fn plain_lines_keep_the_widest_row_width() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let short: String = (0..20).map(|i| format!("line {i:03}\n")).collect();
+    let body = format!(
+        "{}\na very long line {}\n",
+        short.trim_end(),
+        "x".repeat(200)
+    );
+    let block = plain_test_block(&body);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(screen),
+            ..Default::default()
+        },
+        |root| {
+            let content =
+                egui::Rect::from_min_size(egui::pos2(70.0, 0.0), egui::vec2(760.0, 21.0 * 20.0));
+            root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
+                // Only the short rows are visible first.
+                let before = super::render_plain_lines(ui, &block, false, 0..10, 20.0);
+                // The long row (the last one) becomes visible once...
+                let long = super::render_plain_lines(ui, &block, false, 20..21, 20.0);
+                assert!(long > before, "the long row widens the content");
+                // ...and scrolling it away keeps the width.
+                let after = super::render_plain_lines(ui, &block, false, 0..10, 20.0);
+                assert_eq!(after, long, "the widest-row memory must be monotonic");
+            });
+        },
+    );
+    out.textures_delta.clear();
+}
+
+/// A bare [`super::CachedBlock`] wrapping `body`, for the plain-path tests.
+fn plain_test_block(body: &str) -> super::CachedBlock {
+    super::CachedBlock {
+        body: body.to_string(),
+        line_count: super::line_count(body),
+        tokenizable: false,
+        lines: std::cell::RefCell::new(None),
+        galleys: std::cell::RefCell::new(super::Galleys::default()),
+        plain_max_w: std::cell::Cell::new(0.0),
+        galley_bytes: std::cell::Cell::new(0),
+        bytes: body.len(),
+        used: std::cell::Cell::new(0),
+    }
 }

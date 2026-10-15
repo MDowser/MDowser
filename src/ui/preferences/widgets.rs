@@ -250,7 +250,15 @@ pub(super) fn switch(
     let t = ui.ctx().animate_bool_with_time(response.id, *on, 0.12);
     let track = egui::Rect::from_min_size(rect.min, egui::vec2(SWITCH_W, SWITCH_H));
     let radius = theme::pill_radius(SWITCH_H);
-    let fill = theme::mix(s.container_high, s.primary, t);
+    // Hover feedback on the track, like every other hand-painted control:
+    // one step up the neutral ramp while off (the on track is already the
+    // accent, so the mix below leaves it at `primary` as before).
+    let base = if response.hovered() {
+        s.container_hover
+    } else {
+        s.container_high
+    };
+    let fill = theme::mix(base, s.primary, t);
     let stroke = if t < 0.5 {
         egui::Stroke::new(theme::stroke::HAIRLINE, s.outline_variant)
     } else {
@@ -328,7 +336,7 @@ pub(super) fn dropdown_row(
         ui.painter().rect_filled(
             rect,
             egui::CornerRadius::same(crate::ui::row::ROW_RADIUS),
-            s.container_high,
+            s.container_hover,
         );
     } else if response.has_focus() {
         theme::focus_ring(ui, rect, crate::ui::row::ROW_RADIUS);

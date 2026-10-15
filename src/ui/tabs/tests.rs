@@ -696,3 +696,250 @@ fn labels_drift_into_place_while_expanding() {
         "label drifts into place while expanding: {mid_x} -> {settled_x} (edge {mid_edge})"
     );
 }
+
+/// One rail frame with the given events, laid out like production (toolbar
+/// above the rail) and simulating `App`: a reorder the rail reports is
+/// applied to `tabs` right away (the same remove+insert `App::move_tab`
+/// performs), so the live-reorder tests exercise the real loop. Returns the
+/// frame output and the response the rail produced.
+fn rail_frame(
+    ctx: &egui::Context,
+    tabs: &mut Vec<Tab>,
+    favicons: &mut FaviconCache,
+    overlay: &mut Option<egui::Rect>,
+    events: Vec<egui::Event>,
+) -> (egui::FullOutput, super::TabsResponse) {
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(900.0, 600.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut reported = super::TabsResponse::default();
+    let mut out = ctx.run_ui(input, |root| {
+        egui::Panel::top("test-top").show(root, |ui| {
+            ui.label("toolbar");
+        });
+        let resp = show_tabs(root, tabs, 0, favicons, overlay);
+        if let Some((from, to)) = resp.move_tab {
+            if from < tabs.len() && to < tabs.len() && from != to {
+                let tab = tabs.remove(from);
+                tabs.insert(to, tab);
+            }
+        }
+        reported = resp;
+    });
+    out.textures_delta.clear();
+    (out, reported)
+}
+
+/// Painted right edge of the expanded overlay (`None` while not drawn).
+fn rail_overlay_edge(out: &egui::FullOutput) -> Option<f32> {
+    use super::RAIL_W;
+    out.shapes.iter().find_map(|clipped| match &clipped.shape {
+        egui::Shape::Rect(r) if r.rect.max.x > RAIL_W + 1.0 && r.rect.min.y > 0.0 => {
+            Some(clipped.clip_rect.max.x)
+        }
+        _ => None,
+    })
+}
+
+/// Hovers the rail until the overlay is fully expanded and returns the rail
+/// top (`None` if it never expanded).
+fn expand_overlay(
+    ctx: &egui::Context,
+    tabs: &mut Vec<Tab>,
+    favicons: &mut FaviconCache,
+    overlay: &mut Option<egui::Rect>,
+) -> Option<f32> {
+    use super::EXPANDED_W;
+    let _ = rail_frame(ctx, tabs, favicons, overlay, Vec::new());
+    for _ in 0..40 {
+        let (out, _) = rail_frame(
+            ctx,
+            tabs,
+            favicons,
+            overlay,
+            vec![egui::Event::PointerMoved(egui::pos2(20.0, 300.0))],
+        );
+        if rail_overlay_edge(&out).is_some_and(|e| e >= EXPANDED_W) {
+            return overlay.map(|r| r.min.y);
+        }
+    }
+    None
+}
+
+/// Dragging a rail row reorders the tabs live (the same live reorder the
+/// bookmark grid applies) and a drag never selects or closes anything.
+#[test]
+fn dragging_a_row_reorders_the_rail() {
+    use super::{PAD_TOP, ROW_GAP, ROW_H};
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_test_fonts(&ctx);
+    let mut tabs = vec![Tab::new(1), Tab::new(2), Tab::new(3)];
+    let mut favicons = FaviconCache::new();
+    let mut overlay: Option<egui::Rect> = None;
+    let order = |tabs: &[Tab]| tabs.iter().map(|t| t.id).collect::<Vec<_>>();
+    let base = order(&tabs);
+
+    let top = expand_overlay(&ctx, &mut tabs, &mut favicons, &mut overlay)
+        .expect("the rail expands on hover");
+    // Row slots have fixed geometry: PAD_TOP from the rail top, ROW_H rows
+    // ROW_GAP apart. The expanded rows span the overlay's width, so x = 60
+    // lands on the row (and clear of the close box).
+    let slot = |i: usize| {
+        egui::pos2(
+            60.0,
+            top + PAD_TOP + i as f32 * (ROW_H + ROW_GAP) + ROW_H * 0.5,
+        )
+    };
+    let button = |pos: egui::Pos2, pressed| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+
+    // Drag the first row down to the third slot.
+    let from = slot(0);
+    let to = slot(2);
+    let _ = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        vec![egui::Event::PointerMoved(from)],
+    );
+    let _ = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        vec![button(from, true)],
+    );
+    let mut moves = 0;
+    for step in 1..=6 {
+        let t = step as f32 / 6.0;
+        let p = egui::pos2(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+        let (_, resp) = rail_frame(
+            &ctx,
+            &mut tabs,
+            &mut favicons,
+            &mut overlay,
+            vec![egui::Event::PointerMoved(p)],
+        );
+        if resp.move_tab.is_some() {
+            moves += 1;
+        }
+        assert!(resp.select.is_none(), "a drag must never select a tab");
+        assert!(resp.close.is_none(), "a drag must never close a tab");
+    }
+    let (_, resp) = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        vec![button(to, false)],
+    );
+    assert!(
+        resp.select.is_none() && resp.close.is_none(),
+        "the release must not activate the row"
+    );
+    assert!(moves >= 1, "the drag reported the live reorder");
+    assert_eq!(
+        order(&tabs),
+        vec![base[1], base[2], base[0]],
+        "the dragged first tab landed in the third slot"
+    );
+
+    // A stale drag (the type-keyed egui-memory trap) would keep reordering
+    // while the pointer moves AFTER the release.
+    let settled = order(&tabs);
+    let _ = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        vec![egui::Event::PointerMoved(slot(0))],
+    );
+    let _ = rail_frame(&ctx, &mut tabs, &mut favicons, &mut overlay, Vec::new());
+    assert_eq!(
+        order(&tabs),
+        settled,
+        "the drag state must clear on release"
+    );
+}
+
+/// `Alt+Up`/`Alt+Down` move the FOCUSED row one slot, the vertical
+/// equivalent of the bookmark grid's `Alt+Left`/`Alt+Right`; the id is keyed
+/// by the TAB, so a second press moves the SAME tab again (a slot-keyed id
+/// would walk the focus onto the tab that arrived at the slot).
+#[test]
+fn alt_down_moves_the_focused_row_one_slot() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::install_test_fonts(&ctx);
+    let mut tabs = vec![Tab::new(1), Tab::new(2), Tab::new(3)];
+    let mut favicons = FaviconCache::new();
+    let mut overlay: Option<egui::Rect> = None;
+    let order = |tabs: &[Tab]| tabs.iter().map(|t| t.id).collect::<Vec<_>>();
+
+    let key = |key: egui::Key, modifiers: egui::Modifiers| {
+        vec![
+            egui::Event::ModifiersChanged(modifiers),
+            egui::Event::Key {
+                key,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers,
+            },
+        ]
+    };
+
+    // Two frames so the rows are in egui's focus order, then Tab focuses the
+    // first row (slot 0).
+    let _ = rail_frame(&ctx, &mut tabs, &mut favicons, &mut overlay, Vec::new());
+    let _ = rail_frame(&ctx, &mut tabs, &mut favicons, &mut overlay, Vec::new());
+    let _ = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        key(egui::Key::Tab, egui::Modifiers::NONE),
+    );
+
+    let (_, resp) = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        key(egui::Key::ArrowDown, egui::Modifiers::ALT),
+    );
+    assert_eq!(
+        order(&tabs),
+        vec![2, 1, 3],
+        "Alt+Down moves the focused first tab down one slot"
+    );
+    assert!(resp.move_tab.is_some(), "the keyboard move was reported");
+    assert!(
+        resp.select.is_none() && resp.close.is_none(),
+        "a keyboard move must not activate or close anything"
+    );
+
+    // Focus follows the moved tab, not the slot.
+    let _ = rail_frame(
+        &ctx,
+        &mut tabs,
+        &mut favicons,
+        &mut overlay,
+        key(egui::Key::ArrowDown, egui::Modifiers::ALT),
+    );
+    assert_eq!(
+        order(&tabs),
+        vec![2, 3, 1],
+        "the SAME tab keeps moving (focus is keyed by the tab)"
+    );
+}

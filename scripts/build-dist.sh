@@ -33,13 +33,14 @@
 # target OS. It generates as much as possible locally with one command.
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # Toolchain + helper PATH without machine-specific absolute dirs (see lib.sh).
 # System dirs (/usr/bin:/bin) stay as a fallback for tar/zip/shasum/ar.
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/packaging.sh"
+. "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/packaging.sh"
 ensure_toolchain_path
 export PATH="$PATH:/usr/bin:/bin"
 
@@ -110,24 +111,27 @@ stage_dirs() {
 trap stage_dirs EXIT
 
 # python3 packs the .deb (stdlib `ar` writer) and is the zip fallback.
-# Check it once, up front, instead of failing mid-package under `set -e`
-# with an opaque "python3: not found".
-if ! have python3; then
-    echo "ERROR: python3 is required for packaging (deb/zip); install it first" >&2
-    exit 1
-fi
+# Checked at each use (not up front): `--rpm`, `--flatpak`, `--mac` and
+# `--windows` never need it, and the Fedora RPM container installs no
+# python3 — the old global check aborted those modes before they started.
+need_python3() {
+    if ! have python3; then
+        echo "ERROR: $1 needs python3 (stdlib ar/zip writers); install it first" >&2
+        return 1
+    fi
+}
 
 # `strip` that actually works for every artifact this script produces.
 # Background: cargo ships `strip = "none"` (see Cargo.toml: toolchain
 # `rust-objcopy` is broken on some installs), so dist strips here.
 # The old version used the macOS `strip` for everything except `.exe`:
-# That tool only understands Mach-O, so Linux ELFs shipped with
-# `debug_info, not stripped` (29-31M vs 12-14M macOS). Windows was
-# fine via mingw strip.
+# that tool only understands Mach-O, so Linux ELFs shipped unstripped.
+# Windows was fine via mingw strip.
 # New behavior by file kind (detected via `file`, extension fallback):
 #   Mach-O (macOS) -> macOS `strip` (always present with Xcode CLT).
 #   ELF (Linux)    -> `llvm-strip` (multi-format, from brew llvm), else
-#                     `x86_64/aarch64-linux-gnu-strip` or `eu-strip`.
+#                     `x86_64/aarch64-linux-gnu-strip`, `eu-strip` or a
+#                     GNU `strip` (binutils: present wherever `file` is).
 #   PE (.exe)      -> `x86_64-w64-mingw32-strip` (mingw-w64), else
 #                     `llvm-strip` (native Windows MSVC via LLVM).
 # $STRIP still wins when set. Never fatal: warns and keeps going.
@@ -171,6 +175,17 @@ pick_strip_for() {
                 if have "$_es"; then command -v "$_es"; unset _f _kind _ls _es; return 0; fi
             done
             unset _es
+            # Plain GNU `strip` last: on a stock Linux host it is the ELF
+            # tool (binutils ships wherever `file` does), and dist used to
+            # warn "ships unstripped" there even though the right tool was
+            # one PATH lookup away. Probed, not assumed: Apple's Mach-O
+            # `strip` also answers `strip`, and handing it an ELF only
+            # printed a confusing "strip failed" warning.
+            if have strip && strip --version 2>/dev/null | grep -qi 'gnu'; then
+                command -v strip
+                unset _f _kind _ls
+                return 0
+            fi
             ;;
         *Mach-O*|"")
             # Empty `file` output (or no `file` tool): assume macOS host
@@ -195,6 +210,26 @@ pick_strip_for() {
             ;;
     esac
     unset _f _kind _ls
+}
+
+# Highest `GLIBC_x.y` symbol version an ELF binary requires, or empty when
+# no ELF reader is installed. Portable awk max (no GNU `sort -V` on macOS);
+# versions are `major.minor` (`2.30`) and the key handles an optional patch.
+elf_glibc_floor() {
+    _e="$1"
+    _symdump=""
+    if have readelf; then
+        _symdump="$(readelf --version-info "$_e" 2>/dev/null || true)"
+    elif have llvm-readelf; then
+        _symdump="$(llvm-readelf --version-info "$_e" 2>/dev/null || true)"
+    elif have objdump; then
+        _symdump="$(objdump -T "$_e" 2>/dev/null || true)"
+    fi
+    printf '%s\n' "$_symdump" \
+        | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' \
+        | sed 's/^GLIBC_//' \
+        | awk -F. '{ key = $1 * 1000000 + $2 * 1000 + ($3 + 0); if (key > m) { m = key; v = $0 } } END { if (m) print v }'
+    unset _e _symdump
 }
 
 try_strip() {
@@ -325,6 +360,7 @@ mk_deb() {
     # macOS `ar` (BSD + automatic ranlib) DESTROYS non-object archives
     # (verified bug: leaves 96 bytes with only `__.SYMDEF`), so `ar`
     # is hand-written with python3 stdlib (trivial format, no dependencies).
+    need_python3 "the .deb writer" || return 1
     #
     # The `/usr` tree (binary, desktop entry, AppStream metadata, hicolor
     # icons — ladder AND scalable — and the man page) comes from the SHARED
@@ -350,6 +386,18 @@ mk_deb() {
     cp "$ROOT/LICENSE" "$stage/data/usr/share/doc/$APP_LC/"
     # `Installed-Size` is required by policy and read by apt; KiB, like `du -k`.
     _installed_kb="$(du -sk "$stage/data" 2>/dev/null | awk '{print $1}')"
+    # `libc6 (>= x.y)`: the binary's OWN required glibc floor, the value
+    # `dpkg-shlibdeps` would derive. Without it `dpkg -i` happily installs
+    # on a distro too old for the binary and the app dies at startup with
+    # "GLIBC_2.xx not found". The binary also NEEDs libdl/libm/libpthread,
+    # all part of libc6. Best effort: a host with no ELF reader keeps the
+    # plain dependency (no worse than before).
+    _glibc="$(elf_glibc_floor "$1")"
+    if [ -n "$_glibc" ]; then
+        _deb_deps="libc6 (>= $_glibc), ca-certificates"
+    else
+        _deb_deps="ca-certificates"
+    fi
     # Debian policy requires `Name <email>` in the control file; `.invalid`
     # is the reserved placeholder until the project has a real address.
     # (Comment lines are only legal in SOURCE control files: dpkg rejects a
@@ -361,7 +409,7 @@ Section: web
 Priority: optional
 Architecture: $2
 Installed-Size: ${_installed_kb:-0}
-Depends: ca-certificates
+Depends: $_deb_deps
 Rules-Requires-Root: no
 Maintainer: MDowser <noreply@mdowser.invalid>
 Homepage: https://github.com/MDowser/MDowser
@@ -371,7 +419,7 @@ Description: Minimal browser for text/markdown (CommonMark)
  open .md documents with it.
  TLS verification uses the system trust store (rustls-platform-verifier).
 EOF
-    unset _installed_kb
+    unset _installed_kb _glibc _deb_deps
 
     # dpkg's parser has no comment syntax in a binary control file: a `#`
     # line is a hard parse error ("field name '#' must be followed by
@@ -469,6 +517,7 @@ zip_of() {
         rm -f "$2"
         ditto -c -k --norsrc --noqtn "$1" "$2" 2>/dev/null || ditto -c -k "$1" "$2"
     else
+        need_python3 "the zip fallback" || return 1
         rm -f "$2"
         _zipsrc="$1" _zipdst="$2" python3 -c \
             "import os,shutil;shutil.make_archive(os.environ['_zipdst'][:-4],'zip',root_dir=os.path.dirname(os.environ['_zipsrc']),base_dir=os.path.basename(os.environ['_zipsrc']))"
@@ -493,6 +542,7 @@ zip_contents() {
     else
         # `zip`/`ditto` missing (or ditto, which cannot select files):
         # python stdlib with argv (no `split(' ')`, so `My File.exe` survives).
+        need_python3 "the zip fallback" || return 1
         rm -f "$dest"
         _zdir="$dir" _zdst="$dest" python3 - "$@" <<'PY'
 import os, sys, zipfile

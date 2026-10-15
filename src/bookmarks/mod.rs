@@ -338,7 +338,18 @@ impl BookmarkStore {
     pub fn remove_entry(&mut self, index: usize) {
         if index < self.entries.len() {
             let removed = self.entries.remove(index);
-            self.urls.remove(&removed.url);
+            // Same duplicate-URL rule as [`Self::toggle`]: a body loaded
+            // from disk can hold two entries with the same normalized URL,
+            // and the index may only forget it when NO entry carries it any
+            // more (otherwise a tile for the page was still on screen while
+            // the ribbon reported "not bookmarked").
+            if !self
+                .entries
+                .iter()
+                .any(|bookmark| bookmark.url == removed.url)
+            {
+                self.urls.remove(&removed.url);
+            }
             self.plain_bytes = self.plain_bytes.saturating_sub(entry_bytes(&removed));
             self.dirty = true;
             self.generation = self.generation.wrapping_add(1);

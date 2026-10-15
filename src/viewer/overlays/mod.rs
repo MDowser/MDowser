@@ -339,7 +339,7 @@ fn menu_row(
             label,
             suffix: hint,
             enabled,
-            hover_fill: s.container_high,
+            hover_fill: s.container_hover,
             fg,
             suffix_fg: Some(s.on_surface_variant),
             pad_x: ROW_PAD,

@@ -23,6 +23,11 @@
 #
 # Manual run: `workflow_dispatch` with dry_run (default true) compiles
 # everything without publishing; set dry_run false only while on a tag.
+#
+# Every action is pinned to the full commit SHA of the release tag shown in
+# the trailing comment (supply-chain hardening: a moved tag cannot change
+# what runs, least of all in the `contents: write` publish job). Update the
+# pin and the comment together.
 
 name: release
 
@@ -51,7 +56,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Toolchain (rust-toolchain.toml) + Windows target
         run: |
           cargo --version
@@ -76,7 +81,7 @@ jobs:
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-linux-x64
           path: dist/*
@@ -90,7 +95,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Toolchain (rust-toolchain.toml)
         run: |
           # The arm64 image ships rustup like the other hosted images, but the
@@ -108,7 +113,7 @@ jobs:
           set -eu
           SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
           ls dist/*.tar.gz dist/*.deb
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-linux-arm64
           path: dist/*
@@ -125,7 +130,7 @@ jobs:
     runs-on: windows-11-arm
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Toolchain (rust-toolchain.toml, arm64 host)
         shell: bash
         run: cargo --version
@@ -166,7 +171,7 @@ jobs:
           $vi = (Get-Item target/release/mdowser.exe).VersionInfo
           if (-not $vi.FileVersion) { throw "mdowser.exe has no VERSIONINFO resource" }
           Write-Host "FileVersion: $($vi.FileVersion)"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-windows-arm64
           path: dist/*
@@ -179,7 +184,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Toolchain (rust-toolchain.toml) + Intel target
         run: |
           cargo --version
@@ -191,7 +196,7 @@ jobs:
           set -eu
           SKIP_SETUP=1 ./scripts/build-dist.sh --mac
           ls dist/*.app.zip
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-macos
           path: dist/*
@@ -212,7 +217,7 @@ jobs:
     steps:
       - name: Container essentials (checkout needs git)
         run: dnf -y install git
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build dependencies (spec BuildRequires)
         run: |
           dnf -y install rpm-build nasm gcc gcc-c++ make patch curl \
@@ -229,7 +234,7 @@ jobs:
           export PATH="$HOME/.cargo/bin:$PATH"
           SKIP_SETUP=1 ./scripts/build-dist.sh --rpm
           ls dist/*.rpm
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-rpm
           path: dist/*
@@ -242,7 +247,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Free disk space (runtime + SDK + build need several GB)
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup \
@@ -295,7 +300,7 @@ jobs:
           export PATH="/tmp/fcg/bin:$PATH"
           SKIP_SETUP=1 ./scripts/build-dist.sh --flatpak
           ls dist/*.flatpak
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-flatpak
           path: dist/*
@@ -313,8 +318,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/download-artifact@v7
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: dist-*
           path: dist

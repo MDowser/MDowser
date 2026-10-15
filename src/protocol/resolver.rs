@@ -246,19 +246,26 @@ pub fn normalized_display(loaded: &Url) -> Url {
 /// the same directory are different documents (the `/.../` collapsing
 /// rules are an HTTP route convention only), and a query has no
 /// filesystem meaning (`file:///a.md?x` and `file:///a.md` are the same
-/// file, which is also how the display normalizes them).
+/// file, which is also how the display normalizes them). The two
+/// spellings of THIS device (`file:///x`, `file://localhost/x`) are the
+/// same document; a remote `file://host/` share keeps its host in play.
 pub(crate) fn is_same_logical(a: &Url, b: &Url) -> bool {
     if a.scheme() != b.scheme() {
         return false;
+    }
+    if a.scheme() == "file" {
+        let local = |u: &Url| crate::protocol::local::is_local_host(u);
+        return if local(a) && local(b) {
+            a.path() == b.path()
+        } else {
+            a.host_str() == b.host_str() && a.path() == b.path()
+        };
     }
     if a.host_str() != b.host_str() {
         return false;
     }
     if a.port() != b.port() {
         return false;
-    }
-    if a.scheme() == "file" {
-        return a.path() == b.path();
     }
     if logical_base(a.path()) != logical_base(b.path()) {
         return false;
@@ -479,6 +486,17 @@ mod tests {
         assert!(is_same_logical(&a, &u("file:///Users/me/notes.md#sec")));
         // A query has no filesystem meaning (the display drops it too).
         assert!(is_same_logical(&a, &u("file:///Users/me/notes.md?tab=1")));
+        // The two spellings of this device are the same document.
+        assert!(is_same_logical(
+            &a,
+            &u("file://localhost/Users/me/notes.md")
+        ));
+        assert!(is_same_logical(
+            &u("file://localhost/Users/me/notes.md"),
+            &u("file:///Users/me/notes.md")
+        ));
+        // A remote share stays distinct from the local path.
+        assert!(!is_same_logical(&a, &u("file://server/Users/me/notes.md")));
         assert_eq!(server_home_of(&a).as_str(), "file:///Users/me/");
         // The HTTPS cascade never expands a file URL.
         assert_eq!(candidates_for(&a).len(), 1);

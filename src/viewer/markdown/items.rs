@@ -201,7 +201,15 @@ pub(super) fn paint_item_marker(
     cell: egui::Rect,
     bullet_center_x: Option<f32>,
 ) {
-    let color = theme::scheme_ref(ui).on_surface;
+    // Honor the enclosing scope's text override: a plain blockquote sets
+    // `override_text_color` to the muted tone for its body, and the marker
+    // must not pop back to full contrast inside it. The theme keeps the
+    // override at `on_surface` everywhere else, so this is the normal
+    // text color outside quotes.
+    let color = ui
+        .visuals()
+        .override_text_color
+        .unwrap_or_else(|| theme::scheme_ref(ui).on_surface);
     let painter = ui.painter();
     let galley = painter.layout_no_wrap(text.to_owned(), marker_font(size, note), color);
     let Some(ink) = glyph_ink_center(&galley) else {

@@ -15,6 +15,12 @@
 # - `make deps`     : install build/packaging dependencies (best-effort, idempotent).
 # - `make run`      : runs debug. `make clean`, `make help`, `make doctor`.
 # - `make icons`    : force-regenerates assets/icons from assets/icon.svg.
+# - `make sync-sites` : download assets/builtin_sites.txt from the MDowser-Sites
+#                     collaboration repo (curl) + validate every URL the way
+#                     the browser resolves it; passing entries are imported,
+#                     failing ones are dropped and reported (manual step, no CI).
+# - `make check-sites` : validate one list file without downloading
+#                     (default assets/builtin_sites.txt).
 # All real work lives in scripts/build-test.sh and scripts/build-dist.sh.
 # Needs GNU make (macOS and Linux ship it; check with `make --version`).
 # The toolchain PATH is fixed up below so recipes never depend on it.
@@ -53,8 +59,13 @@ export PATH := $(dir $(CARGO)):$(PATH)
 PREFIX ?= /usr/local
 # Dependency group for `make deps` (all | toolchain | cross | packaging).
 DEPS ?= all
+# Upstream collaboration repo for the curated omnibox list (see
+# scripts/sync-builtin-sites.sh). Overridable: `make sync-sites SITES_UPSTREAM=<url>`.
+SITES_UPSTREAM ?= https://raw.githubusercontent.com/MDowser/MDowser-Sites/main/builtin_sites.txt
+# List file validated by `make check-sites` (no download).
+SITES_FILE ?= assets/builtin_sites.txt
 
-.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-dist deps run clean fmt clippy audit icons help doctor
+.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-dist deps run clean fmt clippy audit icons sync-sites check-sites help doctor
 
 # Default: install deps, build the host release binary, then the current-OS
 # dist. macOS gets the universal .app (dist-mac); other systems the fast
@@ -154,6 +165,20 @@ icons:
 	rm -rf assets/icons
 	$(CARGO) build --locked
 
+# Sync the curated omnibox list from the MDowser-Sites collaboration repo:
+# curl download + per-URL validation the way the browser resolves it. The
+# passing entries replace assets/builtin_sites.txt; a failing one is dropped
+# and listed at the end with the counts (the sync still imports the rest).
+# Manual maintainer step; never CI and never part of test/dist (the build
+# stays offline and reproducible).
+sync-sites:
+	SITES_UPSTREAM="$(SITES_UPSTREAM)" ./scripts/sync-builtin-sites.sh
+
+# Validate one list file without downloading (SITES_FILE, default
+# assets/builtin_sites.txt). Same per-URL checks as sync-sites.
+check-sites:
+	./scripts/sync-builtin-sites.sh --check-only "$(SITES_FILE)"
+
 clean:
 	$(CARGO) clean
 	rm -rf dist
@@ -169,7 +194,7 @@ doctor:
 	@$(CARGO) --version || echo "ERROR: cargo not found; install rustup (see README)"
 
 help:
-	@echo "make [build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|doctor]"
+	@echo "make [build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|doctor]"
 	@echo "  (no args)   deps + host release + current-OS dist into dist/"
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"
@@ -183,3 +208,5 @@ help:
 	@echo "  deps     = install build/packaging deps (SKIP_SETUP=1 dry run; DEPS=<group>)"
 	@echo "  audit = cargo audit + cargo deny (best-effort when installed)"
 	@echo "  icons = force-regenerate assets/icons from assets/icon.svg"
+	@echo "  sync-sites = download builtin_sites.txt from MDowser-Sites (curl) + validate every URL"
+	@echo "  check-sites = validate one list file without downloading (SITES_FILE, default assets/builtin_sites.txt)"

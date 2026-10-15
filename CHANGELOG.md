@@ -5,20 +5,65 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.3] - 2026-10-15
 
 ### Added
 
 - Windows on ARM64: the release workflow also ships
   `mdowser-<ver>-windows-aarch64.zip`, built natively with MSVC on a
   GitHub-hosted `windows-11-arm` runner (the same `--host-only` path a
-  Windows on ARM host uses), with the embedded icon/version/manifest
+  Windows on ARM host uses), with the embedded `VERSIONINFO` resource
   verified after the build. `README.md` and `docs/BUILDING.md` document
   both Windows downloads and the native arm64 source build.
 - The release body also lists the Linux install commands
   (`dpkg`/`rpm`/`flatpak` and the `.tar.gz` alternative) and the Windows
   `x86_64`/`aarch64` zip choice, next to the macOS Gatekeeper and
   SmartScreen notes.
+- `make sync-sites` / `make check-sites` (`scripts/sync-builtin-sites.sh`):
+  the curated omnibox list is synced with `curl` from the MDowser-Sites
+  collaboration repo, and every URL is validated the way the browser resolves
+  it (candidate cascade plus the markdown `Content-Type` gate). A failing
+  entry is dropped from the imported file and reported at the end with the
+  counts, like every failure (the rest is still imported). A manual
+  maintainer step; no CI runs it.
+
+### Changed
+
+- The curated omnibox list format is now one `<url> | <title>` line per entry
+  (split on the first `|`) instead of `<url><TAB><title>`: a literal TAB is
+  untypable in the GitHub web editor, which mangled contributed lines.
+  `assets/builtin_sites.txt`, its parser and `make sync-sites` validation
+  moved together; mirror the same lines into MDowser-Sites.
+- Tab rail reorder: a tab row can be dragged onto another slot (the list
+  follows the pointer live and the dragged row carries a primary ring), and
+  `Alt+Up`/`Alt+Down` moves the focused row one slot — the keyboard
+  equivalent of the bookmark grid's `Alt+Left`/`Alt+Right`. The active tab
+  follows its own page through a reorder, and the new order is what "restore
+  tabs on startup" remembers. (`src/ui/tabs/`, `src/app/`.)
+- `Cmd/Ctrl+click` on a body link opens it in a background tab (an in-page
+  `#anchor` becomes its absolute URL plus fragment), matching the bookmark
+  tiles and the right-click menu's "Open link in new tab".
+  (`src/viewer/`.)
+- Release workflow supply chain: every `actions/*` step is pinned to the
+  full commit SHA of the release tag in its trailing comment (a moved tag
+  cannot change what runs, least of all in the `contents: write` publish
+  job). `.github/workflows/release.yml`.
+- `python3` is checked when the `.deb` writer or the zip fallback is
+  actually used, not up front: `--rpm`, `--flatpak`, `--mac` and
+  `--windows` no longer abort on a host without it; `docs/BUILDING.md`
+  documents the scoped requirement. (`scripts/build-dist.sh`.)
+- `cargo-deny`'s target list includes `aarch64-pc-windows-msvc` (CI builds
+  it natively; the triple's dependency set was never analyzed).
+  (`deny.toml`.)
+- Preferences toggle switch gives hover feedback on its track.
+  (`src/ui/preferences/widgets.rs`.)
+- Code-block galley cache: a growing line window extends the laid-out
+  prefix instead of rebuilding every galley of the block.
+  (`src/viewer/code/`.)
+- Hover tooltips on truncated tab/accordion/step labels are built only
+  while hovered (`ui::hover_tooltip`), matching the app-wide convention:
+  the raw `on_hover_text` calls allocated one `String` per label per frame.
+  (`src/viewer/markdown/components.rs`.)
 
 ### Fixed
 
@@ -42,6 +87,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `USERPROFILE` (both slash styles) like `windows.ps1` already did, so the
   builder's home cannot leak into the binary through panic locations when
   the build does not go through `windows.ps1`.
+- Blockquote indent widget ids are keyed by the block's own
+  `Start(BlockQuote)` event index instead of a per-render-pass counter, so
+  two different quotes can no longer alias onto one set of nested egui widget
+  ids when a frame renders a different subset of blocks (an unselected
+  `<Tabs>` panel, a closed accordion, the block budget).
+  (`src/viewer/markdown/`.)
+- `Content-Type` values now reach the markdown gate UNTRUNCATED: a server
+  could pad the header past the log-line truncation and hide a non-UTF-8
+  `charset` inside the cut, defeating the "reject before reading the body"
+  gate. Only the error line reports a bounded copy. (`src/protocol/`.)
+- A pasted password containing `/`, `?` or `#` (`user:pa/ss@host`) is no
+  longer echoed into the address field, the error view or "Copy log": the
+  display sanitizer scans the whole whitespace-bounded token for the
+  userinfo `@` instead of stopping at the first path separator.
+  (`src/protocol/client/`.)
+- The `finish_document` failure line is credential-stripped like its
+  network-error sibling before it reaches the error view.
+  (`src/protocol/client/fetch.rs`.)
+- `file://localhost/x` and `file:///x` address the same document: the two
+  spellings no longer produce duplicate history entries or a "not
+  bookmarked" ribbon while the same local file is bookmarked under the
+  other spelling. (`src/protocol/resolver.rs`.)
+- Removing one of two bookmarks with the same normalized URL (a store
+  written before normalization, or hand-edited) keeps the remaining tile
+  reported as bookmarked, exactly like the toggle already did.
+  (`src/bookmarks/`.)
+- Dark mode: the hover highlight of context-menu rows and Preferences
+  dropdown rows was invisible (`container_high` equals the popup fill);
+  both now use the shared hover token, like the omnibox suggestion rows.
+  (`src/viewer/overlays/`, `src/ui/preferences/`.)
+- A bookmark tile's pencil and X are reachable with `Tab` once the tile
+  has keyboard focus (the frame that moves focus off the tile kept the
+  hover-only buttons unallocated, so focus skipped them entirely).
+  (`src/ui/bookmarks/tile.rs`.)
+- Scrolling a plain (huge/unsupported) code block vertically past a long
+  line no longer clamps the horizontal offset back to the left edge: the
+  plain path keeps a monotonic widest-row memory like the highlighted
+  path. (`src/viewer/code/`.)
+- List markers inside a plain blockquote draw in the quote's muted tone
+  instead of full-contrast `on_surface`. (`src/viewer/markdown/items.rs`.)
+- Clicking the omnibox capsule padding shows the focus ring and fill in
+  the SAME frame. (`src/ui/omnibox/`.)
+- The open tab's close button is keyed by the tab, never its slot, so
+  focus and hover follow the page through a reorder (the row's own id
+  already did). (`src/ui/tabs/rows.rs`.)
+- `.deb` packages declare `libc6 (>= <x.y>)`, derived from the binary's own
+  required glibc symbols when an ELF reader is available: `dpkg -i` on a
+  distro too old for the binary now fails at install time with a clear
+  dependency error instead of a "GLIBC_2.xx not found" crash at startup.
+  (`scripts/build-dist.sh`, `docs/BUILDING.md`.)
+- Linux `.tar.gz`/`.deb` payloads ship stripped on hosts without
+  llvm/cross-binutils: the ELF branch falls back to a GNU `strip` (probed,
+  never Apple's Mach-O one), which is the correct tool wherever binutils
+  is present — release runners included. (`scripts/build-dist.sh`.)
+- `make validate`: an appstreamcli run that exits non-zero with warnings
+  only is a note, not a FAIL (the old `errors: 0` match never fired:
+  appstreamcli lists non-zero counts only); the legacy appstream-util
+  validator's stock-icon false positive is likewise downgraded to a note.
+  (`scripts/validate.sh`.)
+- `make` scripts source `lib.sh`/`packaging.sh` through the script's own
+  resolved directory, so invoking them from another directory (`sh
+  ../scripts/validate.sh`) works instead of failing to source helpers.
+  (`scripts/`.)
+- `windows.ps1 -SkipSetup` installs nothing: the toolchain step no longer
+  runs `rustup toolchain install` when setup is skipped.
+  (`windows.ps1`.)
+- `make check-sites`/`make sync-sites` no longer leak the first temp file
+  when the second `mktemp` fails. (`scripts/sync-builtin-sites.sh`.)
+- The desktop entry declares one main category (`Network;WebBrowser;`):
+  two main categories tripped `desktop-file-validate`'s hint.
+  (`packaging/linux/mdowser.desktop`.)
 
 ## [0.5.2] - 2026-10-15
 

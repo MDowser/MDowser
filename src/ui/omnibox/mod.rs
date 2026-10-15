@@ -373,6 +373,23 @@ pub(crate) fn show_omnibox(
     if field.changed() {
         tab.mark_address_edited();
     }
+    // Clicking the capsule padding (not the field itself) focuses the field.
+    // The clear-X / ribbon slot is excluded: its own button handles that
+    // pointer (focusing would swap the ribbon for the X). Handled BEFORE the
+    // fill/ring read below: `request_focus` lands in this frame, so the
+    // padding click shows its ring and fill in the SAME frame (it used to
+    // appear one frame late, unlike the TextEdit's own press-to-focus).
+    if pill.clicked() {
+        if let Some(pos) = pill.interact_pointer_pos() {
+            let in_slot = slot_needed && slot_rect.contains(pos);
+            if !in_slot && !indicator_rect.contains(pos) {
+                ui.memory_mut(|m| m.request_focus(id));
+            }
+        } else {
+            ui.memory_mut(|m| m.request_focus(id));
+        }
+    }
+
     // Capsule fill + focus ring with the FRESH focus state: a pointer press
     // grants focus inside the `TextEdit`'s own code, so the pre-field read
     // above was a frame behind (the ring/fill used to appear one frame late).
@@ -422,19 +439,6 @@ pub(crate) fn show_omnibox(
             .unwrap_or(false);
         if armed && field.clicked() {
             crate::ui::select_all_in(ui.ctx(), id, &tab.address);
-        }
-    }
-    // Clicking the capsule padding (not the field itself) focuses the field.
-    // The clear-X / ribbon slot is excluded: its own button handles that
-    // pointer (focusing would swap the ribbon for the X).
-    if pill.clicked() {
-        if let Some(pos) = pill.interact_pointer_pos() {
-            let in_slot = slot_needed && slot_rect.contains(pos);
-            if !in_slot && !indicator_rect.contains(pos) {
-                ui.memory_mut(|m| m.request_focus(id));
-            }
-        } else {
-            ui.memory_mut(|m| m.request_focus(id));
         }
     }
 

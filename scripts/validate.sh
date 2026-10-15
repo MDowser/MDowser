@@ -27,11 +27,12 @@
 # fall through to the SKIP path, never abort the script.
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # Shared version parse + metainfo renderer (single source of truth).
-. "$(dirname "$0")/packaging.sh"
+. "$SCRIPT_DIR/packaging.sh"
 
 VER="$(app_version)"
 if [ -z "$VER" ]; then
@@ -95,7 +96,11 @@ if have appstreamcli; then
     else
         if appstreamcli validate --no-net "$METAINFO" >"$TMP_OUT" 2>&1; then
             ok "appstreamcli"
-        elif grep -q 'errors: 0' "$TMP_OUT"; then
+        elif grep -q 'Validation was successful' "$TMP_OUT" \
+            && ! grep -qE 'errors: [1-9]' "$TMP_OUT"; then
+            # Non-zero exit with a successful summary = warnings/infos only
+            # (appstreamcli lists non-zero counts only, so the old
+            # `errors: 0` match never fired and warnings were hard FAILs).
             printf '  note  appstreamcli: warnings only (non-fatal)\n'
             sed 's/^/        /' "$TMP_OUT"
             ok "appstreamcli (warnings)"
@@ -107,11 +112,30 @@ if have appstreamcli; then
     fi
     unset TMP_OUT
 elif have appstream-util; then
-    if appstream-util validate-relax --nonet "$METAINFO"; then
+    # Legacy validator (the RPM %check uses it). It flags the committed
+    # `<icon type="stock">` line ("stock icon is not valid") — a false
+    # positive the current appstreamcli accepts; only THAT complaint is
+    # downgraded to a note, any other finding still fails. The filter is
+    # fail-closed on plain phrases (never the localized problem bullet): a
+    # line the whitelist does not recognize stays a FAIL.
+    _as_out="$(appstream-util validate-relax --nonet "$METAINFO" 2>&1)"
+    _as_rc=$?
+    _as_other="$(printf '%s\n' "$_as_out" \
+        | grep -v 'stock icon is not valid' \
+        | grep -v 'Validation of files failed' \
+        | grep -v ': FAILED:' \
+        | grep -v '^[[:space:]]*$' || true)"
+    if [ "$_as_rc" -eq 0 ]; then
         ok "appstream-util"
+    elif printf '%s\n' "$_as_out" | grep -q 'stock icon is not valid' \
+        && [ -z "$_as_other" ]; then
+        printf '  note  appstream-util: only the legacy stock-icon hint (non-fatal)\n'
+        ok "appstream-util (legacy stock-icon hint)"
     else
+        printf '%s\n' "$_as_out" | sed 's/^/        /'
         bad "appstream-util validate-relax $METAINFO"
     fi
+    unset _as_out _as_rc _as_other
 else
     skip "AppStream metadata" "install appstreamcli (brew install appstream) or appstream-util (brew install appstream-glib)"
 fi

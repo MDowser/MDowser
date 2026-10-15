@@ -379,8 +379,12 @@ Write-Host "==>  toolchain"
 cargo --version
 rustc --version
 nasm -v
-rustup toolchain install 1.98
-if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
+if (-not $SkipSetup) {
+    # The channel matches `rust-toolchain.toml` (the pin cargo itself
+    # honors); `-SkipSetup` installs nothing, so it must not run there.
+    rustup toolchain install 1.98
+    if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
+}
 
 if (-not $SkipBuild) {
     # Privacy: release binaries embed the absolute source path of every panic

@@ -145,6 +145,15 @@ pub(super) fn bookmark_tile(
     } else {
         egui::Sense::click_and_drag()
     };
+    // The widget that held keyboard focus BEFORE this tile interacted. On
+    // the frame a Tab press moves focus, egui clears this tile's focus
+    // inside `allocate_exact_size` (arming "give focus to the next
+    // focused widget"), so `response.has_focus()` is already false and the
+    // hover-only pencil/X were never allocated for the traversal to land
+    // on: focus skipped them entirely. Keeping them alive on that one
+    // frame (and while either button holds focus) makes the whole
+    // tile -> pencil -> X -> next tile chain reachable.
+    let focused_before = ui.memory(|m| m.focused());
     let (rect, response) = ui.allocate_exact_size(egui::vec2(tile_w, TILE_H), sense);
     let response = if dragging {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
@@ -328,9 +337,22 @@ pub(super) fn bookmark_tile(
     // `contains_pointer` (not `hovered`): once the pointer sits on a button,
     // the tile stops being the topmost hovered widget, but the buttons must
     // stay alive to receive the click.
+    // `focused_before`/button focus keep them allocated for keyboard
+    // traversal (see above); without either, a Tab press could never reach
+    // the pencil or the X.
+    let edit_button_id = ui.id().with(("bookmark-edit", index));
+    let remove_button_id = ui.id().with(("bookmark-remove", index));
+    let action_focused =
+        ui.memory(|m| m.has_focus(edit_button_id) || m.has_focus(remove_button_id));
     let mut edit_rect = None;
     let mut remove_rect = None;
-    if !drag_active && (response.contains_pointer() || response.has_focus() || editing) {
+    if !drag_active
+        && (response.contains_pointer()
+            || response.has_focus()
+            || focused_before == Some(response.id)
+            || action_focused
+            || editing)
+    {
         // Stacked at the top-right corner: the X on top and the pencil (the
         // save check while the field is open) below, so both stay clear of
         // the tile icon on narrow tiles. `right_inset` keeps the rightmost

@@ -131,10 +131,13 @@ pub(crate) async fn get_bytes(
     }
 
     // All Content-Type values (case-insensitive, whitespace-tolerant).
-    // Non-latin1 is `(invalid)`, missing is an empty vec. Each value is
-    // bounded while collecting, and the COUNT is capped too: that vector is
-    // logged and joined, and a hostile server controls how many/how long
-    // the values are.
+    // Non-latin1 is `(invalid)`, missing is an empty vec. Values reach the
+    // gate UNTRUNCATED: the markdown gate inspects every parameter and a
+    // bounded copy could hide a `charset=` beyond the cut (a server padded
+    // the header past the old `MAX_LOG_LINE_CHARS` truncation and the
+    // non-UTF-8 charset was never seen). The COUNT is capped (hostile
+    // servers control how many values are declared) and every error/log
+    // line built from these values is bounded by its own formatter.
     let content_types: Vec<String> = resp
         .headers()
         .get_all(reqwest::header::CONTENT_TYPE)
@@ -142,7 +145,7 @@ pub(crate) async fn get_bytes(
         .take(8)
         .map(|v| {
             v.to_str()
-                .map(|s| crate::util::truncate_chars(s, config::MAX_LOG_LINE_CHARS).into_owned())
+                .map(str::to_string)
                 .unwrap_or_else(|_| "(invalid)".to_string())
         })
         .collect();

@@ -157,8 +157,6 @@ struct RenderCtx<'a> {
     emoji: &'a mut crate::media::emoji::EmojiCache,
     /// Link hitboxes collected this frame (right-click "Open in new tab").
     links: &'a mut Vec<LinkHit>,
-    /// Disambiguates repeated container widget ids (quote indents).
-    qid: usize,
     doc_salt: u64,
     /// Current blockquote nesting depth (0 = outside).
     quote: usize,
@@ -265,7 +263,6 @@ pub(crate) fn show_markdown(
         images,
         emoji,
         links,
-        qid: 0,
         doc_salt,
         quote: 0,
         quote_blocks: 0,
@@ -350,6 +347,19 @@ use walk::*;
 /// share layout state). Uses FNV-1a (no new deps, deterministic).
 pub(crate) fn doc_id_salt(base: &Url) -> u64 {
     crate::media::fnv1a(base.as_str())
+}
+
+/// egui id salt of a blockquote's inner indent (`ui.indent`).
+///
+/// Keyed by the block's own `Start(BlockQuote)` event index, never by a
+/// per-pass counter: the index is stable whatever a frame happens to render,
+/// so two different quotes can never alias onto one set of nested widget ids
+/// when the visible block set changes (an unselected `<Tabs>` panel, a
+/// closed accordion, the block budget). The nesting `level` keeps a nested
+/// quote's ids distinct from its parent's; the document salt keeps two tabs
+/// on the same document independent, like every other per-block id.
+fn quote_indent_id(doc_salt: u64, level: usize, at: usize) -> egui::Id {
+    egui::Id::new((doc_salt, "quote", level, at))
 }
 
 #[cfg(test)]

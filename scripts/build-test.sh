@@ -10,11 +10,12 @@
 # Fails (exit != 0) at the first failing step. Untouched dist/.
 set -eu
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # Toolchain PATH without machine-specific absolute dirs (see lib.sh).
-. "$(dirname "$0")/lib.sh"
+. "$SCRIPT_DIR/lib.sh"
 ensure_toolchain_path
 
 step() { printf '\n==> %s\n' "$1"; }

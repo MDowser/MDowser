@@ -159,6 +159,10 @@ pub fn show_content(
         // native selection before the labels render below).
         let new_tab_url = overlays::content_menu(root, tab);
         let mut pending_link: Option<String> = None;
+        // Cmd/Ctrl+click target this frame: opened in a background tab by
+        // the caller, like the context menu's "Open link in new tab" and
+        // the bookmark tiles.
+        let mut pending_new_tab: Option<String> = None;
         // The notices carry no in-document anchors: a throwaway target is
         // passed so `render_doc`'s signature stays shared with `Loaded`.
         let mut no_anchor: Option<String> = None;
@@ -171,11 +175,17 @@ pub fn show_content(
                 let Some(doc) = doc else {
                     return;
                 };
+                let ctx = ui.ctx().clone();
                 let mut on_link = |dest: &str| {
                     // The notices carry no `#` targets: every live
                     // destination is a navigation, never an anchor jump.
                     if !dest.is_empty() && !dest.starts_with('#') {
-                        pending_link = Some(dest.to_string());
+                        // Cmd/Ctrl+click opens in a background tab.
+                        if ctx.input(|i| i.modifiers.command) {
+                            pending_new_tab = Some(dest.to_string());
+                        } else {
+                            pending_link = Some(dest.to_string());
+                        }
                     }
                 };
                 let viewport = render_doc(
@@ -215,7 +225,7 @@ pub fn show_content(
         if let Some(dest) = pending_link {
             tab.navigate_to_text(&dest, true);
         }
-        return new_tab_url;
+        return pending_new_tab.or(new_tab_url);
     }
 
     // LOADING/SETTLING: keep the previous document on screen
@@ -286,6 +296,10 @@ pub fn show_content(
         // Render the document (no background `interact` behind: it either
         // ate link clicks or never saw secondary clicks on text).
         let mut pending_link: Option<String> = None;
+        // Cmd/Ctrl+click target this frame: opened in a background tab by
+        // the caller (`app::run`), like the context menu's entry and the
+        // bookmark tiles.
+        let mut pending_new_tab: Option<String> = None;
         // In-document anchor clicked this frame: scroll next frame.
         let mut pending_anchor_click: Option<String> = None;
         let mut new_rect: Option<egui::Rect> = None;
@@ -299,6 +313,7 @@ pub fn show_content(
             .frame(theme::content_frame(root))
             .show(root, |ui| {
                 if let TabState::Loaded { fetched } = &tab.state {
+                    let ctx = ui.ctx().clone();
                     let mut on_link = |dest: &str| {
                         if dest.is_empty() {
                             return;
@@ -306,9 +321,23 @@ pub fn show_content(
                         // `#anchor` is an in-document jump, not a navigation.
                         match dest.strip_prefix('#') {
                             Some(id) if !id.is_empty() => {
-                                pending_anchor_click = Some(id.to_string());
+                                if ctx.input(|i| i.modifiers.command) {
+                                    // Cmd/Ctrl+click: the anchor as its own
+                                    // absolute URL in a background tab.
+                                    let mut url = fetched.display_url.clone();
+                                    url.set_fragment(Some(id));
+                                    pending_new_tab = Some(url.to_string());
+                                } else {
+                                    pending_anchor_click = Some(id.to_string());
+                                }
                             }
-                            _ => pending_link = Some(dest.to_string()),
+                            _ => {
+                                if ctx.input(|i| i.modifiers.command) {
+                                    pending_new_tab = Some(dest.to_string());
+                                } else {
+                                    pending_link = Some(dest.to_string());
+                                }
+                            }
                         }
                     };
                     let viewport = render_doc(
@@ -357,7 +386,7 @@ pub fn show_content(
                 tab.navigate_to_text(&dest, true);
             }
         }
-        return new_tab_url;
+        return pending_new_tab.or(new_tab_url);
     }
 
     // FAILED: line-by-line log + retry (no per-frame clones).

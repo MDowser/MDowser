@@ -32,9 +32,10 @@ unless `SKIP_SETUP=1`):
   (needed by every x86_64 target, Intel macOS included).
 - Linux (dockerless linker): `brew install zig` + `cargo install cargo-zigbuild`.
 - Windows (GNU linker): `brew install mingw-w64`.
-- Packaging: `python3` (required: the `.deb` writer and the zip fallback),
-  `tar`, and `shasum` or `sha256sum`; `zip` is used when present and falls
-  back to `ditto` (macOS) or python3.
+- Packaging: `python3` for the `.deb` writer and the zip fallback (checked
+  when one of those is actually used, so RPM/Flatpak/macOS/Windows-only
+  runs do not need it), `tar`, and `shasum` or `sha256sum`; `zip` is used
+  when present and falls back to `ditto` (macOS) or python3.
 
 Native RPM and Flatpak (built only on Linux hosts; `make deps` attempts the
 tools there, best-effort):
@@ -165,7 +166,9 @@ every artifact carries: on macOS the universal `.app.zip`; on Linux
   `mdowser_<ver>_<amd64|arm64>.deb` (minimal deb with python3 stdlib, no
   `cargo-deb`; installs the binary, the hicolor icon ladder plus a scalable
   SVG, AppStream metadata and a `.desktop` entry with
-  `Icon=`/`StartupWMClass=`, and the man page). When `rpmbuild` is present
+  `Icon=`/`StartupWMClass=`, and the man page; its `Depends` derives
+  `libc6 (>= <x.y>)` from the binary's own required glibc symbols when an
+  ELF reader is available). When `rpmbuild` is present
   (Fedora/RHEL/openSUSE host) the same run also builds the RPM from source
   (copied verbatim from `rpmbuild`'s `RPMS/*/` output into `dist/`), and when
   `flatpak-builder` is present it adds the `mdowser-<ver>.flatpak` bundle.
@@ -279,7 +282,11 @@ identity.
 
 `make check-dist` is the gate: it scans every file in `dist/` for the real
 `$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
-non-zero on any hit. `scripts/build-dist.sh` runs it before writing
+non-zero on any hit. `.tar.gz`, `.deb` and `.zip` are unpacked and their
+payload files inspected; the `.rpm`'s xz cpio payload and the ostree
+`.flatpak` bundle are byte-scanned only (their inner files are not
+extracted, so for those two the check is best-effort).
+`scripts/build-dist.sh` runs it before writing
 `SHA256SUMS.txt`, so `make dist` fails instead of publishing a leaking build
 (the app's intentional example paths such as `/Users/you/notes.md` are not
 matched).
@@ -377,9 +384,10 @@ and out of the repository history.
   `Open Anyway`; right-click > Open no longer bypasses this on current
   macOS).
 - Linux: system graphics libraries (X11/Wayland, Mesa) and `ca-certificates`
-  for TLS verification; the `.deb` and the `.rpm` depend only on
-  `ca-certificates` and install with `sudo dpkg -i mdowser_*_amd64.deb` or
-  `sudo rpm -i mdowser-*.rpm`.
+  for TLS verification; the `.deb` depends on `ca-certificates` plus the
+  `libc6` floor derived from the binary (see above), the `.rpm` on
+  `ca-certificates`, and both install with `sudo dpkg -i mdowser_*_amd64.deb`
+  or `sudo rpm -i mdowser-*.rpm`.
 - Windows x86_64: the GNU `.exe` needs nothing extra in practice (it is
   unsigned: on the SmartScreen warning click `More info` > `Run anyway`); if
   some old Windows asks for MinGW DLLs, build with the MSVC toolchain

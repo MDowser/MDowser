@@ -7,12 +7,24 @@ make test   # sh syntax + fmt --check + clippy -D warnings + test + doc + debug 
 make run    # debug GUI
 make audit  # cargo audit + cargo deny (best-effort when installed)
 make check-dist  # privacy gate over dist/ (builder paths/metadata; after packaging)
+make check-sites  # validate assets/builtin_sites.txt the way the browser resolves it (network; manual maintainer step)
 ```
 
 Toolchain: stable Rust ≥ 1.98 via `rustup` (`Cargo.toml` `rust-version`;
 the floor comes from the pure-Rust AVIF decoder). `make`/`scripts/lib.sh`
 resolve `cargo` without hardcoded paths. Full toolchain, packaging and
 runtime details: [`BUILDING.md`](BUILDING.md).
+
+## Builtin sites list
+
+The curated omnibox list (`assets/builtin_sites.txt`) is vendored from the
+MDowser-Sites collaboration repo: propose new `<url> | <title>` lines there,
+then run `make sync-sites` here. Every URL is validated the way the browser
+resolves it (candidate cascade + markdown `Content-Type` gate, see
+`scripts/sync-builtin-sites.sh`): the passing entries are imported and a
+failing one is dropped and reported at the end with the counts.
+`make check-sites` re-validates without downloading or writing. A manual
+maintainer step on purpose: no CI runs it.
 
 ## Standards
 

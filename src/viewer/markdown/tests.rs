@@ -6,7 +6,7 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
-use super::{doc_id_salt, menu_items, show_markdown, Frag};
+use super::{doc_id_salt, menu_items, quote_indent_id, show_markdown, Frag};
 use eframe::egui;
 use std::sync::Arc;
 
@@ -220,6 +220,23 @@ fn doc_salt_is_stable_and_distinct() {
     let b = url::Url::parse("https://ex.com/b/").unwrap();
     assert_eq!(doc_id_salt(&a), doc_id_salt(&a));
     assert_ne!(doc_id_salt(&a), doc_id_salt(&b));
+}
+
+/// A quote's indent id follows the BLOCK (its event index), not the order a
+/// frame happens to render blocks in: two quotes keep their own nested
+/// widget ids even when a `<Tabs>` panel switch makes one take the other's
+/// render slot.
+#[test]
+fn quote_indent_ids_are_keyed_by_the_block() {
+    let salt = doc_id_salt(&url::Url::parse("https://ex.com/a/").unwrap());
+    // Stable for the same block ...
+    assert_eq!(quote_indent_id(salt, 1, 10), quote_indent_id(salt, 1, 10));
+    // ... distinct across blocks, whatever order they render in ...
+    assert_ne!(quote_indent_id(salt, 1, 10), quote_indent_id(salt, 1, 42));
+    // ... and across nesting levels and documents.
+    assert_ne!(quote_indent_id(salt, 1, 10), quote_indent_id(salt, 2, 10));
+    let other = doc_id_salt(&url::Url::parse("https://ex.com/b/").unwrap());
+    assert_ne!(quote_indent_id(salt, 1, 10), quote_indent_id(other, 1, 10));
 }
 
 /// One painted text run: `(text, x, y)` with x including the glyph

@@ -201,7 +201,9 @@ fn tab_label(
     let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if truncated {
-        resp.clone().on_hover_text(text);
+        // Shared hover helper: egui converts `on_hover_text`'s argument
+        // eagerly, so the raw call allocated a String per cell per frame.
+        crate::ui::hover_tooltip(resp.clone(), text);
     }
     let hovered = resp.hovered();
     // A screen reader must hear the tab (and whether it is selected): the
@@ -253,7 +255,7 @@ fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
         .painter()
         .layout_no_wrap(shown.into_owned(), font, scheme.on_surface);
     if truncated {
-        resp.clone().on_hover_text(label);
+        crate::ui::hover_tooltip(resp.clone(), label);
     }
     // Hand-painted control: announce the header (with its expanded state) and
     // show keyboard focus like every other painted control in the app.
@@ -439,7 +441,7 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
                     let truncated = shown.len() < title.len();
                     let label = ui.label(egui::RichText::new(shown.into_owned()).strong());
                     if truncated {
-                        label.on_hover_text(title.as_str());
+                        crate::ui::hover_tooltip(label, title.as_str());
                     }
                 }
                 render_range(ui, events, *start, *stop, ctx);

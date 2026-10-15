@@ -107,11 +107,17 @@ pub(super) fn render_block(
             render_heading(ui, frags, level, heading_id.as_deref(), ctx);
         }
         Event::Start(Tag::BlockQuote(_)) => {
+            // The block's OWN event index keys its inner indent (see
+            // `quote_indent_id`), exactly like code blocks and component
+            // markers do: a per-pass counter let two different quotes alias
+            // onto one set of nested widget ids whenever a frame rendered a
+            // different subset of blocks (an unselected `<Tabs>` panel, a
+            // closed accordion, the block budget).
+            let quote_at = *i;
             *i += 1;
             ctx.quote += 1;
-            ctx.qid += 1;
             let level = ctx.quote;
-            let id = (ctx.doc_salt, "quote", level, ctx.qid);
+            let id = quote_indent_id(ctx.doc_salt, level, quote_at);
             let scheme = theme::scheme_ref(ui);
             // Alert callouts (`> [!NOTE]`) tint bar and background with the
             // alert accent; plain quotes keep the neutral gray.

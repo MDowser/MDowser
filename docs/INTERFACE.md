@@ -49,6 +49,12 @@ already cached stays, with a small progress dot over it).
 New tabs are capped at `config::MAX_TABS` (128): opening one past the cap
 (+ New Tab, a bookmark, `Ctrl/Cmd+T`) is refused with a "Tab limit reached"
 toast instead of allocating an unbounded tab vector.
+Rows can be reordered: dragging one reorders the rail live — the list follows
+the pointer, the dragged row carries a primary ring, and the overlay stays
+open for the whole gesture — while `Alt+Up`/`Alt+Down` moves a focused row one
+slot (the keyboard equivalent of the bookmark grid's `Alt+Left`/`Alt+Right`).
+The active tab follows its own page through a reorder, and the new order is
+what "restore tabs on startup" remembers.
 
 ## Favicons
 
@@ -74,7 +80,9 @@ Clicking a tile opens the page here (its icon and its name alike),
 grid — as does `Alt+Left`/`Alt+Right` on a focused tile (keyboard-only
 reordering). Editing happens ON the tile, with no window: the hover pencil opens an
 inline rename field whose same spot becomes a check that saves; Enter saves
-too and Esc drops the draft, and the hover X removes the tile.
+too and Esc drops the draft, and the hover X removes the tile. Both action
+buttons are reachable with `Tab` once the tile has keyboard focus (the
+tile, its pencil and its X form one focus chain per grid cell).
 The toolbar bookmark ribbon (or `Ctrl/Cmd+D`) adds/removes the page you are reading.
 
 ## Menu bar
@@ -143,9 +151,9 @@ the capsule while the field is editing (`src/suggest.rs`), capped at
 
 - Bookmarks first (newest first), then local-history visits (newest first),
   then the curated builtin list compiled in from `assets/builtin_sites.txt`
-  (`builtin_sites::builtin_suggestions()`; append-only: add one
-  `<url><TAB><title>` line). Duplicates by exact URL keep
-  the higher-priority source.
+  (`builtin_sites::builtin_suggestions()`; curated upstream in MDowser-Sites
+  and vendored with `make sync-sites`: one `<url> | <title>` line per
+  entry). Duplicates by exact URL keep the higher-priority source.
 - Matching is case-insensitive on the URL and the title; a schemeless query
   (`ex.com/love`) matches the stored `https://` URL. An empty field offers
   recent bookmarks.
@@ -371,7 +379,9 @@ styled error page instead of a raw log:
 ## Right-click menu
 
 Minimal: Copy (the drag selection when there is one, else the whole page)
-and Select all; over a link it adds Open link in new tab at the top. All
+and Select all; over a link it adds Open link in new tab at the top.
+`Cmd/Ctrl+click` on a link opens it in a background tab directly (an
+in-page `#anchor` becomes its absolute URL plus the fragment). All
 body text is natively selectable (drag + Cmd/Ctrl+C) with readable selection
 colors. Right-clicking never disturbs an existing selection (its press is
 intercepted before egui, which would otherwise collapse it), so Copy from
@@ -394,6 +404,7 @@ one), `Enter` activates the focused one and `Esc` closes it.
 | `Ctrl/Cmd+A` | Select all (page text) |
 | `Ctrl/Cmd+C` | Copy (selection, or all while selected) |
 | `Ctrl/Cmd+1..9` | Select tab |
+| `Alt+Up` / `Alt+Down` | Move the focused tab one slot (reorder the rail) |
 | `Ctrl/Cmd` `+` / `=` | Zoom in |
 | `Ctrl/Cmd+-` | Zoom out |
 | `Ctrl/Cmd+0` | Reset zoom to 100% |

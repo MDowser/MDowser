@@ -149,7 +149,6 @@ in [`docs/SECURITY.md`](docs/SECURITY.md).
 ## Roadmap
 
 - Optional cache (deliberately cacheless today).
-- Per-block unique indent ids, tab drag-reorder.
 
 ## License
 

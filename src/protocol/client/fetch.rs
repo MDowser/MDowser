@@ -166,8 +166,12 @@ pub async fn fetch_with_fallback(
                 match finish_document(&text, landed, &cand) {
                     Ok(fetched) => return Ok(fetched),
                     Err(line) => {
+                        // Same defense in depth as the network-error arm:
+                        // the line embeds the candidate URL, so strip
+                        // credentials before it reaches the error view.
+                        let clean = crate::util::strip_credentials_for_log(&line);
                         lines.push(
-                            crate::util::truncate_chars(&line, config::MAX_ERROR_LINE_CHARS)
+                            crate::util::truncate_chars(&clean, config::MAX_ERROR_LINE_CHARS)
                                 .into_owned(),
                         );
                         continue;

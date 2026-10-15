@@ -28,13 +28,14 @@
 # fall through to the SKIP path, never abort the script.
 set -u
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT"
 
 # Same toolchain PATH fixup as the rest of scripts/ (lib.sh): an existing
 # install in ~/.cargo, ~/.rustup or brew is found, so `make deps` never
 # reinstalls what is already there.
-. "$(dirname "$0")/lib.sh"
+. "$SCRIPT_DIR/lib.sh"
 ensure_toolchain_path
 
 GROUP="${1:-all}"

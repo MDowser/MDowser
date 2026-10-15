@@ -94,6 +94,12 @@ struct CachedBlock {
     /// large blocks; the galleys are reused until one of those inputs
     /// changes.
     galleys: RefCell<Galleys>,
+    /// Widest PLAIN row ever measured for this block (huge/unsupported
+    /// blocks, which lay out only the rows on screen). Monotonic: the
+    /// horizontal scroll range must not shrink when a vertical scroll
+    /// moves a long line out of the viewport, or egui clamps the offset
+    /// (and thereby the view) back to the left edge.
+    plain_max_w: Cell<f32>,
     /// Approximate bytes retained by `galleys` (cache budget accounting).
     galley_bytes: Cell<usize>,
     /// Approximate retained bytes (accounting for the cache budget).
@@ -282,6 +288,7 @@ fn block_for(
             tokenizable,
             lines: RefCell::new(lines),
             galleys: RefCell::new(Galleys::default()),
+            plain_max_w: Cell::new(0.0),
             galley_bytes: Cell::new(0),
             bytes,
             used: Cell::new(cache_tick()),
@@ -346,19 +353,23 @@ fn plain_row_height(ui: &mut egui::Ui, first_line: &str, selected: bool, s: &the
 ///
 /// Virtualized: only the rows inside `visible` are built and painted at the
 /// uniform `row_h` grid; the rest of the block's height comes from the
-/// caller's reserved content rect. Returns the widest painted row, which
-/// the caller adds to the scroll content so long lines stay reachable. A
-/// 10 000-line log used to build one `LayoutJob` and one `Label` per row
+/// caller's reserved content rect. Returns the widest row EVER seen for the
+/// block (stored monotonically in `block.plain_max_w`), which the caller
+/// adds to the scroll content so long lines stay reachable: recomputing it
+/// from the visible rows alone let the range shrink as soon as a long line
+/// scrolled out of view, and egui then clamped the horizontal offset back.
+/// A 10 000-line log used to build one `LayoutJob` and one `Label` per row
 /// per frame while ~20 rows were on screen.
 fn render_plain_lines(
     ui: &mut egui::Ui,
-    body: &str,
+    block: &CachedBlock,
     selected: bool,
     visible: std::ops::Range<usize>,
     row_h: f32,
 ) -> f32 {
     let mut widest = 0.0_f32;
-    for (row, line) in body
+    for (row, line) in block
+        .body
         .split('\n')
         .enumerate()
         .take(visible.end)
@@ -394,6 +405,9 @@ fn render_plain_lines(
             ui.visuals().text_color(),
         );
     }
+    // Monotonic across frames and scroll positions (see the doc comment).
+    let widest = widest.max(block.plain_max_w.get());
+    block.plain_max_w.set(widest);
     widest
 }
 
@@ -569,7 +583,7 @@ fn render_body(
     // widened/heightened explicitly: without this the horizontal scroll area
     // sees a content width of zero and a long line could never be reached.
     let content_w = if lines.is_none() {
-        render_plain_lines(ui, &block.body, selected, visible, row_h)
+        render_plain_lines(ui, block, selected, visible, row_h)
     } else {
         let cache = block.galleys.borrow();
         // The widest laid-out line covers every row, not just the visible
@@ -676,18 +690,29 @@ fn ensure_galleys(
     if cache.key == Some(key) && cache.lines.len() >= shown {
         return;
     }
-    // Release the old accounting before the old galleys drop.
-    let owned = block.galley_bytes.get();
-    if owned > 0 {
-        CACHED_BYTES.with(|total| total.set(total.get().saturating_sub(owned)));
-        block.galley_bytes.set(0);
+    // Same key: `shown` only grows within a document (a `<Tabs>` switch, an
+    // accordion opening or a closed block budget can hand this block more
+    // lines than the frame that built the cache), so keep the laid-out
+    // prefix and append only the missing tail. Rebuilding every galley made
+    // a large block re-lay-out entirely for one extra line.
+    let keep = cache.key == Some(key);
+    if !keep {
+        // Release the old accounting before the old galleys drop.
+        let owned = block.galley_bytes.get();
+        if owned > 0 {
+            CACHED_BYTES.with(|total| total.set(total.get().saturating_sub(owned)));
+            block.galley_bytes.set(0);
+        }
+        cache.lines.clear();
+        cache.max_w = 0.0;
     }
-    cache.lines.clear();
     cache.key = Some(key);
+    let start = cache.lines.len();
+    let old_bytes = block.galley_bytes.get();
     let empty: Vec<hl::Span> = Vec::new();
-    let mut bytes = 0usize;
-    let mut max_w = 0.0_f32;
-    for (idx, line) in block.body.split('\n').take(shown).enumerate() {
+    let mut bytes = old_bytes;
+    let mut max_w = cache.max_w;
+    for (idx, line) in block.body.split('\n').take(shown).enumerate().skip(start) {
         let spans = lines.get(idx).unwrap_or(&empty);
         let job = line_job(line, spans, &font, sel_bg, sel_fg, s);
         let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
@@ -696,8 +721,9 @@ fn ensure_galleys(
         cache.lines.push(galley);
     }
     cache.max_w = max_w;
+    let delta = bytes.saturating_sub(old_bytes);
     block.galley_bytes.set(bytes);
-    CACHED_BYTES.with(|total| total.set(total.get().saturating_add(bytes)));
+    CACHED_BYTES.with(|total| total.set(total.get().saturating_add(delta)));
     // Galleys are added on cache HITS (theme/select-all change rebuilds
     // every visible block), so the miss-time eviction above never sees
     // them: enforce the byte budget here too, evicting LRU blocks until the

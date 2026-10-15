@@ -323,6 +323,12 @@ impl eframe::App for MdowserApp {
                 &mut self.favicons,
                 &mut self.tabs_overlay_rect,
             );
+            // The reorder is applied FIRST (the same order the bookmark grid
+            // uses for its own drag): its indices come from the layout this
+            // frame drew, and a drag never produces a click on that row.
+            if let Some((from, to)) = resp.move_tab {
+                self.move_tab(from, to);
+            }
             if let Some(i) = resp.select {
                 self.select_tab(i);
             }

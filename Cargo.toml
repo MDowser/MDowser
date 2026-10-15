@@ -4,7 +4,7 @@
 # crypto provider (`aws-lc-sys`) compiles C/assembly and needs a C compiler
 # (plus NASM on x86/x86_64), and `rav1d` needs NASM there too.
 name = "mdowser"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 description = "Browser for CommonMark (text/markdown) over HTTPS and local files, with tables and footnotes"
 license = "MPL-2.0"

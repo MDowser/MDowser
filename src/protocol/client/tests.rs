@@ -221,6 +221,22 @@ fn display_sanitizer_never_echoes_credentials() {
         "HTTPS only, blocked: http:example.com",
         "a whole error line must lose the password too"
     );
+    // A pasted password may itself contain a `/`, `?` or `#`: the old
+    // authority cut hid the `@` beyond it and echoed the password.
+    assert_eq!(
+        sanitize_for_display("user:pa/ss@host"),
+        "host",
+        "a password containing a slash must never be echoed"
+    );
+    assert_eq!(sanitize_for_display("mailto:user:pa/ss@b.com"), "b.com");
+    assert_eq!(sanitize_for_display("nas:5000/x@y"), "nas:5000/x@y");
+    // Path/query `@`s and host:port segments are not credentials: the
+    // token stays readable.
+    assert_eq!(sanitize_for_display("https://host/a@b"), "https://host/a@b");
+    assert_eq!(
+        sanitize_for_display("C:\\Users\\me\\a@b.md"),
+        "C:\\Users\\me\\a@b.md"
+    );
 }
 
 /// `finish_document` derives the first-H1 title fallback once, next to the

@@ -20,14 +20,16 @@
 //!   and the test asserts `util::normalize_stored_url` keeps every entry
 //!   byte-for-byte.
 //!
-//! TO GROW THE LIST: append one `<url><TAB><title>` line at the end of
-//! `assets/builtin_sites.txt`. Nothing else needs to change: no count to
-//! bump, no test list to mirror.
+//! TO GROW THE LIST: propose the line upstream in MDowser-Sites, then run
+//! `make sync-sites`: the file is vendored from that repo (via curl) and
+//! every URL is validated the way the browser resolves it (see
+//! `scripts/sync-builtin-sites.sh`). Nothing else needs to change: no count
+//! to bump, no test list to mirror.
 
 use std::sync::OnceLock;
 
 /// The curated list, compiled into the binary from
-/// `assets/builtin_sites.txt` (one `<url><TAB><title>` line per entry;
+/// `assets/builtin_sites.txt` (one `<url> | <title>` line per entry;
 /// blank lines and `#` comments are allowed).
 const BUILTIN_SITES: &str = include_str!("../assets/builtin_sites.txt");
 
@@ -44,11 +46,12 @@ pub fn builtin_suggestions() -> &'static [(&'static str, &'static str)] {
 }
 
 /// Parses the embedded list: blank lines and `#` comments are skipped;
-/// every other line must be `<url><TAB><title>` (both sides trimmed).
+/// every other line must be `<url> | <title>` (split on the first `|`,
+/// both sides trimmed, so titles may hold further `|`).
 ///
 /// The file is compiled into the binary, so a malformed line cannot be
 /// fixed at runtime: panic with the file and line instead of silently
-/// dropping an entry or misreading a space-split title.
+/// dropping an entry or mis-splitting the title.
 fn parse(raw: &'static str) -> Vec<(&'static str, &'static str)> {
     let mut out = Vec::new();
     for (index, line) in raw.lines().enumerate() {
@@ -56,9 +59,9 @@ fn parse(raw: &'static str) -> Vec<(&'static str, &'static str)> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let Some((url, title)) = line.split_once('\t') else {
+        let Some((url, title)) = line.split_once('|') else {
             panic!(
-                "assets/builtin_sites.txt:{}: expected `<url><TAB><title>`: {line}",
+                "assets/builtin_sites.txt:{}: expected `<url> | <title>`: {line}",
                 index + 1
             );
         };

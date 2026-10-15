@@ -207,9 +207,74 @@ pub(super) fn paint_edge_separator(
     }
 }
 
-/// One expanded row: favicon + title + close, click selects. `text_t` fades
-/// the title during the overlay's open animation and drives its drift (the
-/// favicon itself stays solid).
+/// Drag-reorder signal one row reported this pass (see `show_tabs`).
+#[derive(Clone, Copy, Debug)]
+pub(super) enum RowDrag {
+    /// This row just started being dragged.
+    Start,
+    /// The pointer is over this row while another one is dragged: it is the
+    /// drop target.
+    Over,
+    /// The dragged row was released.
+    Stop,
+}
+
+/// One row's drag state for this pass, bundled so the row's signature stays
+/// readable (the same shape `ui::bookmarks` gives its `TileRef`).
+#[derive(Clone, Copy, Default)]
+pub(super) struct RowDragState {
+    /// This row is the one being dragged.
+    pub dragging: bool,
+    /// Some row is being dragged right now (drop targets are live).
+    pub active: bool,
+}
+
+/// The egui id of one rail row's interaction.
+///
+/// Keyed by the TAB id, not by the row's slot: focus, hover, tooltip and the
+/// in-flight drag follow the tab when the rail reorders (a slot-keyed id made
+/// `Alt+Up`/`Alt+Down` walk the focus onto a different tab after every move).
+/// `state` separates the collapsed rail's row from the expanded overlay's,
+/// which are both drawn in the overlay's opening frame.
+pub(super) fn row_id(state: &'static str, tab_id: usize) -> egui::Id {
+    egui::Id::new(("tab-row", state, tab_id))
+}
+
+/// Keyboard reorder of the FOCUSED row: `Alt+Up`/`Alt+Down` move it one slot,
+/// the vertical equivalent of the bookmark grid's `Alt+Left`/`Alt+Right`.
+/// One slot per press; `None` when the row is not focused or the move would
+/// leave the list. Returns `(from, to)` in the current list order.
+pub(super) fn move_keys(
+    ui: &egui::Ui,
+    resp: &egui::Response,
+    index: usize,
+    count: usize,
+) -> Option<(usize, usize)> {
+    if !resp.has_focus() {
+        return None;
+    }
+    let delta = ui.input(|i| {
+        if !i.modifiers.alt {
+            0
+        } else if i.key_pressed(egui::Key::ArrowUp) {
+            -1
+        } else if i.key_pressed(egui::Key::ArrowDown) {
+            1
+        } else {
+            0
+        }
+    });
+    if delta == 0 {
+        return None;
+    }
+    let last = count.saturating_sub(1);
+    let to = (index as i64 + i64::from(delta)).clamp(0, last as i64) as usize;
+    (to != index).then_some((index, to))
+}
+
+/// One expanded row: favicon + title + close, click selects and dragging it
+/// reorders the rail. `text_t` fades the title during the overlay's open
+/// animation and drives its drift (the favicon itself stays solid).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn expanded_row(
     ui: &mut egui::Ui,
@@ -219,23 +284,71 @@ pub(super) fn expanded_row(
     row_w: f32,
     text_t: f32,
     favicons: &mut FaviconCache,
+    drag: RowDragState,
+    count: usize,
     out: &mut TabsResponse,
-) {
+) -> Option<RowDrag> {
     let s = theme::scheme_ref(ui);
-    let (row_rect, row_resp) =
-        ui.allocate_exact_size(egui::vec2(row_w, ROW_H), egui::Sense::click());
-    let row_resp = row_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
-    // `contains_pointer` (not `hovered`): the close box is a separate widget
-    // on top, so egui's hover set dropped the row the moment the pointer
-    // reached the X and the highlight blinked off under the pointer.
+    // Geometry and interaction are separate: the widget id must be keyed by
+    // the TAB (see `row_id`), which `allocate_exact_size` cannot express.
+    // `cross_justify` is false in this layout, so the rect is exactly the one
+    // requested (and the intrinsic size keeps `allocate_exact_size`'s
+    // contract for any layout consumer).
+    let (_, row_rect) = ui.allocate_space(egui::vec2(row_w, ROW_H));
+    let mut row_resp = ui.interact(
+        row_rect,
+        row_id("open", tab.id),
+        egui::Sense::click_and_drag(),
+    );
+    row_resp.set_intrinsic_size(egui::vec2(row_w, ROW_H));
+    // Hover and drop target are read GEOMETRICALLY, from THIS frame's rect and
+    // pointer, while still honoring what is on top of the row (a floating
+    // window must win the pointer). `Response::contains_pointer` cannot do
+    // this here: its snapshot is computed at frame start from the PREVIOUS
+    // frame's rects, and a live reorder moves the rows, so the drag kept
+    // targeting the slot a row no longer occupied (it bounced between two
+    // slots instead of advancing).
+    let pointer_over = ui.ctx().rect_contains_pointer(ui.layer_id(), row_rect);
+    // While the row is dragged the pointer is captured, so a hover cursor no
+    // longer applies: set the grab cursor directly, like the grid tile.
+    let row_resp = if drag.dragging {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        row_resp
+    } else {
+        row_resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+    };
+    // Deferred: a drag event must not skip painting the row this frame.
+    let mut drag_signal: Option<RowDrag> = None;
+    if row_resp.drag_started() {
+        drag_signal = Some(RowDrag::Start);
+    } else if row_resp.drag_stopped() {
+        drag_signal = Some(RowDrag::Stop);
+    } else if drag.active && !drag.dragging && pointer_over {
+        drag_signal = Some(RowDrag::Over);
+    }
+    // The wash stays while the pointer sits on any part of the row, the close
+    // box included (it is a separate widget inside this rect).
     draw_row_background(
         ui,
         row_rect,
         selected,
-        row_resp.contains_pointer(),
+        pointer_over,
         row_resp.has_focus(),
         s,
     );
+    if drag.dragging {
+        // The dragged row carries the same primary ring as a dragged tile.
+        ui.painter().rect_stroke(
+            row_rect.shrink(0.5),
+            egui::CornerRadius::same(ROW_RADIUS),
+            egui::Stroke::new(1.0, s.primary),
+            egui::StrokeKind::Inside,
+        );
+    }
+    // Captured before `display()` mutably borrows the tab: the close button
+    // is keyed by the TAB (never its slot), so focus and hover follow the
+    // page through a reorder (`Alt+Up/Down`, a drag).
+    let tab_id = tab.id;
     let (disp, _rebuilt) = tab.display();
     let origin = disp.origin.as_ref();
     draw_favicon(
@@ -303,24 +416,37 @@ pub(super) fn expanded_row(
     let close_resp = icons::icon_button_at_named_lazy(
         ui,
         close_rect,
-        ("tab-close", index),
+        ("tab-close", tab_id),
         icons::Icon::Close,
         || format!("Close tab: {title}"),
         || "Close tab (Ctrl/Cmd+W)".to_string(),
         true,
     );
+    // Drag and keyboard-reorder signals win over click/close: egui reports
+    // no click for a gesture it classified as a drag, so this can never
+    // swallow a real activation.
+    if let Some(signal) = drag_signal {
+        return Some(signal);
+    }
+    if !drag.dragging {
+        if let Some(mv) = move_keys(ui, &row_resp, index, count) {
+            out.move_tab = Some(mv);
+            return None;
+        }
+    }
     if close_resp.clicked() {
         out.close = Some(index);
-        return;
+        return None;
     }
     // Middle-click closes the tab.
     if row_resp.clicked_by(egui::PointerButton::Middle) {
         out.close = Some(index);
-        return;
+        return None;
     }
     if row_resp.clicked() {
         out.select = Some(index);
     }
+    None
 }
 
 /// Draws the tab favicon (or a placeholder) at the shared icon column.

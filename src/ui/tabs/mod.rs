@@ -152,6 +152,16 @@ fn row_reveal(t: f32, index: usize) -> f32 {
     ((t - start) / (1.0 - start)).clamp(0.0, 1.0)
 }
 
+/// egui-memory key of the rail's drag-reorder state: the id of the tab being
+/// dragged, if any. Stored as `Option<usize>` in BOTH directions (temp data
+/// is keyed by TYPE: a bare-`usize` read of an `Option` write would pin the
+/// drag forever, the same trap `ui::bookmarks` documents). Not per-tab, so
+/// `ui::forget_tab` needs no entry: `show_tabs` drops an id no longer in the
+/// list, and the release path clears it.
+fn drag_state_id() -> egui::Id {
+    egui::Id::new("tabs_rail_drag")
+}
+
 /// What the tab rail reported this frame (mirrors `OmniboxResponse`:
 /// one struct out instead of one out-param per action).
 #[derive(Debug, Default)]
@@ -160,6 +170,11 @@ pub struct TabsResponse {
     pub select: Option<usize>,
     /// A close box or middle-click asked to close a tab.
     pub close: Option<usize>,
+    /// A row was dropped on another (drag reorder), or the focused row was
+    /// moved with `Alt+Up`/`Alt+Down`: move the tab at `from` to slot `to`,
+    /// both indices in the current `tabs` order of the frame that reported
+    /// it (the same remove+insert `bookmarks::move_entry` performs).
+    pub move_tab: Option<(usize, usize)>,
     /// The "+ New Tab" action row was clicked.
     pub new: bool,
     /// The "History" action row was clicked.
@@ -182,6 +197,22 @@ pub fn show_tabs(
 ) -> TabsResponse {
     let s = theme::scheme_ref(ui);
     let mut out = TabsResponse::default();
+    // Row count: stable for the frame (the rail never mutates the list, only
+    // the per-tab display memo).
+    let count = tabs.len();
+    // Drag-reorder state (the dragged tab's id) lives in egui memory: it
+    // spans frames (press ... move ... release) while egui's own drag state
+    // only covers the dragged widget. Self-healing, so a tab closed mid-drag
+    // cannot force the overlay open forever.
+    let mut drag_tab = ui
+        .data_mut(|d| d.get_temp::<Option<usize>>(drag_state_id()))
+        .flatten();
+    if drag_tab.is_some_and(|id| !tabs.iter().any(|t| t.id == id)) {
+        drag_tab = None;
+    }
+    let mut drag_started: Option<usize> = None;
+    let mut drag_stopped = false;
+    let mut drop_target: Option<usize> = None;
     // Ensure every visible tab's origin has a favicon probe in flight (or a
     // cached texture). Cheap no-op after the first request per origin, and
     // borrowed from the per-tab display memo: no per-frame `Url` clone or
@@ -251,8 +282,12 @@ pub fn show_tabs(
                     ui.spacing_mut().item_spacing.y = 0.0;
                     for (i, tab) in tabs.iter_mut().enumerate() {
                         let selected = i == active;
-                        let (rect, resp) =
-                            ui.allocate_exact_size(egui::vec2(row_w, ROW_H), egui::Sense::click());
+                        // Stable per-tab id (see `rows::row_id`), so keyboard
+                        // focus follows the tab across a reorder.
+                        let (_, rect) = ui.allocate_space(egui::vec2(row_w, ROW_H));
+                        let mut resp =
+                            ui.interact(rect, row_id("rail", tab.id), egui::Sense::click());
+                        resp.set_intrinsic_size(egui::vec2(row_w, ROW_H));
                         let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
                         rail_hovered |= resp.hovered();
                         draw_row_background(
@@ -290,7 +325,12 @@ pub fn show_tabs(
                             )
                         });
                         let resp = crate::ui::hover_tooltip(resp, title);
-                        if resp.clicked() {
+                        // Keyboard reorder, exactly like the expanded rows:
+                        // the collapsed rail is the state a keyboard-only
+                        // user sees (no hover), so it must offer it too.
+                        if let Some(mv) = move_keys(ui, &resp, i, count) {
+                            out.move_tab = Some(mv);
+                        } else if resp.clicked() {
                             out.select = Some(i);
                         }
                         // Middle-click closes the tab.
@@ -351,7 +391,10 @@ pub fn show_tabs(
     // Gated on `overlay_was_open` so a collapsed rail never opens by itself.
     let keep_open =
         overlay_was_open && (pointer.is_none() || pointer.is_some_and(|p| p.y < rail_rect.min.y));
-    let open = skip_content || rail_hovered || keep_open;
+    // A drag in flight keeps the overlay open wherever the pointer goes:
+    // collapsing mid-drag would stop drawing the dragged row's widget and
+    // drop the gesture (the rail is hover-driven, and a drag leaves the rail).
+    let open = skip_content || rail_hovered || keep_open || drag_tab.is_some();
     // Expansion animation. Queried EVERY frame (collapsed ones included) so
     // the id is already primed at 0 when the pointer first reaches the rail:
     // the animation manager returns the target on its first call, which
@@ -453,7 +496,8 @@ pub fn show_tabs(
                             // both states must show identical row density.
                             ui.spacing_mut().item_spacing.y = 0.0;
                             for (i, tab) in tabs.iter_mut().enumerate() {
-                                expanded_row(
+                                let tab_id = tab.id;
+                                let event = expanded_row(
                                     ui,
                                     i,
                                     tab,
@@ -461,8 +505,19 @@ pub fn show_tabs(
                                     row_w,
                                     row_reveal(t, i),
                                     favicons,
+                                    RowDragState {
+                                        dragging: drag_tab == Some(tab_id),
+                                        active: drag_tab.is_some(),
+                                    },
+                                    count,
                                     &mut out,
                                 );
+                                match event {
+                                    Some(RowDrag::Start) => drag_started = Some(tab_id),
+                                    Some(RowDrag::Over) => drop_target = Some(i),
+                                    Some(RowDrag::Stop) => drag_stopped = true,
+                                    None => {}
+                                }
                                 ui.add_space(ROW_GAP);
                             }
                         });
@@ -514,6 +569,30 @@ pub fn show_tabs(
             paint_edge_separator(ui.painter(), ui.visuals().dark_mode, edge, s, t);
         });
     *overlay_rect = Some(area.response.rect);
+
+    // Drag reorder, applied LIVE like the bookmark grid: the rail follows the
+    // pointer instead of jumping on release. `from` is looked up by ID (the
+    // slots shift as the list reorders) and `to` is the hovered slot; `App`
+    // applies the move right after this returns. Persist only on change
+    // (start/stop), not every frame while hovering.
+    let had_drag = drag_tab.is_some();
+    let drag_began = drag_started.is_some();
+    if let Some(id) = drag_started {
+        drag_tab = Some(id);
+    }
+    if let (Some(to), Some(id)) = (drop_target, drag_tab) {
+        if let Some(from) = tabs.iter().position(|t| t.id == id) {
+            if from != to {
+                out.move_tab = Some((from, to));
+            }
+        }
+    }
+    if drag_stopped || !ui.input(|i| i.pointer.any_down()) {
+        drag_tab = None;
+    }
+    if drag_began || drag_stopped || had_drag != drag_tab.is_some() {
+        ui.data_mut(|d| d.insert_temp(drag_state_id(), drag_tab));
+    }
     out
 }
 

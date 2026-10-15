@@ -531,6 +531,73 @@ fn remove_button_deletes_the_bookmark() {
     );
 }
 
+/// Keyboard chain through a tile's action buttons: with a tile focused,
+/// `Tab` moves into the pencil and then onto the X (the hover-only buttons
+/// stay allocated on the frame that moves focus, so the traversal can land
+/// on them), and `Enter` on the focused X removes the bookmark. Without the
+/// chain the first Tab after the tile jumped straight to the NEXT tile and
+/// Enter opened its page instead.
+#[test]
+fn tab_reaches_the_tile_action_buttons() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    let mut store = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    store.toggle("file:///tmp/one.md", Some("One"));
+    store.toggle("file:///tmp/two.md", Some("Two"));
+    let _ = render(&ctx, base_input(), &mut tab, &mut store, &mut favicons);
+
+    let key = |k: egui::Key| egui::Event::Key {
+        key: k,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let press = |ctx: &egui::Context,
+                 event: egui::Event,
+                 tab: &mut Tab,
+                 store: &mut BookmarkStore,
+                 favicons: &mut FaviconCache| {
+        let mut input = base_input();
+        input.events = vec![event];
+        let _ = render(ctx, input, tab, store, favicons);
+    };
+    // Tab 1: focus the first (newest) tile; tab 2: its pencil; tab 3: its X.
+    for _ in 0..3 {
+        press(
+            &ctx,
+            key(egui::Key::Tab),
+            &mut tab,
+            &mut store,
+            &mut favicons,
+        );
+    }
+    assert_eq!(
+        store.entries().len(),
+        2,
+        "Tab alone must never activate a tile"
+    );
+    // Enter on the focused X removes that tile (keyboard activation).
+    press(
+        &ctx,
+        key(egui::Key::Enter),
+        &mut tab,
+        &mut store,
+        &mut favicons,
+    );
+    assert_eq!(
+        store.entries().len(),
+        1,
+        "Enter on the focused X must remove the bookmark"
+    );
+    assert!(
+        !matches!(tab.state, TabState::Loading { .. }),
+        "the Enter must not have opened the tile instead"
+    );
+}
+
 /// The pencil opens an inline rename field ON the tile (no window); the
 /// tab flag keeps Esc for the field, and Enter commits the draft.
 #[test]
