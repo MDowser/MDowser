@@ -31,8 +31,9 @@ ensure_toolchain_path() {
         esac
     done
     unset _bd
-    # 1. Standard rustup env file when present.
-    if [ -f "$HOME/.cargo/env" ]; then
+    # 1. Standard rustup env file when present (`HOME` guarded: callers like
+    #    `check-dist` run under `set -u`, where an unset `HOME` aborts).
+    if [ -n "${HOME:-}" ] && [ -f "$HOME/.cargo/env" ]; then
         # shellcheck disable=SC1091
         . "$HOME/.cargo/env"
     fi

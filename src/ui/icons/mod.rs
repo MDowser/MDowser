@@ -65,6 +65,8 @@ pub enum Icon {
     Close,
     /// Clock: browsing history.
     History,
+    /// Magnifier: the history search field.
+    Search,
     /// Circled i: internal informational pages (third-party licenses).
     Info,
     /// Gear: preferences.
@@ -84,6 +86,11 @@ pub enum Icon {
     Edit,
     /// Check mark: save the inline bookmark rename.
     Check,
+    /// Chevron pointing up: find-bar previous match (also the stepper shape
+    /// pair with [`Icon::ChevronDown`]).
+    ChevronUp,
+    /// Chevron pointing down: find-bar next match.
+    ChevronDown,
 }
 
 /// Design grid side: every glyph below is drawn in a 24x24 unit square.
@@ -191,6 +198,11 @@ impl Icon {
                 pen.circle(12.0, 12.0, 8.2);
                 pen.stroke(&[(12.0, 7.3), (12.0, 12.3), (15.7, 14.1)]);
             }
+            Icon::Search => {
+                // Magnifier: the ring plus the handle to the lower right.
+                pen.circle(10.5, 10.5, 6.3);
+                pen.stroke(&[(15.2, 15.2), (20.2, 20.2)]);
+            }
             Icon::Info => {
                 // Circled lowercase i: dot over the stem.
                 pen.circle(12.0, 12.0, 8.2);
@@ -262,6 +274,8 @@ impl Icon {
             Icon::Check => {
                 pen.stroke(&[(5.2, 12.8), (10.2, 17.6), (18.8, 7.2)]);
             }
+            Icon::ChevronUp => pen.stroke(&[(6.6, 14.6), (12.0, 9.2), (17.4, 14.6)]),
+            Icon::ChevronDown => pen.stroke(&[(6.6, 9.4), (12.0, 14.8), (17.4, 9.4)]),
         }
     }
 }
@@ -395,15 +409,7 @@ pub fn icon_button(ui: &mut egui::Ui, icon: Icon, tooltip: &str, enabled: bool) 
         egui::Sense::hover()
     };
     let (rect, resp) = ui.allocate_exact_size(size, sense);
-    finish_icon_button(
-        ui,
-        rect,
-        resp,
-        icon,
-        enabled,
-        || tooltip.to_string(),
-        || tooltip.to_string(),
-    )
+    finish_static_icon_button(ui, rect, resp, icon, enabled, tooltip)
 }
 
 /// [`icon_button`] whose tooltip is built on hover only: the closure runs on
@@ -445,15 +451,7 @@ pub fn icon_button_at(
         egui::Sense::hover()
     };
     let resp = ui.interact(rect, ui.id().with(id_salt), sense);
-    finish_icon_button(
-        ui,
-        rect,
-        resp,
-        icon,
-        enabled,
-        || tooltip.to_string(),
-        || tooltip.to_string(),
-    )
+    finish_static_icon_button(ui, rect, resp, icon, enabled, tooltip)
 }
 
 /// [`icon_button_at`] whose tooltip is built on hover only: the closure runs
@@ -505,6 +503,29 @@ pub fn icon_button_at_named_lazy(
 /// effect, cursor, accessible name and tooltip. `a11y_name`/`tooltip` are
 /// built lazily (accesskit may be off; a tooltip is built only while
 /// hovered).
+/// Shared entry for icon buttons whose accessible name and tooltip are the
+/// same static text: one `&str` in, the two lazy closures out. (Spelling two
+/// `|| tooltip.to_string()` closures at every call site invited eager
+/// `on_hover_text` regressions by copy-paste.)
+fn finish_static_icon_button(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    resp: egui::Response,
+    icon: Icon,
+    enabled: bool,
+    text: &str,
+) -> egui::Response {
+    finish_icon_button(
+        ui,
+        rect,
+        resp,
+        icon,
+        enabled,
+        || text.to_string(),
+        || text.to_string(),
+    )
+}
+
 fn finish_icon_button(
     ui: &mut egui::Ui,
     rect: egui::Rect,

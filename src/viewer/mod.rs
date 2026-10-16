@@ -16,7 +16,7 @@
 //! - Loading keeps the previous document as backdrop
 //!   (stale-while-revalidate): no white flash when following a link.
 //! - Links navigate internally (never open an external browser).
-//! - Right-click menu + toasts live in `overlays`.
+//! - Right-click menu + toasts + the find bar live in `overlays`.
 //! - Document text may carry emoji or non-Latin scripts (complete
 //!   monochrome Noto Emoji + CJK + Latin + one face per bundled script;
 //!   see `ui::theme`); interface icons are monochrome vector strokes
@@ -26,10 +26,14 @@
 
 mod bidi;
 mod cache;
+pub(crate) mod find;
 mod image;
 mod inline;
 mod markdown;
-mod overlays;
+// `pub(crate)` like `code`: the app-level tests drive the find bar's own
+// entry point (`overlays::find::show_find_bar`), the same one `show_content`
+// calls.
+pub(crate) mod overlays;
 mod table;
 
 pub(crate) mod code;
@@ -43,7 +47,7 @@ use crate::ui::theme;
 use eframe::egui;
 use url::Url;
 
-use self::markdown::{doc_id_salt, show_markdown};
+use self::markdown::{doc_id_salt, show_markdown_with_find};
 
 /// Screen-space hitbox of one rendered document link, collected while the
 /// document renders so the right-click menu can offer "Open link in new tab".
@@ -138,12 +142,13 @@ pub fn show_content(
 
     // LOCAL HISTORY: the internal `about:history` page, drawn in the same
     // reading sheet as a document. The page itself navigates the tab when a
-    // visit is clicked and mutates the store on remove/delete.
+    // visit is clicked and mutates the store on remove/delete; row favicons
+    // come from the shared session cache (never a new fetch pipeline).
     if matches!(tab.state, TabState::History) {
         egui::CentralPanel::default()
             .frame(theme::content_frame(root))
             .show(root, |ui| {
-                crate::ui::history_page::show_history_page(ui, tab, history, gutter);
+                crate::ui::history_page::show_history_page(ui, tab, history, favicons, gutter);
             });
         overlays::show_toast(root, tab);
         return None;
@@ -158,6 +163,9 @@ pub fn show_content(
         // MENU FIRST, exactly like `Loaded` (it pushes `Event::Copy` for a
         // native selection before the labels render below).
         let new_tab_url = overlays::content_menu(root, tab);
+        // Find bar before the document so a typed query highlights the same
+        // frame (no one-frame lag between the bar and the page).
+        overlays::find::show_find_bar(root, tab);
         let mut pending_link: Option<String> = None;
         // Cmd/Ctrl+click target this frame: opened in a background tab by
         // the caller, like the context menu's "Open link in new tab" and
@@ -206,6 +214,7 @@ pub fn show_content(
                     &mut tab.images,
                     &mut tab.emoji,
                     &mut tab.link_hits,
+                    &mut tab.find,
                     &mut on_link,
                 );
                 // Same hit rect as `Loaded`: backs the context menu and
@@ -278,6 +287,7 @@ pub fn show_content(
                         &mut tab.images,
                         &mut tab.emoji,
                         &mut tab.link_hits,
+                        &mut tab.find,
                         &mut noop,
                     );
                 }
@@ -293,6 +303,8 @@ pub fn show_content(
         // `Event::Copy` into this frame's input so the text labels below --
         // which still hold the native selection -- perform the copy.
         let new_tab_url = overlays::content_menu(root, tab);
+        // Find bar before the document (same reason as `Licenses`).
+        overlays::find::show_find_bar(root, tab);
         // Render the document (no background `interact` behind: it either
         // ate link clicks or never saw secondary clicks on text).
         let mut pending_link: Option<String> = None;
@@ -356,6 +368,7 @@ pub fn show_content(
                         &mut tab.images,
                         &mut tab.emoji,
                         &mut tab.link_hits,
+                        &mut tab.find,
                         &mut on_link,
                     );
                     // Shrink right edge for hit-testing so clicks on the
@@ -491,6 +504,7 @@ fn render_doc(
     images: &mut crate::media::cache::ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut crate::viewer::find::FindState,
     on_link: &mut dyn FnMut(&str),
 ) -> egui::Rect {
     // Link hitboxes are rebuilt from scratch every frame: stale rects from
@@ -548,7 +562,7 @@ fn render_doc(
                 ui.vertical(|ui| {
                     ui.set_max_width(col_w);
                     ui.set_min_width(col_w.max(0.0));
-                    show_markdown(
+                    show_markdown_with_find(
                         ui,
                         events,
                         anchors,
@@ -563,6 +577,8 @@ fn render_doc(
                         emoji,
                         on_link,
                         links,
+                        find,
+                        doc_generation,
                     );
                 });
             });
@@ -572,3 +588,5 @@ fn render_doc(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_find;

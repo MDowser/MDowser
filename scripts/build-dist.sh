@@ -520,7 +520,7 @@ zip_of() {
         need_python3 "the zip fallback" || return 1
         rm -f "$2"
         _zipsrc="$1" _zipdst="$2" python3 -c \
-            "import os,shutil;shutil.make_archive(os.environ['_zipdst'][:-4],'zip',root_dir=os.path.dirname(os.environ['_zipsrc']),base_dir=os.path.basename(os.environ['_zipsrc']))"
+            "import os,shutil;shutil.make_archive(os.path.splitext(os.environ['_zipdst'])[0],'zip',root_dir=os.path.dirname(os.environ['_zipsrc']),base_dir=os.path.basename(os.environ['_zipsrc']))"
     fi
     # Verification: the zip must exist and weigh something (else abort here
     # instead of soldiering on with dangling staging + broken checksums).
@@ -897,10 +897,7 @@ do_host() {
     _hstage="$DIST/.host-stage"
     rm -rf "$_hstage"; mkdir -p "$_hstage"
     if [ "$_host_os" = "windows" ]; then
-        case "$_host_bin" in
-            *.exe) cp "$_host_bin" "$_hstage/$APP_LC.exe" ;;
-            *) cp "$_host_bin" "$_hstage/$APP_LC.exe" ;;
-        esac
+        cp "$_host_bin" "$_hstage/$APP_LC.exe"
         cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
             "$ROOT/LICENSE" "$_hstage/"
         sweep_apple_double "$_hstage"
@@ -954,6 +951,7 @@ do_host() {
 }
 
 # --- main --------------------------------------------------------------------
+: "${DIST:?DIST must be set}"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 

@@ -11,7 +11,8 @@
 # - `make dist-*`   : one group (host, mac, linux, windows, rpm, flatpak).
 # - `make install`  : runtime files under PREFIX (DESTDIR honored; RPM %install).
 # - `make flatpak`  : Flatpak bundle (needs flatpak-builder).
-# - `make validate` : best-effort packaging metadata checks (SKIPs, never fails).
+# - `make validate` : best-effort packaging metadata checks (SKIPs when tools
+#                     are missing, FAILs on real errors from installed tools).
 # - `make deps`     : install build/packaging dependencies (best-effort, idempotent).
 # - `make run`      : runs debug. `make clean`, `make help`, `make doctor`.
 # - `make icons`    : force-regenerates assets/icons from assets/icon.svg.
@@ -181,7 +182,7 @@ check-sites:
 
 clean:
 	$(CARGO) clean
-	rm -rf dist
+	rm -rf dist .flatpak-builder packaging/flatpak/.build-dir
 
 # Diagnose the toolchain as THIS Makefile sees it (for "No such file" cases).
 doctor:
@@ -194,7 +195,7 @@ doctor:
 	@$(CARGO) --version || echo "ERROR: cargo not found; install rustup (see README)"
 
 help:
-	@echo "make [build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|doctor]"
+	@echo "make [all|build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|help|doctor]"
 	@echo "  (no args)   deps + host release + current-OS dist into dist/"
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"

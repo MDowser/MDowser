@@ -164,8 +164,12 @@ fn emoji_px(size: f32, ppp: f32) -> u32 {
 /// texture budget) fall back to the styled monochrome text, so this never
 /// loses content.
 ///
-/// Returns `false` (drawing nothing) when `text` has no color emoji, so the
-/// caller keeps its normal one-piece text path. The probe is
+/// `bg` is the wash painted BEHIND an emoji texture (select-all or the find
+/// highlight): the surrounding pieces carry it, so a bare image would chop
+/// the band. `None` draws the textures bare.
+///
+/// Returns the painted bounds (`None` when `text` has no color emoji, so the
+/// caller keeps its normal one-piece text path). The probe is
 /// allocation-free; when it passes, the draw walks the same segments
 /// without building a list.
 pub(crate) fn render_emoji_text(
@@ -173,22 +177,29 @@ pub(crate) fn render_emoji_text(
     text: &str,
     size: f32,
     emoji: &mut crate::media::emoji::EmojiCache,
-    selected: bool,
+    bg: Option<egui::Color32>,
     style: &dyn Fn(&mut egui::Ui, &str) -> egui::RichText,
-) -> bool {
+) -> Option<egui::Rect> {
     // Probe allocation-free BEFORE drawing: the caller's normal path must
     // render the text when there is no emoji. Then draw straight from the
     // no-`Vec` segment walk (the old `split` built one vector per fragment
     // per repaint and walked it twice).
     if !crate::media::emoji::has_color_emoji(text) {
-        return false;
+        return None;
     }
+    let mut bounds: Option<egui::Rect> = None;
+    let mut extend = |rect: egui::Rect| {
+        bounds = Some(match bounds {
+            Some(b) => b.union(rect),
+            None => rect,
+        });
+    };
     let px = emoji_px(size, ui.ctx().pixels_per_point());
     let side = size * crate::config::EMOJI_SCALE;
     crate::media::emoji::for_each_segment(text, |segment| match segment {
         crate::media::emoji::Segment::Text(piece) => {
             let rt = style(ui, piece);
-            body_text(ui, rt);
+            extend(body_text(ui, rt).rect);
         }
         crate::media::emoji::Segment::Emoji(cluster) => {
             match emoji.texture(ui.ctx(), cluster, px) {
@@ -200,30 +211,237 @@ pub(crate) fn render_emoji_text(
                         side
                     };
                     let art = egui::vec2(side, height);
-                    if selected {
-                        // Select-all highlight must cover the emoji too:
-                        // the surrounding labels get a selection
-                        // background, so a bare image chopped the band.
+                    if let Some(bg) = bg {
+                        // The wash must cover the emoji too: the surrounding
+                        // labels get a background, so a bare image chopped
+                        // the band.
                         let (rect, _) = ui.allocate_exact_size(art, egui::Sense::hover());
                         ui.painter().rect_filled(
                             rect,
                             egui::CornerRadius::same(crate::ui::theme::radius::SMALL),
-                            crate::ui::theme::select_bg(ui),
+                            bg,
                         );
                         egui::Image::new(&texture).paint_at(ui, rect);
+                        extend(rect);
                     } else {
-                        ui.add(egui::Image::new(&texture).fit_to_exact_size(art));
+                        extend(
+                            ui.add(egui::Image::new(&texture).fit_to_exact_size(art))
+                                .rect,
+                        );
                     }
                 }
                 None => {
                     let rt = style(ui, cluster);
-                    body_text(ui, rt);
+                    extend(body_text(ui, rt).rect);
                 }
             }
         }
     });
+    Some(bounds.unwrap_or(egui::Rect::NOTHING))
+}
+/// Precise find split for a plain fragment (no link/code, LTR).
+///
+/// The fragment is painted as ONE galley whose washes are RECTANGLES painted
+/// behind the glyphs. Two earlier shapes both moved the page:
+///
+/// - one WIDGET per piece: each piece was measured and wrapped on its own,
+///   so a searched paragraph re-wrapped;
+/// - one JOB with per-match SECTIONS: epaint shapes every section as its own
+///   run, so the kerning across boundaries was lost and the text measured
+///   ~1px wider over a long line, enough to push a borderline word to the
+///   next row (acceptmarkdown.com's paragraphs moved on a space query).
+///
+/// Keeping the unsplit job (single section, single shaping run) keeps the
+/// metrics byte-identical to the unsearched render; only the rectangles are
+/// added.
+///
+/// A fragment holding color emoji never comes here: an emoji is a texture, so
+/// the job could not draw it (and its pieces would be monochrome). Those go
+/// through the whole-fragment emoji path with the wash painted behind the
+/// textures.
+///
+/// Returns true when the fragment held at least one claimed match (painted
+/// here); false renders nothing (no match, exotic folding, emoji, select-all
+/// or past the global cap) and lets the caller decide.
+fn render_plain_split(
+    ui: &mut egui::Ui,
+    f: &Frag<'_>,
+    text: &str,
+    selected: bool,
+    fr: &mut crate::viewer::find::FindRender,
+) -> bool {
+    // Pre-gate: most fragments do not match, and the range walk below
+    // lowercases + collects per fragment per frame. `contains_match` stops
+    // at the first hit allocation-free on the ASCII path.
+    if !crate::viewer::find::contains_match(text, &fr.query_lower) {
+        return false;
+    }
+    let (ranges, fragment_capped) = crate::viewer::find::find_ranges_capped(text, &fr.query_lower);
+    if ranges.is_empty() {
+        return false;
+    }
+    if ranges
+        .iter()
+        .any(|(s, e)| !crate::viewer::find::is_valid_slice(text, *s, *e))
+    {
+        return false;
+    }
+    // Color emoji: the caller's emoji path paints the textures (with the
+    // wash behind them); a galley cannot.
+    if crate::media::emoji::may_contain_emoji(text) {
+        return false;
+    }
+    // Select-all washes the whole page anyway: the caller's fallback paints
+    // the fragment uniformly (its selection background and forced colors are
+    // the established look for that state).
+    if selected {
+        return false;
+    }
+    let Some((start, claimed)) = claim_fragment(fr, ranges.len(), fragment_capped) else {
+        return false;
+    };
+    paint_find_wash(ui, style_frag(f, text), text, &ranges, start, claimed, fr);
     true
 }
+
+/// Claims a fragment's occurrences for `fr`: the start ordinal and how many
+/// were taken, or `None` when nothing could be claimed (past the global cap).
+/// The per-fragment cap (`fragment_capped`) is propagated to the bar's `N+`.
+pub(crate) fn claim_fragment(
+    fr: &mut crate::viewer::find::FindRender,
+    n: usize,
+    fragment_capped: bool,
+) -> Option<(usize, usize)> {
+    let start = fr.claim(n);
+    let claimed = fr.next_ordinal - start;
+    if fragment_capped && claimed == n {
+        fr.capped = true;
+    }
+    (claimed > 0).then_some((start, claimed))
+}
+
+/// Paints the amber washes for `ranges[..claimed]` and then the text itself,
+/// as one galley: `base` carries the fragment's own styling, the job is the
+/// single-section one the unsearched render builds (identical shaping and
+/// wrapping), and each match becomes one rectangle per galley row painted
+/// BEHIND the glyphs (the label paints right after, on top). The current
+/// match's rectangle is recorded for the caller's visibility retry and
+/// scrolled into view; `start` is the ordinal of `ranges[0]` and the
+/// ordinals are already claimed.
+pub(crate) fn paint_find_wash(
+    ui: &mut egui::Ui,
+    base: egui::RichText,
+    text: &str,
+    ranges: &[(usize, usize)],
+    start: usize,
+    claimed: usize,
+    fr: &mut crate::viewer::find::FindRender,
+) {
+    let job = std::sync::Arc::unwrap_or_clone(egui::WidgetText::from(base).into_layout_job(
+        ui.style(),
+        egui::FontSelection::Default,
+        ui.text_valign(),
+    ));
+    // Mirror `Label::layout_in_ui`'s wrapping inputs (the whole row width and
+    // the first row's indentation): the galley measured here is exactly the
+    // one the label lays out below, so the rectangles land on the glyphs.
+    let pos = egui::pos2(ui.max_rect().left(), ui.cursor().top());
+    let avail = ui.available_width();
+    let first_indent = avail - ui.available_size_before_wrap().x;
+    let cursor_height = ui.cursor().height();
+    let mut layout = job.clone();
+    layout.wrap.max_width = avail;
+    layout.first_row_min_height = cursor_height;
+    layout.halign = egui::Align::Min;
+    layout.justify = false;
+    if let Some(first) = layout.sections.first_mut() {
+        first.leading_space = first_indent;
+    }
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(layout));
+    let mut current_rect: Option<egui::Rect> = None;
+    for (k, (s, e)) in ranges.iter().enumerate().take(claimed) {
+        let current = start + k == fr.current;
+        let bg = if current {
+            theme::find_current_bg(ui)
+        } else {
+            theme::find_match_bg(ui)
+        };
+        for local in range_row_rects(&galley, text, *s, *e) {
+            let screen = local.translate(pos.to_vec2());
+            ui.painter().rect_filled(screen, 0.0, bg);
+            if current {
+                current_rect = Some(match current_rect {
+                    Some(r) => r.union(screen),
+                    None => screen,
+                });
+            }
+        }
+    }
+    if let Some(rect) = current_rect {
+        fr.current_rect = Some(rect);
+        if fr.scroll {
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+        }
+    }
+    // The text itself: the same selectable label the unsearched path adds,
+    // on the same job (the layout above was a cache hit), so it paints on
+    // top of the washes with byte-identical metrics.
+    ui.add(egui::Label::new(job).selectable(true));
+}
+
+/// The fragment's own inline styling (strong/emphasis/strike at the body
+/// line height): the recipe the normal text path and the find split share, so
+/// a searched fragment lays out exactly like an unsearched one.
+fn style_frag(f: &Frag<'_>, text: &str) -> egui::RichText {
+    let mut rt = egui::RichText::new(text);
+    if f.strong {
+        rt = theme::strong(rt);
+    }
+    if f.em {
+        rt = rt.italics();
+    }
+    if f.strike {
+        rt = rt.strikethrough();
+    }
+    rt.line_height(Some(theme::BODY_LINE_HEIGHT))
+}
+
+/// One galley-local rectangle per row the byte range `[start, end)` touches
+/// (the same cursor math egui's own selection painting uses), so a match
+/// spanning a wrap gets one band per row instead of one box across both.
+pub(crate) fn range_row_rects(
+    galley: &egui::Galley,
+    text: &str,
+    start: usize,
+    end: usize,
+) -> Vec<egui::Rect> {
+    let start_char = text[..start.min(text.len())].chars().count();
+    let end_char = text[..end.min(text.len())].chars().count();
+    let min = galley.layout_from_cursor(egui::text::CCursor::new(start_char));
+    let max = galley.layout_from_cursor(egui::text::CCursor::new(end_char));
+    let mut rects = Vec::new();
+    for ri in min.row..=max.row {
+        let Some(placed) = galley.rows.get(ri) else {
+            break;
+        };
+        let row = &placed.row;
+        let (left, right) = if min.row == max.row {
+            (row.x_offset(min.column), row.x_offset(max.column))
+        } else if ri == min.row {
+            (row.x_offset(min.column), row.size.x)
+        } else if ri == max.row {
+            (0.0, row.x_offset(max.column))
+        } else {
+            (0.0, row.size.x)
+        };
+        rects.push(egui::Rect::from_min_max(
+            egui::pos2(left, placed.pos.y),
+            egui::pos2(right.max(left), placed.pos.y + row.size.y),
+        ));
+    }
+    rects
+}
+
 /// Renders an inline fragment (text / code / link / image).
 /// - Plain inline code goes through [`render_code_span`] (tight painted pill,
 ///   body baseline; select-all keeps the full-row background).
@@ -246,6 +464,7 @@ pub(crate) fn render_frag(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) {
     if let Some(img) = &f.image {
         // Images own their whole fragment: alt text is the tooltip/caption.
@@ -254,11 +473,13 @@ pub(crate) fn render_frag(
             img,
             &f.text,
             f.link.as_ref(),
-            selected,
-            interactive,
-            on_link,
-            images,
-            links,
+            super::image::ImgCtx {
+                selected,
+                interactive,
+                on_link,
+                images,
+                links,
+            },
         );
         return;
     }
@@ -285,13 +506,90 @@ pub(crate) fn render_frag(
     };
     let text = display.as_ref();
 
+    // In-page find: plain fragments (no link/code, LTR) get a precise
+    // per-occurrence split (wrapping still works: the pieces are separate
+    // widgets in the same wrapped flow, monochrome while open so emoji
+    // needs no special path); links, code and RTL fall back to a
+    // whole-fragment highlight decided below (their widget must stay one
+    // piece for hit-testing, pill painting or display order).
+    if let Some(fr) = find.as_mut() {
+        if !text.is_empty() {
+            let splittable = f.link.is_none() && !f.code && !super::bidi::contains_rtl(text);
+            if splittable && render_plain_split(ui, f, text, selected, fr) {
+                return;
+            }
+        }
+    }
+    // Whole-fragment fallback ordinal for the branches below. Reached for
+    // links, inline code, RTL runs and EMOJI fragments (the wash goes behind
+    // their textures), and for a splittable fragment whose precise split
+    // bailed. Claiming here is safe: a successful split RETURNS before this
+    // point, so nothing is ever counted twice.
+    let (find_hl, find_scroll): (Option<bool>, bool) = match find.as_mut() {
+        Some(fr) if !text.is_empty() => {
+            // Pre-gate like `render_plain_split`: skips the lowercase +
+            // `Vec` for the common non-matching fragment.
+            if !crate::viewer::find::contains_match(text, &fr.query_lower) {
+                (None, false)
+            } else {
+                let (ranges, fragment_capped) =
+                    crate::viewer::find::find_ranges_capped(text, &fr.query_lower);
+                let n = ranges.len();
+                if n == 0 {
+                    (None, false)
+                } else {
+                    let start = fr.claim(n);
+                    let claimed = fr.next_ordinal - start;
+                    if fragment_capped && claimed == n {
+                        fr.capped = true;
+                    }
+                    if claimed == 0 {
+                        // Past the global cap: the fragment renders normally.
+                        (None, false)
+                    } else {
+                        let is_current = (start..start + claimed).contains(&fr.current);
+                        (Some(is_current), fr.scroll)
+                    }
+                }
+            }
+        }
+        _ => (None, false),
+    };
+    // Find highlight wins over select-all (the match must stay visible on
+    // the pale selection wash, like links do via `selected_text`).
+    let apply_hl =
+        |ui: &egui::Ui, rt: egui::RichText, current: bool| theme::find_text(ui, rt, current);
+    // Scrolls the current match into view and RECORDS its rect (the caller
+    // retries while it stays off screen: a scroll request dropped by a
+    // concurrent user scroll must not be lost).
+    let scroll_to =
+        |find: &mut Option<crate::viewer::find::FindRender>, ui: &egui::Ui, rect: egui::Rect| {
+            if let Some(fr) = find.as_mut() {
+                fr.current_rect = Some(rect);
+            }
+            ui.scroll_to_rect(rect, Some(egui::Align::Center));
+        };
+
     // Color emoji for plain text fragments: links and code keep the
     // monochrome text path (a link must stay one widget for hit-testing).
     // The scalar pre-check skips the grapheme split (and its Vec) for
     // emoji-free text, which is almost every fragment on almost every page.
+    // An emoji fragment NEVER takes the precise split (a galley cannot draw
+    // a texture): the whole fragment takes the wash here, and the color
+    // textures keep their color, so opening the find bar no longer turns
+    // emoji monochrome.
     if f.link.is_none() && !f.code && crate::media::emoji::may_contain_emoji(text) {
         let size = egui::TextStyle::Body.resolve(ui.style()).size;
-        let rendered = render_emoji_text(ui, text, size, emoji, selected, &|ui, piece| {
+        let emoji_bg = find_hl
+            .map(|current| {
+                if current {
+                    theme::find_current_bg(ui)
+                } else {
+                    theme::find_match_bg(ui)
+                }
+            })
+            .or_else(|| selected.then(|| theme::select_bg(ui)));
+        let rendered = render_emoji_text(ui, text, size, emoji, emoji_bg, &|ui, piece| {
             let mut rt = egui::RichText::new(piece);
             if f.strong {
                 rt = theme::strong(rt);
@@ -303,12 +601,24 @@ pub(crate) fn render_frag(
                 rt = rt.strikethrough();
             }
             rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-            if selected {
+            if let Some(current) = find_hl {
+                rt = apply_hl(ui, rt, current);
+            } else if selected {
                 rt = theme::selected_text(ui, rt);
             }
             rt
         });
-        if rendered {
+        if let Some(rect) = rendered {
+            if let Some(current) = find_hl {
+                if current {
+                    if let Some(fr) = find.as_mut() {
+                        fr.current_rect = Some(rect);
+                    }
+                    if find_scroll {
+                        ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                    }
+                }
+            }
             return;
         }
     }
@@ -326,7 +636,19 @@ pub(crate) fn render_frag(
                 ui.visuals().hyperlink_color
             };
             let clickable = (interactive && !dest.is_empty()).then_some(dest);
-            render_code_span(ui, f, text, selected, color, clickable, on_link, links);
+            render_code_span(
+                ui,
+                f,
+                text,
+                selected,
+                color,
+                clickable,
+                on_link,
+                links,
+                find,
+                find_hl,
+                find_scroll,
+            );
             return;
         }
         if dest.is_empty() {
@@ -343,10 +665,17 @@ pub(crate) fn render_frag(
                 rt = rt.strikethrough();
             }
             rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-            if selected {
-                rt = theme::selected_text(ui, rt);
+            if let Some(current) = find_hl {
+                let resp = body_text(ui, apply_hl(ui, rt, current));
+                if current && find_scroll {
+                    scroll_to(find, ui, resp.rect);
+                }
+            } else {
+                if selected {
+                    rt = theme::selected_text(ui, rt);
+                }
+                body_text(ui, rt);
             }
-            body_text(ui, rt);
             return;
         }
         if !interactive {
@@ -364,10 +693,17 @@ pub(crate) fn render_frag(
                 rt = rt.strikethrough();
             }
             rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-            if selected {
-                rt = theme::selected_text(ui, rt);
+            if let Some(current) = find_hl {
+                let resp = body_text(ui, apply_hl(ui, rt, current));
+                if current && find_scroll {
+                    scroll_to(find, ui, resp.rect);
+                }
+            } else {
+                if selected {
+                    rt = theme::selected_text(ui, rt);
+                }
+                body_text(ui, rt);
             }
-            body_text(ui, rt);
             return;
         }
         let mut rt = egui::RichText::new(text).color(ui.visuals().hyperlink_color);
@@ -381,10 +717,18 @@ pub(crate) fn render_frag(
             rt = rt.strikethrough();
         }
         rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-        if selected {
+        let find_current = find_hl;
+        if let Some(current) = find_current {
+            rt = apply_hl(ui, rt, current);
+        } else if selected {
             rt = theme::selected_text(ui, rt);
         }
         let resp = ui.link(rt);
+        if let Some(current) = find_current {
+            if current && find_scroll {
+                scroll_to(find, ui, resp.rect);
+            }
+        }
         // In-document anchors are jump targets, not pages: never offer
         // "Open link in new tab" for them.
         if !dest.starts_with('#') {
@@ -404,6 +748,9 @@ pub(crate) fn render_frag(
             None,
             on_link,
             links,
+            find,
+            find_hl,
+            find_scroll,
         );
     } else if f.strong || f.em || f.strike {
         let mut rt = egui::RichText::new(text);
@@ -417,10 +764,29 @@ pub(crate) fn render_frag(
             rt = rt.strikethrough();
         }
         rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-        if selected {
-            rt = theme::selected_text(ui, rt);
+        if let Some(current) = find_hl {
+            let resp = body_text(ui, apply_hl(ui, rt, current));
+            if current && find_scroll {
+                scroll_to(find, ui, resp.rect);
+            }
+        } else {
+            if selected {
+                rt = theme::selected_text(ui, rt);
+            }
+            body_text(ui, rt);
         }
-        body_text(ui, rt);
+    } else if let Some(current) = find_hl {
+        let resp = body_text(
+            ui,
+            apply_hl(
+                ui,
+                egui::RichText::new(text).line_height(Some(theme::BODY_LINE_HEIGHT)),
+                current,
+            ),
+        );
+        if current && find_scroll {
+            scroll_to(find, ui, resp.rect);
+        }
     } else if selected {
         body_text(
             ui,
@@ -467,14 +833,14 @@ fn badge_colors(
                 scheme.container,
                 scheme.on_surface_variant,
                 scheme.outline_variant,
-            )
+            );
         }
         Badge::Note => scheme.alert_note,
         Badge::Tip => scheme.alert_tip,
         Badge::Warning => scheme.alert_warning,
         Badge::Caution => scheme.alert_caution,
     };
-    let tint = |a: u8| egui::Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), a);
+    let tint = |a: u8| theme::tint(accent, a);
     // A faint tint (the accent stays the ink) plus a slightly stronger
     // border: enough to read the chip, light enough to keep >=3.5:1 contrast
     // for the darker accents (warning) in light mode.
@@ -565,7 +931,7 @@ pub(crate) fn render_superscript_ref(
     // marker must not grow a 24px flow row, and a heading keeps its natural
     // row height.
     let box_h = (size * 1.2).max(theme::BODY_LINE_HEIGHT.min(size));
-    let size = egui::vec2(galley.size().x + 2.0, box_h);
+    let size = egui::vec2(galley.size().x + theme::spacing::XXS, box_h);
     let sense = if clickable {
         egui::Sense::click()
     } else {
@@ -668,3 +1034,5 @@ pub(crate) fn fnref_rect_for(ui: &egui::Ui, dest: &str) -> Option<egui::Rect> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_find;

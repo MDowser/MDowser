@@ -13,7 +13,7 @@
 //!   browser owns the transport). The Retry button lives in `viewer`.
 
 use crate::ui::theme;
-use crate::util::strip_scheme_everywhere;
+use crate::util::{strip_credentials_for_log, strip_scheme_everywhere};
 use eframe::egui;
 
 /// Error family for a friendly header + hints. Classified from the
@@ -174,7 +174,18 @@ fn copy_for(
     }
 }
 
-/// Shows the styled error with its attempt log (scheme hidden).
+/// Display-safe rendering of a log/address line: credentials stripped first
+/// (a pasted `user:pass@` or a server redirect target must never reach the
+/// screen or the clipboard), then the transport scheme hidden.
+///
+/// Single helper so the painted `Requested:`/details lines and the `Copy log`
+/// clipboard text cannot drift apart again.
+fn display_line(line: &str) -> String {
+    strip_scheme_everywhere(&strip_credentials_for_log(line)).into_owned()
+}
+
+/// Shows the styled error with its attempt log (scheme hidden, credentials
+/// stripped).
 ///
 /// `kind` comes from [`classify`]: the caller already needed it (Retry
 /// enablement), so the log is never scanned twice per frame.
@@ -192,7 +203,9 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
             // item shorter than the row (the slot is 0.9x the title size,
             // the title is a full font line), so centering inside the slot
             // alone parked the disc several px above the title's center.
-            let title_size = 24.0;
+            // Title uses the dialog-title token (21px): the old 24px literal
+            // drifted from the type scale.
+            let title_size = theme::typography::DIALOG_TITLE;
             let (dot_slot, _) = ui.allocate_exact_size(
                 egui::vec2(title_size * 0.7, title_size * 0.9),
                 egui::Sense::hover(),
@@ -200,6 +213,10 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
             ui.add_space(theme::spacing::XS);
             let title_resp =
                 ui.label(theme::strong(egui::RichText::new(title).size(title_size)).color(s.error));
+            // Accessible label for the family title (egui has no heading
+            // role; `Label` keeps it in the accesskit tree like every row).
+            title_resp
+                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
             ui.painter().circle_filled(
                 egui::pos2(dot_slot.center().x, title_resp.rect.center().y),
                 title_size * 0.25,
@@ -210,18 +227,26 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
                 let copy_log =
                     crate::ui::hover_tooltip(copy_log, "Copy the attempt log to the clipboard");
                 if copy_log.clicked() {
-                    let mut full = format!("Requested: {}\n", strip_scheme_everywhere(asked));
+                    let mut full = format!("Requested: {}\n", display_line(asked));
                     for l in lines {
-                        full.push_str(&strip_scheme_everywhere(l));
+                        full.push_str(&display_line(l));
                         full.push('\n');
                     }
                     ui.ctx().copy_text(full);
                 }
             });
         });
-        ui.add_space(2.0);
+        ui.add_space(theme::spacing::XS);
         ui.label(theme::weak(ui, explain));
-        ui.label(format!("Requested: {}", strip_scheme_everywhere(asked)));
+        // Requested address wraps and tooltips: a long URL used to overflow
+        // the sheet (vertical-only scroll, no wrap/truncate/tooltip).
+        // Credential-stripped like the log lines: a pasted `user:pass@`
+        // must never paint here either.
+        let requested = format!("Requested: {}", display_line(asked));
+        let requested_resp = ui.label(&requested);
+        // Gated (not lazy): `requested` is borrowed, so hovered frames
+        // alone allocate the tooltip card.
+        let _ = crate::ui::hover_tooltip(requested_resp, &requested);
         // "No markdown here" is the one failure with a real escape hatch:
         // the target exists and answered, it just is not Markdown, so the OS
         // default handler can show it (the default browser for web pages,
@@ -253,7 +278,9 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
             ui.add_space(theme::spacing::XS);
             for h in hints {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("-").color(s.on_surface_variant));
+                    // Document bullet gutter (not `-`): matches the reader's
+                    // list marker so hints read as a list, not code.
+                    ui.label(egui::RichText::new("·").color(s.on_surface_variant));
                     ui.label(h.as_ref());
                 });
             }
@@ -281,7 +308,7 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
                     ui.monospace("(no details)");
                 } else {
                     for l in lines {
-                        ui.monospace(strip_scheme_everywhere(l));
+                        ui.monospace(display_line(l));
                     }
                 }
             });

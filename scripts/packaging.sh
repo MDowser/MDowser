@@ -53,7 +53,7 @@ render_metainfo() {
     sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$_metainfo_esc\"/" \
         -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$_metainfo_date\"/" \
         "${ROOT:?ROOT must be set}/packaging/linux/dev.mdowser.app.metainfo.xml" \
-        > "$_metainfo_out"
+        > "$_metainfo_out" || return 1
     # A restrictive caller umask must not ship a 0600 metainfo (desktop
     # software runs as other users): same explicit 0644 every other installed
     # runtime file gets.

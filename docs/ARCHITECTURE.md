@@ -20,7 +20,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │               Back/Forward/Refresh/Stop and `info` the page summary
   │               behind the omnibox indicator card)
   ├─ config (single-sourced bounds/timeouts registry; one flat `mod.rs`
-  │          on purpose: the anti-abuse audit reads it in one place)
+  │          on purpose: the shared anti-abuse audit reads it in one place)
   ├─ store (shared encrypted-store plumbing)
   │    ├─ crypto (AEAD file format + shared store.key handling)
   │    └─ writer (one serialized background writer per encrypted store)
@@ -92,15 +92,19 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │    │            rules)
   │    ├─ inline (inline fragments + `code_span` painted code pills)
   │    ├─ table (measure/layout `mod` + paint `render`)
-  │    ├─ image, `code/`, overlays, bidi, cache
+  │    ├─ image, `code/`, overlays (`overlays/find.rs` = the floating
+  │    │   find bar UI), bidi,
+  │    │   cache, `find.rs` + `find/tests.rs` (in-page search state +
+  │    │   case-insensitive matching) with `inline/tests_find.rs` and
+  │    │   `tests_find.rs` (fragment highlight + layout/scroll contract)
   └─ ui (browser chrome: `theme/` document styling + widget kit, icons,
           tabs (`TabsResponse`, `rows`) with the live drag reorder, navbar,
           omnibox, home (with the
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
-          preferences (Preferences window incl. the licenses
-          link; `widgets` kit), history_page (internal about:history
-          page), error_view, `forget_tab` (single registry for closed-tab
-          egui-memory keys))
+          preferences (tabbed Preferences window: General/Data/Shortcuts,
+          incl. the licenses link; `widgets` kit), history_page (internal about:history
+          page), error_view, `ui::forget_tab()` (single function registry
+          for closed-tab egui-memory keys))
 ```
 
 Key contracts:
@@ -183,7 +187,7 @@ Key contracts:
   (AVIF included: every decoder goes through the same `finish` downscale)
   and uploaded once; a raster decoder applies the EXIF orientation before
   layout, so phone photos are never sideways with swapped dimensions;
-  favicons decode at `MAX_FAVICON_DIM` (384 px, they
+  favicons decode at `MAX_FAVICON_DIM` (160 px, they
   draw at the toolbar icon size, ~27 px) and reserve their bytes in the
   process-wide budget. A
   refused process-wide reservation is TRANSIENT for both images and
@@ -343,7 +347,9 @@ Key contracts:
   crashes the app.
   `ui::history_page` renders the local history as an INTERNAL PAGE
   (`about:history`) in a tab, drawn in the same reading sheet as a document
-  (search, per-row remove, two-click delete-all); `Tab::open_history`
+  (a capsule search field over rolling date sections — Today / Yesterday /
+  Previous 7 days / Previous 30 days / Older —, one favicon per row from the
+  shared session cache, per-row remove, two-click delete-all); `Tab::open_history`
   intercepts the URL before `parse_https` (never fetched, never recorded,
   never a network request) and treats it as a real navigation so Back/Forward
   work. `App::open_history` (rail button / Ctrl+H / Cmd+Y) creates a NEW tab
@@ -362,15 +368,15 @@ Key contracts:
   process through `finish_document`, `viewer` renders it with the normal
   document pipeline (menu, selection, live links), and `App::open_licenses`
   backs the Preferences footer link. `ui::preferences` keeps only
-  the floating, FIXED-SIZE
-  Preferences dialog (borderless custom header, grouped section cards, list
-  rows, a toggle switch). The History card holds the retention dropdown and
-  the destructive "Delete history" action (two-click confirmation); the
-  Appearance card holds theme, startup zoom and restore-tabs; the
-  Local data card holds "Delete all data and close" (two-click: wipes the
-  data directory and `process::exit`s without further saves); a compact
-  footer shows the version/own license and the "View third-party licenses"
-  link. Every dropdown
+  the floating, FIXED-SIZE Preferences dialog (borderless custom header,
+  tab bar, grouped section cards, list rows, a toggle switch, and a
+  read-only keyboard shortcut reference in English). The General tab holds
+  theme, startup zoom and restore-tabs plus the compact version/licenses
+  footer ("View third-party licenses"); the Data tab holds the retention
+  dropdown and the destructive "Delete history" action (two-click
+  confirmation) plus the "Delete all data and close" card (two-click: wipes
+  the data directory and `process::exit`s without further saves). Every
+  dropdown
   row keeps its geometry on hover; each delete-confirmation note only takes
   space while armed (fit content: arming may push the cards below, with the
   inner scroll covering small viewports). `App` owns its
@@ -848,9 +854,18 @@ Key contracts:
   pointer state. Corners share the
   `theme::radius` scale (`SMALL/HAIRLINE/CARD/MENU/TILE/SHEET/FULL` + `theme::pill_radius`;
   rows use `row::ROW_RADIUS = radius::MENU`, switch/zoom tracks use
-  `pill_radius`), type shares `theme::typography` (`UI_COMPACT/UI_SMALL/EYEBROW/UI_LINK/BUTTON/DROPDOWN/ROW/HEADING/DIALOG_TITLE/DISPLAY`),
+  `pill_radius`), type shares `theme::typography` (`UI_COMPACT/UI_SMALL/EYEBROW/UI_LINK/BUTTON/DROPDOWN/ROW/HEADING/DIALOG_TITLE/PAGE_TITLE/DISPLAY`),
   strokes share `theme::stroke` (`HAIRLINE/ICON/EMPHASIS`) and gaps share
-  `theme::spacing` (`XS/S/M/L/XL/PAGE_END`); suggestion/history row caps (`config::ROW_TITLE_CHARS /
+  `theme::spacing` (`XXS/XS/S/M/L/XL/PAGE_END`); every chrome icon button shares
+  `theme::ICON_BOX` (26px: tab close, omnibox clear, history clear, zoom
+  buttons, image placeholders, accordion headers); tile avatar hues live in
+  `theme::AVATAR_PALETTE` (documented fixed-hue exception: identity colors,
+  not chrome surfaces); the find washes live in the `Scheme` (`find_match`/`find_current`,
+  pale/strong amber per theme) so `find_match_bg`/`find_current_bg` borrow
+  the interned palette; hand-painted rows paint the focus ring IN ADDITION
+  to the hover wash (never `else if`), and every truncated title/URL
+  tooltips its full text on hover (`ui::hover_tooltip_lazy`, allocation-free
+  off-hover) while accesskit gets the same string via `widget_info`; suggestion/history row caps (`config::ROW_TITLE_CHARS /
   ROW_URL_CHARS`), the page-info card's address cap
   (`config::SITE_INFO_ADDRESS_CHARS`), delete confirmations
   (`config::DELETE_CONFIRM_SECS`) and
@@ -959,10 +974,12 @@ Key contracts:
   `render_metainfo`).
 - Shortcuts in `app::handle_shortcuts` (consume_key so typing never
   triggers them): Ctrl/Cmd+T/W/R/L/A, Ctrl/Cmd+1..9, F5, Esc (stop loading
-  when no field/menu owns the key; a focused omnibox reverts its text
+  when no field/menu/find-bar owns the key; a focused omnibox reverts its text
   instead), Ctrl/Cmd+D (toggle the bookmark of the loaded page, with a
   toast confirmation), Ctrl/Cmd+, (Preferences), the platform History key
-  (Ctrl+H / Cmd+Y), zoom `+`/`=`/`-`/`0`, and Ctrl/Cmd+A
+  (Ctrl+H / Cmd+Y), zoom `+`/`=`/`-`/`0`, Ctrl/Cmd+F (in-page find on document
+  pages, even while a field is focused) with `F3` / `Shift+F3` stepping
+  through its matches, and Ctrl/Cmd+A
   selects the whole page and Ctrl/Cmd+C copies it while that highlight is
   active (egui only emits `Event::Copy`; no key event to consume). The
   full table is `docs/INTERFACE.md`.
@@ -1059,14 +1076,45 @@ Key contracts:
   position. Jobs registered during `ui` (image `ensure`, favicon
   probes) schedule their own 120ms repaint tick, so a loading placeholder
   never waits for the next input event.
+- Find in page: the render walks the SAME events the viewer paints and
+  assigns match ORDINALS in document order (`viewer::find::FindRender`
+  `claim`, capped at `MAX_FIND_MATCHES`, per fragment as well as globally),
+  so highlight, the bar's `n/m` count and Prev/Next share one source of
+  truth. A searched fragment keeps the EXACT layout of the unsearched one:
+  prose/headings lay out ONE UNSHAKEN `LayoutJob` (a single section, so the
+  shaping run and every advance match the unsearched render) and the wash is
+  painted as RECTANGLES behind the glyphs (`range_row_rects`, one band per
+  galley row a match touches, the cursor math egui's own selection painting
+  uses); links/inline code stay single widgets, and fenced blocks claim their
+  cached body and wash matching rows without touching the galley cache. Both
+  earlier shapes moved the page and are documented at `render_plain_split`:
+  one widget per piece re-wrapped each piece on its own, and one job with
+  per-match SECTIONS lost the kerning across boundaries (~1px over a long
+  line, enough to push a borderline word to the next row). A fragment holding
+  color emoji never takes the glyph split (a galley cannot draw a texture):
+  it keeps the emoji COLOR path with the wash painted behind the textures,
+  highlighted whole. The CURRENT match's painted rect is recorded on the
+  frame's cursor (the union of its row bands, `range_row_rects`) and
+  its `scroll_to_rect` request is RETRIED until that
+  rect shows up in the sheet's clip rect: egui's `ScrollArea` DROPS a scroll
+  target on any frame that also sees scroll input (the wheel's smoothing
+  tail keeps one alive for a few frames), so consuming the request on the
+  first frame lost it. New wheel/drag input cancels the retry for good (the
+  user's scroll wins). The bar's own focus request is deferred past the
+  first frame too: an `Area`'s first frame is an invisible sizing pass with
+  a DISABLED `Ui`, where a `TextEdit` cannot take (and would surrender)
+  focus.
 - Cancellation: every fetch checks the flag per candidate and, during the
   body, races each chunk wait (`futures_util::select`) against it, so a
   superseded navigation drops in ~20ms even mid-stall (not after the 15s
   `CHUNK_TIMEOUT_SECS`).
-- All anti-abuse bounds live in `config/`; display helpers in `util.rs`.
-  Module-local budgets that only their owner reads live beside it
-  (`MAX_SETTINGS_BYTES`, the structural/MDX `MAX_*_SCAN_LINES` budgets,
-  `protocol::local`'s read chunk and the store repair-lock timeouts).
+- Shared anti-abuse bounds live in `config/` (`MAX_SETTINGS_BYTES`, the
+  code/table render-cache byte budgets, the font-asset gzip bound, the
+  structural/MDX `MAX_*_SCAN_LINES` budgets, `LOCAL_READ_CHUNK_BYTES` and
+  the store repair-lock timeouts); display helpers in `util.rs`. The
+  `image::ImgCtx` parameter bundle (the five inputs shared by all four
+  image entry points, built per call from the walk context) lives beside
+  its owner in `viewer::image`.
   Window geometry constants (`WINDOW_INITIAL_*`/`WINDOW_INITIAL_FRACTION`/
   `WINDOW_INITIAL_MAX_*`/`WINDOW_MIN_*` and the save debounce) live in
   `config/` (not as magic numbers in `main`/`app::window`), and every
@@ -1106,7 +1154,9 @@ Key contracts:
   per frame), unordered list bullets are borrowed (`Cow::Borrowed`, only the
   ordered prefix allocates), context-menu shortcut hints are `&'static str`,
   the history page compares the raw filter text and rebuilds the lowercase
-  needle only on a cache miss, error-view hints are borrowed `Cow`s, the
+  needle only on a cache miss (the same cache carries the rows' date sections
+  and their flat offsets, so grouping costs no per-frame walk), error-view
+  hints are borrowed `Cow`s, the
   code-block language chip avoids the lowercase allocation when already
   lowercase, the quote-alert look-ahead and `detect_callout` read only the
   marker-length prefix
@@ -1125,8 +1175,8 @@ Key contracts:
   key slice (`String: Borrow<str>`) every lookup, tile or tab, is one hash
   probe with no `String` allocation and no parse, and parsing happens on
   the first frame of an unknown origin alone — the palette
-  (`theme::scheme_ref`, borrowed per surface; one-off callers use
-  `theme::scheme_for`) is interned per theme instead of rebuilt per element, the OS window title comes from the same per-tab
+  (`theme::scheme_ref`, borrowed per surface; the former owned
+  `theme::scheme_for` copy is removed, every caller borrows) is interned per theme instead of rebuilt per element, the OS window title comes from the same per-tab
   memo (`Tab::window_title_cached`, compared as a borrowed `&str`);
   the omnibox suggestion cache is rebuilt only while its field is editing
   (so Home never runs the doubly-scheduled 20 000-entry scan per keystroke)
@@ -1144,7 +1194,18 @@ Key contracts:
   swatches, the Preferences data-directory path, both address fields and
   the history search field) are built lazily only
   while hovered or announced (`ui::hover_tooltip_lazy` for `format!`-ed
-  text).
+  text). Painted-per-frame labels are memoized instead: the find bar's
+  `n/m` count on `(current, total, capped)` in `FindState`, the toolbar
+  zoom readout in a thread-local buffer keyed by the rounded percent, the
+  history header/footer captions on `(total, retention)` / `(total, shown)`
+  with a shared singular/plural rule Preferences reuses, and the code Copy
+  label lazily for both the accesskit node and the hover card; tab
+  titles are borrowed (no per-row clone) with a gated tooltip, the code
+  match wash consumes the visible-line iterator inline (no `Vec` per block
+  per frame), `contains_match` gates every range walk allocation-free on
+  the ASCII path, inline code skips its wrap-measure probe on fresh rows, and
+  the component close-tag scan compares allocation-free (`is_close_tag`,
+  also in `scan_pairs`).
 - Settled tables cost NO byte scan per frame: the content fingerprint memo
   is keyed by the table's `Start` event index (stable per document) instead
   of re-validating itself with a probe over the whole table text, and a

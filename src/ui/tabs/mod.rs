@@ -79,9 +79,9 @@ const FAVICON: f32 = icons::GLYPH;
 /// line-icon art margin inside): a toolbar button box, so their visible
 /// glyph is exactly `FAVICON`, one toolbar glyph.
 const ICON_BOX: f32 = icons::BUTTON;
-/// Close button hit box in the expanded rows: the omnibox slot's box, so
-/// the in-row X matches the in-field clear X.
-const CLOSE_W: f32 = 26.0;
+/// Close button hit box in the expanded rows: the shared chrome icon box
+/// (`theme::ICON_BOX`), so the in-row X matches the in-field clear X.
+const CLOSE_W: f32 = crate::ui::theme::ICON_BOX;
 /// Shared horizontal inner margin (rail and overlay).
 const PAD_X: f32 = 6.0;
 /// Favicon center offset from the row's left edge (same in both states):

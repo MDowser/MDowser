@@ -40,6 +40,9 @@ impl MdowserApp {
         let mut want_zoom_in = false;
         let mut want_zoom_out = false;
         let mut want_zoom_reset = false;
+        let mut want_find = false;
+        let mut want_find_next = false;
+        let mut want_find_prev = false;
         // Select-all / whole-page copy only when no TEXT FIELD owns the
         // keyboard: focused fields keep their own Cmd+A/Cmd+C. `focused()`
         // alone is too broad (a focused button used to swallow the keys);
@@ -57,6 +60,9 @@ impl MdowserApp {
         // With the document context menu open, Esc belongs to the menu
         // (overlays closes it); never steal it for Stop.
         let menu_open = self.tabs.get(self.active).is_some_and(|t| t.context_open);
+        // With the find bar open, Esc belongs to it (overlays closes it);
+        // never steal it for Stop (same ownership rule as the menu).
+        let find_open = self.tabs.get(self.active).is_some_and(|t| t.find.open);
         // egui clears keyboard focus on Esc BEFORE `App::ui` runs, so
         // `no_text_focus` is already true on that frame: ask the tab whether
         // an address field owned the keyboard last frame (ui::omnibox
@@ -77,12 +83,23 @@ impl MdowserApp {
             tab.tile_editing = false;
         }
         let mut want_select_all = false;
+        // In-page find is a document action (Loaded/Licenses only): read here,
+        // applied below after the other tab mutations.
+        let findable = self
+            .tabs
+            .get(self.active)
+            .is_some_and(|t| matches!(t.state, TabState::Loaded { .. } | TabState::Licenses));
         ctx.input_mut(|i| {
             want_new = i.consume_key(cmd, egui::Key::T);
             want_close = i.consume_key(cmd, egui::Key::W);
             want_reload = i.consume_key(cmd, egui::Key::R)
                 || i.consume_key(egui::Modifiers::NONE, egui::Key::F5);
             want_focus = i.consume_key(cmd, egui::Key::L);
+            if findable {
+                // Like zoom: works even while a field is focused (a browser
+                // moves focus into its own find box instead of typing `f`).
+                want_find = i.consume_key(cmd, egui::Key::F);
+            }
             // macOS uses Cmd+Y (`Cmd+H` hides the app); Ctrl+H elsewhere,
             // matching desktop browsers.
             let history_key = if cfg!(target_os = "macos") {
@@ -103,7 +120,13 @@ impl MdowserApp {
             if no_text_focus {
                 want_select_all = i.consume_key(cmd, egui::Key::A);
             }
-            if no_text_focus && !menu_open && !address_focused && !tile_editing {
+            // `F3` steps through find matches when the bar is open (Shift
+            // steps back); never typed into a field, so no focus guard.
+            if find_open {
+                want_find_next = i.consume_key(egui::Modifiers::NONE, egui::Key::F3);
+                want_find_prev = i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3);
+            }
+            if no_text_focus && !menu_open && !find_open && !address_focused && !tile_editing {
                 if windows_open {
                     if !popup_open {
                         want_close_windows =
@@ -152,6 +175,27 @@ impl MdowserApp {
         }
         if want_focus {
             self.focus_address = true;
+        }
+        if want_find {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.find.show(tab.doc_generation);
+            }
+        }
+        if want_find_next {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                if tab.find.total > 0 {
+                    tab.find.current = (tab.find.current + 1) % tab.find.total;
+                    tab.find.scroll_to_current = true;
+                }
+            }
+        }
+        if want_find_prev {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                if tab.find.total > 0 {
+                    tab.find.current = (tab.find.current + tab.find.total - 1) % tab.find.total;
+                    tab.find.scroll_to_current = true;
+                }
+            }
         }
         if want_reload {
             self.active_tab_mut().refresh();

@@ -181,7 +181,7 @@ impl FaviconCache {
         // Entries are never evicted except for failed probes: a transient
         // failure must not permanently exhaust the origin cap. A session
         // that fills every slot with READY icons simply stops probing new
-        // origins (256 of them is far past a tab rail's working set); the
+        // origins (512 of them is far past a tab rail's working set); the
         // cache is session-scoped and dropped with the app.
         if self.entries.len() >= config::MAX_FAVICON_HOSTS {
             let failed = self.entries.iter().find_map(|(k, e)| match e {

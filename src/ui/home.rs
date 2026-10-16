@@ -21,6 +21,12 @@ use crate::media::favicon::FaviconCache;
 use crate::ui::{omnibox, theme};
 use eframe::egui;
 
+/// Top air above the wordmark and the gap below it: named (not inline
+/// literals) so the landing rhythm stays reviewable in one place.
+/// Same pixels as before (`XL` = 16 would undershoot the calm band).
+const HOME_TOP_AIR: f32 = 84.0;
+const HOME_WORDMARK_GAP: f32 = 36.0;
+
 /// Drops the Home page's egui-memory state for one closed tab (the two
 /// scroll offsets). Called from the single registry
 /// [`crate::ui::forget_tab`].
@@ -57,9 +63,9 @@ pub fn show_home(
             ui.vertical_centered(|ui| {
                 // Generous top air: the wordmark sits in a calm band under
                 // the toolbar (optical, not mechanical, centering).
-                ui.add_space(84.0);
+                ui.add_space(HOME_TOP_AIR);
                 ui.label(theme::display(ui, "MDowser"));
-                ui.add_space(36.0);
+                ui.add_space(HOME_WORDMARK_GAP);
 
                 // One large address capsule (shared widget): same behavior
                 // as the toolbar, so there is nothing new to learn.

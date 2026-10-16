@@ -6,7 +6,7 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
-use super::PreferencesState;
+use super::{PreferencesState, PreferencesTab};
 use crate::history::HistoryStore;
 use crate::settings::Prefs;
 use eframe::egui;
@@ -37,6 +37,18 @@ fn texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, egui::Pos2)> {
         .collect()
 }
 
+/// Ink rect of one painted text shape.
+///
+/// `Shape::Text`'s `pos` is the galley's ALIGNMENT pivot, not its top-left:
+/// `Galley::rect` is relative to it, and with `LayoutJob::halign` a
+/// right-aligned galley spans `-width..=0`. The ink is therefore
+/// `galley.rect` translated to `pos` — measuring `pos..pos + size` made a
+/// correctly right-aligned Preferences label (the shortcut keys column) look
+/// like it extended past its card.
+fn ink_rect(t: &egui::epaint::TextShape) -> egui::Rect {
+    t.galley.rect.translate(t.pos.to_vec2())
+}
+
 /// The Preferences dialog renders and its controls keep their exact
 /// positions when the pointer hovers the retention dropdown: the old
 /// `selectable_label` grew a frame on hover and shifted the list.
@@ -51,6 +63,7 @@ fn preferences_geometry_is_stable_on_hover() {
     let mut prefs = Prefs::default();
     let mut windows = PreferencesState::new();
     windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
 
     // Let the window settle at its anchored position, then take the
     // baseline (no pointer).
@@ -109,6 +122,7 @@ fn delete_confirmation_fits_content_and_pushes_below() {
     let mut prefs = Prefs::default();
     let mut windows = PreferencesState::new();
     windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
 
     // Settle, then take the disarmed geometry.
     let mut base = None;
@@ -177,12 +191,8 @@ fn delete_confirmation_fits_content_and_pushes_below() {
     }
     // ...rows below move down (or stay when the scroll covers them),
     // never up over the note.
-    for label in [
-        "Theme",
-        "Default zoom",
-        "Restore tabs on startup",
-        "Delete all data and close",
-    ] {
+    {
+        let label = "Delete all data and close";
         let find = |v: &[(String, egui::Pos2)]| {
             v.iter()
                 .find(|(text, _)| text == label)
@@ -198,7 +208,7 @@ fn delete_confirmation_fits_content_and_pushes_below() {
     // stays inside the scroll viewport.
     for c in &base.shapes {
         if let egui::epaint::Shape::Text(t) = &c.shape {
-            let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
+            let rect = ink_rect(t);
             assert!(
                 c.clip_rect.contains_rect(rect),
                 "{:?} is clipped: {rect:?} outside {:?}",
@@ -210,7 +220,7 @@ fn delete_confirmation_fits_content_and_pushes_below() {
     for c in &armed.shapes {
         if let egui::epaint::Shape::Text(t) = &c.shape {
             if t.galley.text().starts_with("Click again") {
-                let rect = egui::Rect::from_min_size(t.pos, t.galley.size());
+                let rect = ink_rect(t);
                 assert!(
                     c.clip_rect.contains_rect(rect),
                     "armed note is clipped: {rect:?} outside {:?}",
@@ -251,6 +261,7 @@ fn wipe_all_needs_two_clicks() {
     let mut prefs = Prefs::default();
     let mut windows = PreferencesState::new();
     windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
     // Settle, then locate the wipe row.
     let mut anchor = None;
     for _ in 0..4 {
@@ -402,5 +413,647 @@ fn preferences_header_has_equal_air_above_and_below() {
     assert!(
         (above - below).abs() <= 1.0,
         "title air must be symmetric: {above:.1}px above vs {below:.1}px below"
+    );
+}
+
+/// Each tab shows its own content: General holds the appearance rows plus
+/// the version footer, Data the retention and destructive rows, Shortcuts
+/// the keyboard reference.
+#[test]
+fn each_tab_shows_its_own_content() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+
+    let mut rendered = |windows: &mut PreferencesState, store: &mut HistoryStore| {
+        let mut last = None;
+        for _ in 0..4 {
+            let mut out = ctx.run_ui(input_at(None), |root| {
+                windows.show(root.ctx(), store, &mut prefs);
+            });
+            out.textures_delta.clear();
+            last = Some(out);
+        }
+        let out = last.expect("dialog rendered");
+        texts(&out.shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>()
+    };
+
+    windows.selected = PreferencesTab::General;
+    let general = rendered(&mut windows, &mut store);
+    assert!(
+        general.iter().any(|t| t == "Theme"),
+        "General must hold the appearance rows"
+    );
+    assert!(
+        general.iter().any(|t| t == "View third-party licenses"),
+        "General must hold the version/licenses footer"
+    );
+    assert!(
+        !general.iter().any(|t| t == "Keep visits"),
+        "General must not hold the Data rows"
+    );
+
+    windows.selected = PreferencesTab::Data;
+    let data = rendered(&mut windows, &mut store);
+    assert!(
+        data.iter().any(|t| t == "Keep visits"),
+        "Data must hold the retention row"
+    );
+    assert!(
+        data.iter().any(|t| t == "Delete all data and close"),
+        "Data must hold the wipe row"
+    );
+    assert!(
+        !data.iter().any(|t| t == "Theme"),
+        "Data must not hold the appearance rows"
+    );
+
+    windows.selected = PreferencesTab::Shortcuts;
+    let shortcuts = rendered(&mut windows, &mut store);
+    assert!(
+        shortcuts.iter().any(|t| t == "KEYBOARD SHORTCUTS"),
+        "Shortcuts must hold the reference table"
+    );
+    assert!(
+        !shortcuts.iter().any(|t| t == "Theme"),
+        "Shortcuts must not hold the appearance rows"
+    );
+}
+
+/// The Shortcuts tab lists every group with its actions and keys.
+#[test]
+fn shortcuts_tab_lists_every_group() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Shortcuts;
+    let mut last = None;
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show(root.ctx(), &mut store, &mut prefs);
+        });
+        out.textures_delta.clear();
+        last = Some(out);
+    }
+    let last = last.expect("dialog rendered");
+    let rendered = texts(&last.shapes)
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>();
+    for group in ["TABS", "NAVIGATION", "PAGE", "ZOOM"] {
+        assert!(
+            rendered.iter().any(|t| t == group),
+            "shortcuts must list the {group} group"
+        );
+    }
+    for (action, keys) in [
+        ("New tab", "Ctrl/Cmd + T"),
+        ("Close tab", "Ctrl/Cmd + W"),
+        ("Reload page", "Ctrl/Cmd + R / F5"),
+        ("Open history", "Ctrl + H / Cmd + Y"),
+        ("Find in page", "Ctrl/Cmd + F"),
+        ("Zoom in", "Ctrl/Cmd + + / ="),
+        ("Reset zoom to 100%", "Ctrl/Cmd + 0"),
+    ] {
+        assert!(
+            rendered.iter().any(|t| t == action),
+            "shortcuts must list {action}"
+        );
+        assert!(
+            rendered.iter().any(|t| t == keys),
+            "shortcuts must list {keys}"
+        );
+    }
+    // The reference is curated, not the full key map: the bare `Esc` rows
+    // (stop/close) and the keyboard reorders stay out.
+    for gone in [
+        "Stop loading",
+        "Close dialog, find bar or menu",
+        "Move focused tab one slot",
+        "Move focused bookmark tile",
+    ] {
+        assert!(
+            !rendered.iter().any(|t| t == gone),
+            "{gone:?} must stay out of the quick reference"
+        );
+    }
+    assert!(
+        !rendered.iter().any(|t| t == "Esc"),
+        "no bare Esc row belongs in the quick reference"
+    );
+    // Every reference row must fit the dialog width — no column may be
+    // clipped by the scroll viewport or the card edge (measured through the
+    // galley's own rect: the keys column is right-aligned) — and the two
+    // columns of a row must never overlap each other.
+    let shapes = &last.shapes;
+    let find_ink = |needle: &str| {
+        shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == needle => Some(ink_rect(t)),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{needle:?} rendered"))
+    };
+    // The title keeps a beat of air above the first group: that gap must be
+    // clearly wider than the rhythm inside a group (label to its own first
+    // row), where the title is the card's heading and the group label binds
+    // to the rows below it.
+    let title_to_group = find_ink("TABS").min.y - find_ink("KEYBOARD SHORTCUTS").max.y;
+    let group_to_row = find_ink("New tab").min.y - find_ink("TABS").max.y;
+    assert!(
+        title_to_group >= 14.0 && title_to_group > group_to_row + 4.0,
+        "the title needs air above the first group: {title_to_group} vs {group_to_row}"
+    );
+    for (action, keys) in super::SHORTCUT_GROUPS
+        .iter()
+        .flat_map(|(_, rows)| rows.iter())
+    {
+        let a = find_ink(action);
+        let k = find_ink(keys);
+        assert!(
+            a.max.x + 8.0 <= k.min.x,
+            "{action:?} and {keys:?} must not overlap: {a:?} vs {k:?}"
+        );
+    }
+    for c in &last.shapes {
+        if let egui::epaint::Shape::Text(t) = &c.shape {
+            let rect = ink_rect(t);
+            assert!(
+                c.clip_rect.contains_rect(rect),
+                "shortcut text {:?} is clipped: {rect:?} outside {:?}",
+                t.galley.text(),
+                c.clip_rect
+            );
+        }
+    }
+}
+
+/// Clicking a tab bar label switches the visible tab.
+#[test]
+fn clicking_the_tab_bar_switches_tabs() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::General;
+
+    // Settle on General, then locate the Data tab label.
+    let mut anchor = None;
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show(root.ctx(), &mut store, &mut prefs);
+        });
+        out.textures_delta.clear();
+        anchor = texts(&out.shapes)
+            .iter()
+            .find(|(text, _)| text == "Data")
+            .map(|(_, pos)| *pos + egui::vec2(1.0, 1.0));
+    }
+    let anchor = anchor.expect("Data tab visible");
+    let click = |pressed| egui::Event::PointerButton {
+        pos: anchor,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    let mut data_visible = false;
+    for frame in 0..4 {
+        let mut input = input_at(Some(anchor));
+        if frame == 0 {
+            input.events.push(click(true));
+            input.events.push(click(false));
+        }
+        let mut out = ctx.run_ui(input, |root| {
+            windows.show(root.ctx(), &mut store, &mut prefs);
+        });
+        out.textures_delta.clear();
+        data_visible = texts(&out.shapes)
+            .iter()
+            .any(|(text, _)| text == "Keep visits");
+    }
+    assert!(
+        data_visible,
+        "clicking the Data tab must show the Data content"
+    );
+}
+
+/// The selected tab carries the accent underline, under its own label.
+#[test]
+fn selected_tab_carries_a_moving_underline() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    let s = crate::ui::theme::scheme_ref_ctx(&ctx);
+    for tab in PreferencesTab::ALL {
+        windows.selected = tab;
+        let mut last = None;
+        // The floating window FADES IN on open (egui scales the painted
+        // colors for the first frames), so settle until the fade is over.
+        for _ in 0..30 {
+            let mut out = ctx.run_ui(input_at(None), |root| {
+                windows.show(root.ctx(), &mut store, &mut prefs);
+            });
+            out.textures_delta.clear();
+            last = Some(out);
+        }
+        let out = last.expect("dialog rendered");
+        let label = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == tab.label() => Some(ink_rect(t)),
+                _ => None,
+            })
+            .expect("tab label visible");
+        let underline = out
+            .shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Rect(r)
+                    if (r.rect.height() - 2.0).abs() < 0.5 && r.fill == s.primary =>
+                {
+                    Some(r.rect)
+                }
+                _ => None,
+            })
+            .expect("selected tab underline");
+        assert!(
+            underline.center().x >= label.min.x && underline.center().x <= label.max.x,
+            "{tab:?}: underline {underline:?} must sit under its label {label:?}"
+        );
+    }
+}
+
+/// Each tab owns its scroll position: scrolling the Shortcuts list down,
+/// visiting General and coming back keeps the list where it was, and General
+/// opens at its own top (one shared ScrollArea used to hand its offset to
+/// whichever tab came next — it is clamped per frame, so leaving the scrolled
+/// tab simply reset it).
+///
+/// The probes stay inside the viewport on purpose: egui skips painting text
+/// fully outside the clip rect, so a scrolled-out row cannot be measured.
+#[test]
+fn each_tab_keeps_its_own_scroll_offset() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    // A short viewport: the Shortcuts reference scrolls, General does not.
+    let input = |events: Vec<egui::Event>| egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(900.0, 560.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    // Run `frames` frames and return the last one (the very first frame only
+    // sizes the window, so it carries no shapes).
+    let mut run = |windows: &mut PreferencesState,
+                   store: &mut HistoryStore,
+                   events: Vec<egui::Event>,
+                   frames: usize| {
+        let mut last = None;
+        for _ in 0..frames {
+            let mut out = ctx.run_ui(input(events.clone()), |root| {
+                windows.show(root.ctx(), store, &mut prefs);
+            });
+            out.textures_delta.clear();
+            last = Some(out);
+        }
+        last.expect("frames run")
+    };
+    let y_of = |out: &egui::FullOutput, needle: &str| {
+        out.shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == needle => {
+                    Some(ink_rect(t).min.y)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{needle:?} visible"))
+    };
+    let tab_center = |out: &egui::FullOutput, label: &str| {
+        out.shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == label => {
+                    Some(ink_rect(t).center())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{label} tab visible"))
+    };
+    let click = |pos: egui::Pos2| {
+        vec![
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ]
+    };
+    // A middle row of the reference: visible unscrolled AND scrolled down.
+    const PROBE: &str = "Bookmark this page";
+
+    // Shortcuts starts at its top (its bottom note is out of view).
+    windows.selected = PreferencesTab::Shortcuts;
+    let out = run(&mut windows, &mut store, vec![], 6);
+    let open_y = y_of(&out, PROBE);
+    assert!(
+        out.shapes.iter().all(|c| !matches!(
+            &c.shape,
+            egui::epaint::Shape::Text(t) if t.galley.text().starts_with("Ctrl/Cmd means")
+        )),
+        "the bottom note starts below the fold"
+    );
+
+    // Wheel over the dialog scrolls the reference up. The wheel repeats on
+    // every frame (egui feeds a scroll area a SMOOTHED delta), so the
+    // scrolled-to-the-end position is deterministic.
+    let over = egui::pos2(450.0, 320.0);
+    let wheel = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut events = vec![egui::Event::PointerMoved(over)];
+    events.extend(std::iter::repeat_n(wheel, 2));
+    let out = run(&mut windows, &mut store, events, 4);
+    let scrolled_y = y_of(&out, PROBE);
+    assert!(
+        scrolled_y < open_y - 40.0,
+        "the wheel must scroll the reference (from {open_y} to {scrolled_y})"
+    );
+    // The bottom note comes into view only when scrolled down.
+    let note_y = |out: &egui::FullOutput| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text().starts_with("Ctrl/Cmd means") => {
+                Some(ink_rect(t).min.y)
+            }
+            _ => None,
+        })
+    };
+    assert!(
+        note_y(&out).is_some(),
+        "the bottom note shows once scrolled"
+    );
+
+    // Switch to General: its own top, no inherited offset.
+    let general = tab_center(&out, "General");
+    let out = run(&mut windows, &mut store, click(general), 4);
+    let theme_y = y_of(&out, "Theme");
+    let mut control = PreferencesState::new();
+    control.prefs_open = true;
+    control.selected = PreferencesTab::General;
+    let control_y = y_of(&run(&mut control, &mut store, vec![], 6), "Theme");
+    assert!(
+        (theme_y - control_y).abs() < 1.0,
+        "General must open at its own top: Theme at {theme_y}, control {control_y}"
+    );
+
+    // Back to Shortcuts: still scrolled away from its top (the shared-scroll
+    // bug reset it, which would park the probe at its unscrolled position)
+    // and still showing the end of the list.
+    let shortcuts = tab_center(&out, "Shortcuts");
+    let out = run(&mut windows, &mut store, click(shortcuts), 4);
+    let back_y = y_of(&out, PROBE);
+    assert!(
+        back_y < open_y - 40.0,
+        "coming back must keep the Shortcuts scroll (open {open_y}, scrolled {scrolled_y}, back {back_y})"
+    );
+    assert!(
+        note_y(&out).is_some(),
+        "the bottom note is still in view when coming back"
+    );
+}
+
+/// Every General-tab control is centered in its row and shares one right
+/// edge.
+///
+/// Regression: the dropdown field sat ~7px below the row's middle (egui's
+/// `ComboBox` button is a `Frame`, and a frame inside a right-to-left row is
+/// anchored from the parent cursor's right-CENTER seed) while the zoom pill
+/// and the switch — exact rects — stayed centered.
+#[test]
+fn general_controls_are_centered_and_right_aligned() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::General;
+    let mut last = None;
+    for _ in 0..6 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show(root.ctx(), &mut store, &mut prefs);
+        });
+        out.textures_delta.clear();
+        last = Some(out);
+    }
+    let out = last.expect("dialog rendered");
+    let rects: Vec<(egui::Rect, u8)> = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::epaint::Shape::Rect(r) => Some((r.rect, r.corner_radius.nw)),
+            _ => None,
+        })
+        .collect();
+    // The three control surfaces, identified by their fixed geometry: the
+    // dropdown field (`COMBO_W` wide), the pill (fully rounded) and the
+    // switch (its own fixed size).
+    let field = rects
+        .iter()
+        .find(|(r, _)| (r.width() - super::COMBO_W).abs() < 0.5 && r.height() > 24.0)
+        .map(|(r, _)| *r)
+        .expect("dropdown field painted");
+    let pill = rects
+        .iter()
+        .find(|(r, radius)| *radius >= 14 && r.width() < 200.0 && r.height() < 40.0)
+        .map(|(r, _)| *r)
+        .expect("zoom pill painted");
+    let switch_rect = rects
+        .iter()
+        .find(|(r, _)| {
+            (r.width() - super::SWITCH_W).abs() < 0.5 && (r.height() - super::SWITCH_H).abs() < 0.5
+        })
+        .map(|(r, _)| *r)
+        .expect("switch painted");
+    let row_center = |needle: &str| {
+        out.shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == needle => {
+                    Some(ink_rect(t).center().y)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{needle:?} visible"))
+    };
+    for (label, control) in [
+        ("Theme", field),
+        ("Default zoom", pill),
+        ("Restore tabs on startup", switch_rect),
+    ] {
+        let center = row_center(label);
+        assert!(
+            (control.center().y - center).abs() <= 1.0,
+            "{label}: {control:?} must be centered on its row (row center {center})"
+        );
+    }
+    for control in [pill, switch_rect] {
+        assert!(
+            (control.max.x - field.max.x).abs() <= 0.5,
+            "controls must share one right edge: {control:?} vs {field:?}"
+        );
+    }
+}
+
+/// The dropdown field opens its menu on a click and a row click selects the
+/// value (the field and its `Popup` replaced egui's `ComboBox`).
+#[test]
+fn dropdown_field_opens_and_selects() {
+    use crate::history::Retention;
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
+    let input = |events: Vec<egui::Event>| {
+        let mut input = input_at(None);
+        input.events = events;
+        input
+    };
+    let mut run =
+        |windows: &mut PreferencesState, store: &mut HistoryStore, events: Vec<egui::Event>| {
+            let mut out = ctx.run_ui(input(events), |root| {
+                windows.show(root.ctx(), store, &mut prefs);
+            });
+            out.textures_delta.clear();
+            out
+        };
+    let find_center = |out: &egui::FullOutput, needle: &str| {
+        out.shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == needle => {
+                    Some(ink_rect(t).center())
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{needle:?} visible"))
+    };
+    let click = |pos: egui::Pos2| {
+        vec![
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ]
+    };
+
+    // Settle on the Data tab, then click the field (the selected value's
+    // line; the field elides a long value, so match its prefix).
+    let mut settled = None;
+    for _ in 0..6 {
+        settled = Some(run(&mut windows, &mut store, vec![]));
+    }
+    let settled = settled.expect("frames run");
+    let field = settled
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text().starts_with("Keep 3 months") => {
+                Some(ink_rect(t).center())
+            }
+            _ => None,
+        })
+        .expect("the selected value is on the field");
+    // The click toggles the menu open (settle: the popup state is read at
+    // the start of the next pass).
+    let _ = run(&mut windows, &mut store, click(field));
+    let mut opened = None;
+    for _ in 0..3 {
+        opened = Some(run(&mut windows, &mut store, vec![]));
+    }
+    let opened = opened.expect("frames run");
+    assert!(
+        texts(&opened.shapes)
+            .iter()
+            .any(|(t, _)| t == "Keep 1 month"),
+        "clicking the field must open the menu with its options"
+    );
+    // Pick the second option: the store takes the new retention.
+    let row = find_center(&opened, "Keep 1 month");
+    let _ = run(&mut windows, &mut store, click(row));
+    for _ in 0..3 {
+        let _ = run(&mut windows, &mut store, vec![]);
+    }
+    assert_eq!(
+        store.retention(),
+        Retention::Days(30),
+        "picking a row must apply the value"
+    );
+    let out = run(&mut windows, &mut store, vec![]);
+    assert!(
+        texts(&out.shapes).iter().any(|(t, _)| t == "Keep 1 month"),
+        "the field must show the chosen value"
+    );
+    assert!(
+        !texts(&out.shapes).iter().any(|(t, _)| t == "Keep 1 year"),
+        "the menu must close after picking a row"
+    );
+}
+
+/// Closing the dialog disarms deletes but keeps the selected tab.
+#[test]
+fn closing_keeps_the_selected_tab() {
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Shortcuts;
+    windows.close_windows();
+    assert!(!windows.prefs_open, "close must hide the dialog");
+    assert_eq!(
+        windows.selected,
+        PreferencesTab::Shortcuts,
+        "close must keep the selected tab"
     );
 }

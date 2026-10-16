@@ -14,7 +14,7 @@
 //!   container), `primary_button_sized` (accent fill, white label: the one
 //!   emphasized action of a surface), `card` (raised surface),
 //!   `code_card` (code block), `rule` (document `<hr>`), type scale
-//!   (`display`, `weak`) and `scheme_for(ui)`.
+//!   (`display`, `weak`) and the interned [`scheme_ref`].
 //! - Interface icons are monochrome vector strokes (`ui::icons`): one
 //!   24x24 design grid, tinted with the active theme, with a subtle
 //!   hover/press animation in the buttons. Document emoji still come from
@@ -103,6 +103,10 @@ pub struct Scheme {
     pub alert_important: egui::Color32,
     pub alert_warning: egui::Color32,
     pub alert_caution: egui::Color32,
+    /// In-page find match wash (pale amber in light, deep amber in dark).
+    pub find_match: egui::Color32,
+    /// In-page find current-match wash (stronger amber than `find_match`).
+    pub find_current: egui::Color32,
 }
 
 /// Light scheme: white page, `#f6f8fa` chrome, accent blue.
@@ -141,6 +145,8 @@ pub fn light() -> Scheme {
         alert_important: rgb(130, 80, 223),
         alert_warning: rgb(154, 103, 0),
         alert_caution: rgb(209, 36, 47),
+        find_match: rgb(0xff, 0xf3, 0xbf),
+        find_current: rgb(0xff, 0xd4, 0x3b),
     }
 }
 
@@ -180,6 +186,8 @@ pub fn dark() -> Scheme {
         alert_important: rgb(163, 113, 247),
         alert_warning: rgb(210, 153, 34),
         alert_caution: rgb(248, 81, 73),
+        find_match: rgb(0x6b, 0x59, 0x00),
+        find_current: rgb(0xc7, 0x8a, 0x00),
     }
 }
 
@@ -188,31 +196,18 @@ const fn rgb(r: u8, g: u8, b: u8) -> egui::Color32 {
     egui::Color32::from_rgb(r, g, b)
 }
 
-/// Scheme for the active `Ui` theme (light/dark from the OS).
-///
-/// One-off convenience for non-hot callers (dialog setup, tooltips). Hot draw
-/// paths must use [`scheme_ref`] instead: it borrows the interned palette
-/// instead of copying the 50-field struct per element.
-#[allow(dead_code)]
-pub fn scheme_for(ui: &egui::Ui) -> Scheme {
-    if ui.visuals().dark_mode {
-        dark()
-    } else {
-        light()
-    }
-}
-
 /// Shared `'static` schemes, built once per process.
 ///
 /// The palette is constant data (no `egui::Context` input). Callers that
 /// paint many elements resolve the scheme ONCE per surface with
-/// [`scheme_ref`] and pass the reference down instead of rebuilding the
-/// 50-field struct per element (see [`scheme_for`] for the one-off copy).
+/// [`scheme_ref`] and pass the reference down instead of copying the
+/// 50-field struct per element.
 static LIGHT: std::sync::OnceLock<Scheme> = std::sync::OnceLock::new();
 static DARK: std::sync::OnceLock<Scheme> = std::sync::OnceLock::new();
 
-/// Borrowed variant of [`scheme_for`]: an interning, allocation-free
-/// `&'static Scheme` for the active theme. Use in draw paths.
+/// Borrowed palette for the active theme: an interning, allocation-free
+/// `&'static Scheme`. The only accessor (the former owned copy is gone:
+/// every caller borrows). Use in draw paths.
 pub fn scheme_ref(ui: &egui::Ui) -> &'static Scheme {
     if ui.visuals().dark_mode {
         DARK.get_or_init(dark)
@@ -468,8 +463,8 @@ fn apply_visuals(style: &mut egui::Style, theme: egui::Theme, scheme: &Scheme) {
     // Pointing hand on everything clickable (buttons, tabs, links):
     // without this egui keeps the arrow even on a Button.
     v.interact_cursor = Some(egui::CursorIcon::PointingHand);
-    // Floating surfaces (tooltips, context menu, toasts, ComboBox
-    // dropdowns) use `window_fill` + `window_stroke`. An elevated
+    // Floating surfaces (tooltips, context menu, toasts, dropdown
+    // menus) use `window_fill` + `window_stroke`. An elevated
     // fill distinct from the page plus a hairline border keeps them
     // readable: the old `surface` fill + `Stroke::NONE` made dark
     // popups invisible on the dark page (and near-invisible in
@@ -500,7 +495,7 @@ fn apply_visuals(style: &mut egui::Style, theme: egui::Theme, scheme: &Scheme) {
         stroke: egui::Stroke::new(0.0, scheme.on_surface),
     };
     v.error_fg_color = scheme.error;
-    v.window_stroke = egui::Stroke::new(1.0, scheme.outline_variant);
+    v.window_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
     // Rounded, softly elevated floating surfaces. Dark mode stays
     // flat: black shadows on dark chrome looked like dirty frames. Same
     // recipe as `soft_shadow` (no `Ui` here to ask).
@@ -518,18 +513,20 @@ fn apply_visuals(style: &mut egui::Style, theme: egui::Theme, scheme: &Scheme) {
     let r = egui::CornerRadius::same(radius::CARD);
     // `noninteractive.bg_stroke` feeds `Separator` (H1/H2 rules):
     // the 1px `#d0d7de` border.
-    v.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, scheme.outline_variant);
+    v.widgets.noninteractive.bg_stroke =
+        egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
     v.widgets.noninteractive.bg_fill = scheme.container;
     v.widgets.noninteractive.weak_bg_fill = scheme.container_low;
-    v.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, scheme.on_surface_variant);
+    v.widgets.noninteractive.fg_stroke =
+        egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface_variant);
     v.widgets.noninteractive.corner_radius = r;
     v.widgets.inactive.bg_fill = scheme.container_high;
     v.widgets.inactive.weak_bg_fill = scheme.container_low;
     // The border tone doubles as the scrollbar handle (`foreground_color`):
     // on_surface was a hard black line, container_high was invisible on the
     // chrome, the border tone is visible but quiet in both themes.
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, scheme.outline_variant);
-    v.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, scheme.outline_variant);
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
+    v.widgets.inactive.bg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
     v.widgets.inactive.corner_radius = r;
     v.widgets.inactive.expansion = 0.0;
     // Hover/active must LIGHTEN in dark mode: `container` and
@@ -539,31 +536,33 @@ fn apply_visuals(style: &mut egui::Style, theme: egui::Theme, scheme: &Scheme) {
     // the two used to be separate near-identical literals.
     v.widgets.hovered.bg_fill = scheme.container_hover;
     v.widgets.hovered.weak_bg_fill = v.widgets.hovered.bg_fill;
-    v.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, scheme.on_surface);
-    v.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, scheme.on_surface_variant);
+    v.widgets.hovered.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface);
+    v.widgets.hovered.bg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface_variant);
     v.widgets.hovered.corner_radius = r;
     v.widgets.hovered.expansion = 0.0;
     v.widgets.active.bg_fill = scheme.container_active;
     v.widgets.active.weak_bg_fill = v.widgets.active.bg_fill;
-    v.widgets.active.fg_stroke = egui::Stroke::new(1.0, scheme.on_surface);
+    v.widgets.active.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface);
     // Pressed AND keyboard-focused widgets use the `active` stripe:
     // a neutral 1px border makes focus visible without the blue
     // "ghost outline" that made the old design drop it entirely.
     // Width stays 1.0 for every state (the horizontal padding math
     // depends on it; a 0-width stroke used to shrink focused
     // buttons by 2px).
-    v.widgets.active.bg_stroke = egui::Stroke::new(1.0, scheme.on_surface_variant);
+    v.widgets.active.bg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface_variant);
     v.widgets.active.corner_radius = r;
     v.widgets.active.expansion = 0.0;
-    // `open` is what a `Button`/`ComboBox` paints while its menu is open
-    // (Preferences dropdowns): `weak_bg_fill`/`bg_stroke` are the ones egui
-    // actually reads there, so setting only `bg_fill` left the popup button
-    // with epaint's default gray fill and a `gray(160)` border that matched
-    // no other surface in the app.
+    // `open` is what egui's own menu-opening widgets (a `Button` with a
+    // popup, a `ComboBox`) paint while their menu is open: the Preferences
+    // dropdown field paints its own open state, but these stay correct for
+    // any stock widget that opens a menu. `weak_bg_fill`/`bg_stroke` are the
+    // ones egui actually reads there, so setting only `bg_fill` left such a
+    // button with epaint's default gray fill and a `gray(160)` border that
+    // matched no other surface in the app.
     v.widgets.open.bg_fill = scheme.container_high;
     v.widgets.open.weak_bg_fill = scheme.container_high;
-    v.widgets.open.bg_stroke = egui::Stroke::new(1.0, scheme.on_surface_variant);
-    v.widgets.open.fg_stroke = egui::Stroke::new(1.0, scheme.on_surface);
+    v.widgets.open.bg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface_variant);
+    v.widgets.open.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface);
     v.widgets.open.corner_radius = r;
     v.widgets.open.expansion = 0.0;
 }

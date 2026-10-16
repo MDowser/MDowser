@@ -123,6 +123,11 @@ pub const REFRESH_COOLDOWN_SECS: u64 = 5;
 /// - 8 covers the long-but-legitimate www/canonical/CDN chains.
 pub const MAX_REDIRECTS: usize = 8;
 
+/// Max `Content-Type` header values inspected per response.
+/// Hostile servers control the count; past this the response is rejected
+/// instead of letting an unbounded header list grow the per-request `Vec`.
+pub const MAX_CONTENT_TYPE_VALUES: usize = 8;
+
 /// Max accepted document size (bytes).
 /// - Guards against giant responses; Markdown is lightweight text.
 /// - When exceeded, the attempt is dropped and the next route is tried.
@@ -181,9 +186,10 @@ pub const MAX_FAVICON_BYTES: usize = 1024 * 1024;
 ///   multiple GiB of VRAM outside the per-document budgets
 ///   (`media::favicon` also reserves its bytes in the process-wide texture
 ///   budget).
-/// - 384 px stays crisp at every toolbar zoom (175%) and display scaling
-///   while bounding each icon to ~576 KiB RGBA.
-pub const MAX_FAVICON_DIM: u32 = 384;
+/// - 160 px covers the widest drawn size: the ~27 pt glyph at the 175%
+///   toolbar zoom and a 300% display scale lands at ~143 device px, while
+///   bounding each icon to 100 KiB RGBA.
+pub const MAX_FAVICON_DIM: u32 = 160;
 
 /// Max decoded pixels per image (anti decompression-bomb).
 /// 48 MP covers full-frame/medium-format photos and 8K frames; larger
@@ -241,7 +247,10 @@ pub const IMAGE_BUDGET_RETRY_SECS: u64 = 2;
 pub const MAX_IMAGE_BUDGET_RETRIES: u8 = 8;
 
 /// Max favicon origins cached per session (hosts). Bounded like everything.
-pub const MAX_FAVICON_HOSTS: usize = 256;
+/// - 512 icons at `MAX_FAVICON_DIM` (100 KiB each) is at most 50 MiB
+///   overall, well inside `MAX_TEXTURE_BYTES_TOTAL`, and far past any
+///   session's working set.
+pub const MAX_FAVICON_HOSTS: usize = 512;
 
 /// Color emoji (`media::emoji`): Noto Color Emoji ships its glyphs as SVG
 /// documents, rasterized per (cluster, size). The square side drawn for one
@@ -415,6 +424,27 @@ pub const MAX_RENDERED_BLOCKS: usize = 10_000;
 ///   bounded `… [truncated]` notice while `Copy` keeps the full body.
 pub const MAX_RENDERED_BLOCK_CHARS: usize = 512 * 1024;
 
+/// Max approximate bytes retained by the code-block galley cache across all
+/// blocks.
+/// - A body alone can reach `MAX_BODY_BYTES` (10 MiB); a handful of giant
+///   blocks would otherwise sit in RAM for the process lifetime.
+/// - The entry-count cap stays tied to `MAX_RENDERED_BLOCKS` at the call
+///   site; this byte budget is the real memory bound.
+pub const MAX_CODE_CACHE_BYTES: usize = 32 * 1024 * 1024;
+
+/// Max approximate bytes retained by the table-widths cache across all
+/// cached tables (same contract as [`MAX_CODE_CACHE_BYTES`]).
+pub const MAX_TABLE_WIDTHS_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
+/// Max bytes a gzip-compressed embedded font asset may expand to.
+/// - The asset is trusted (shipped in the binary), but a corrupt table must
+///   never expand without limit.
+pub const MAX_FONT_ASSET_GZIP_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Upper bound on the settings file read before it is rewritten from
+/// scratch (a corrupt/hostile local file must not be loaded whole).
+pub const MAX_SETTINGS_BYTES: u64 = 256 * 1024;
+
 /// Max link hitboxes collected per rendered document frame (right-click
 /// "Open link in new tab").
 /// - A link split into several inline fragments pushes one screen-rect
@@ -423,6 +453,27 @@ pub const MAX_RENDERED_BLOCK_CHARS: usize = 512 * 1024;
 ///   Past the cap the extra links stay clickable (navigation is never
 ///   affected), they just have no context-menu hitbox.
 pub const MAX_LINK_HITS: usize = 4_096;
+
+/// Max chars of an image `alt` shown as caption/tooltip, and of an image
+/// `title` tooltip. Server/author-controlled; the parser does not bound them.
+pub const MAX_IMAGE_ALT_CHARS: usize = 512;
+pub const MAX_IMAGE_TITLE_CHARS: usize = 512;
+
+/// Max recursion depth of the markdown block renderer. A hostile document
+/// (`> > > …`, `- - - …`) nests arbitrarily; the renderer recurses on the UI
+/// thread and a stack overflow aborts the process (uncatchable). Deeper
+/// content renders flattened instead of recursing.
+pub const MAX_MARKDOWN_RENDER_DEPTH: usize = 48;
+
+/// Local-file read chunk (bytes): bounds the work between cooperative cancel
+/// checks, shared by documents and image/favicon subresources.
+pub const LOCAL_READ_CHUNK_BYTES: usize = 64 * 1024;
+
+/// Huge code-block guard: above either bound the block renders as plain
+/// selectable lines instead of per-line highlighted spans (tokenizing
+/// megabytes per frame freezes the UI). `Copy` keeps the full body.
+pub const MAX_CODE_HIGHLIGHT_LINES: usize = 4_000;
+pub const MAX_CODE_HIGHLIGHT_BYTES: usize = 400_000;
 
 // ---------------------------------------------------------------------------
 // Content-shape heuristics (conventions the viewer applies to markdown that
@@ -488,6 +539,18 @@ pub const MAX_HISTORY_ENTRIES: usize = 250;
 /// - The query is cloned into egui memory and lowercased per store change;
 ///   one URL's worth of text is more than any real filter needs.
 pub const MAX_HISTORY_FILTER_CHARS: usize = 512;
+
+/// Max chars of the in-page find query (`Ctrl/Cmd+F`).
+/// - The query lives in per-tab state and is lowercased once per frame while
+///   the bar is open; one line of text is more than any real search needs.
+pub const MAX_FIND_QUERY_CHARS: usize = 256;
+
+/// Max in-page find matches highlighted per document per frame.
+/// - Each match splits one text fragment into extra widgets; without a cap a
+///   one-character query on a large document would build tens of thousands of
+///   labels per frame. Past the cap extra occurrences render normally and the
+///   bar shows the capped total with a `+`.
+pub const MAX_FIND_MATCHES: usize = 2_000;
 
 // ---------------------------------------------------------------------------
 // Local browsing history (encrypted at rest, see `history.rs`)

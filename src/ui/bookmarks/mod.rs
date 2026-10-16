@@ -45,8 +45,9 @@ const TILE_H: f32 = 96.0;
 /// it. The block reservation measures the real title line from this size,
 /// so it can never undershoot the header and clip the grid below (see the
 /// `allocate_ui_with_layout` in [`show_bookmarks`]).
-const HEADER_TITLE_SIZE: f32 = 15.0;
-const HEADER_ICON: f32 = 18.0;
+/// Both rest on the shared type scale (`typography::ROW`/`HEADING`).
+const HEADER_TITLE_SIZE: f32 = theme::typography::ROW;
+const HEADER_ICON: f32 = theme::typography::HEADING;
 /// Vertical nudge for the header ribbon. The line box centers the 18px slot
 /// on the row, but the ribbon's ink is a touch taller than the 15pt caps
 /// (~12.5px vs 11px), so it reads a hair high next to "Bookmarks" (measured
@@ -94,19 +95,9 @@ const ACTION_INSET: f32 = 2.0;
 /// Vertical gap between the two stacked action buttons.
 const ACTION_GAP: f32 = 2.0;
 
-/// Tile palette for letter/emoji avatars: mid/dark tones with readable
-/// white glyphs in both themes. `config::MAX_BOOKMARK_COLORS` keeps stored
-/// indexes in range (a test pins the two together).
-const PALETTE: [egui::Color32; 8] = [
-    egui::Color32::from_rgb(9, 105, 218),  // blue
-    egui::Color32::from_rgb(26, 127, 55),  // green
-    egui::Color32::from_rgb(154, 103, 0),  // amber
-    egui::Color32::from_rgb(207, 34, 46),  // red
-    egui::Color32::from_rgb(130, 80, 223), // purple
-    egui::Color32::from_rgb(191, 57, 137), // pink
-    egui::Color32::from_rgb(5, 80, 174),   // dark blue
-    egui::Color32::from_rgb(87, 96, 106),  // slate
-];
+// Tile avatar hues live in `theme::AVATAR_PALETTE` (single source with the
+// documented fixed-hue exception); `config::MAX_BOOKMARK_COLORS` keeps
+// stored indexes in range (a test pins the two together).
 
 /// Open inline rename, kept in egui memory so it survives frames without
 /// being threaded through `App`: which tile, the draft and the pending-focus

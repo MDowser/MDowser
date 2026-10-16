@@ -127,9 +127,9 @@ pub(super) fn collect_inline<'e>(
                     // Unfetchable destination (non-https / inert): keep the
                     // textual placeholder; inside a link it stays clickable.
                     let placeholder = if alt.is_empty() {
-                        "[image]".to_string()
+                        std::borrow::Cow::Borrowed("[image]")
                     } else {
-                        format!("[image: {alt}]")
+                        std::borrow::Cow::Owned(format!("[image: {alt}]"))
                     };
                     out.push(make_frag(placeholder, strong, em, strike, false, link));
                     continue;
@@ -222,7 +222,7 @@ pub(super) fn collect_inline<'e>(
                 if in_cell {
                     // Inside tables there is no room for a widget: text fallback.
                     out.push(make_frag(
-                        if *checked { "[x] " } else { "[ ] " }.to_string(),
+                        if *checked { "[x] " } else { "[ ] " },
                         strong,
                         em,
                         strike,

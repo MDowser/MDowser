@@ -655,3 +655,135 @@ fn menu_is_keyboard_navigable() {
         "Enter on Select all highlighted the whole page"
     );
 }
+
+/// The find bar paints the app's own chrome kit: an omnibox-style capsule
+/// (rounded pill behind the field), the muted `n/m` count and the three
+/// circular icon buttons, all in ONE row — and typing a query never moves
+/// any of it (the count keeps a fixed slot while the digits change).
+#[test]
+fn find_bar_paints_the_chrome_capsule_and_keeps_its_geometry() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    tab.state = TabState::Loaded {
+        fetched: fetched_for("https://ex.com/a/"),
+    };
+    tab.find.show(tab.doc_generation);
+    tab.find.query = "markdown".to_string();
+    tab.find.total = 12;
+    tab.find.current = 2;
+    // Two passes: the first popup frame is an invisible sizing pass.
+    let render = |tab: &mut Tab| -> Vec<(String, f32)> {
+        let input = egui::RawInput {
+            screen_rect: Some(screen()),
+            ..Default::default()
+        };
+        let mut first = ctx.run_ui(input.clone(), |root| {
+            super::find::show_find_bar(root, tab);
+        });
+        first.textures_delta.clear();
+        let mut out = ctx.run_ui(input, |root| {
+            super::find::show_find_bar(root, tab);
+        });
+        let mut texts = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos.x)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        out.textures_delta.clear();
+        texts.sort_by(|a, b| a.1.total_cmp(&b.1));
+        texts
+    };
+    let baseline = render(&mut tab);
+    assert!(
+        baseline.iter().any(|(t, _)| t == "markdown"),
+        "query painted: {baseline:?}"
+    );
+    assert!(
+        baseline.iter().any(|(t, _)| t == "3/12"),
+        "count painted: {baseline:?}"
+    );
+    // The capsule (painted by `Shape::Rect`, not text) sits in the popup:
+    // a tall rounded rect whose radius is the pill of BAR_H.
+    let input = egui::RawInput {
+        screen_rect: Some(screen()),
+        ..Default::default()
+    };
+    let mut first = ctx.run_ui(input.clone(), |root| {
+        super::find::show_find_bar(root, &mut tab);
+    });
+    first.textures_delta.clear();
+    let mut out = ctx.run_ui(input, |root| {
+        super::find::show_find_bar(root, &mut tab);
+    });
+    let pill = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::epaint::Shape::Rect(r) => Some(r.clone()),
+            _ => None,
+        })
+        .find(|r| {
+            (r.rect.height() - 34.0).abs() < 0.5
+                && r.corner_radius.nw == crate::ui::theme::pill_radius(34.0).nw
+                && r.rect.width() > 200.0
+        });
+    out.textures_delta.clear();
+    assert!(pill.is_some(), "capsule pill painted");
+    // Longer digits in the same fixed slot: the field (and therefore the
+    // buttons, which follow it in the row) must not move. The count's own
+    // ink is centered in its fixed slot, so only its x may shift.
+    tab.find.total = 340;
+    tab.find.current = 119;
+    let after = render(&mut tab);
+    let x_of = |texts: &[(String, f32)], needle: &str| -> f32 {
+        texts
+            .iter()
+            .find(|(t, _)| t == needle)
+            .map(|(_, x)| *x)
+            .unwrap_or_else(|| panic!("{needle:?} not painted: {texts:?}"))
+    };
+    assert_eq!(
+        x_of(&after, "markdown"),
+        x_of(&baseline, "markdown"),
+        "the query field must not move when the count grows"
+    );
+    assert!(
+        after.iter().any(|(t, _)| t == "120/340"),
+        "the new count painted: {after:?}"
+    );
+}
+
+/// The `Find in page` row opens the find bar through the same state the
+/// shortcut uses (the field takes focus on the bar's next frame, and the
+/// menu never keeps the keyboard).
+#[test]
+fn find_row_opens_the_find_bar() {
+    use egui::Key;
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = loaded_tab(None);
+    settle_menu(&ctx, &mut tab);
+    assert!(!tab.find.open, "closed before the menu action");
+    let key = |key: Key| egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    };
+    // Rows without a link under the cursor: Copy, Select all, Find in page.
+    for _ in 0..3 {
+        menu_frame(&ctx, &mut tab, vec![key(Key::ArrowDown)]);
+    }
+    menu_frame(&ctx, &mut tab, vec![key(Key::Enter)]);
+    assert!(!tab.context_open, "the menu closes on the action");
+    assert!(tab.find.open, "Find in page opened the bar");
+    assert!(
+        tab.find.request_focus,
+        "the bar takes the keyboard on its next frame"
+    );
+}

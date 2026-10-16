@@ -9,8 +9,8 @@
 //! Every interactive row keeps the SAME geometry in all visual states (the
 //! egui default `selectable_label` grew its frame on hover and shifted the
 //! list), the dropdowns paint into a fixed rect, the switch animates its
-//! knob, and each destructive action's confirmation note only takes space
-//! while armed (fit content).
+//! knob, the tab bar paints each tab into a fixed slot, and each destructive
+//! action's confirmation note only takes space while armed (fit content).
 
 use super::*;
 
@@ -51,8 +51,10 @@ pub(super) fn dialog_header(ui: &mut egui::Ui, s: &theme::Scheme, open: &mut boo
                 },
             );
         });
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
+        egui::Sense::hover(),
+    );
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
 }
@@ -148,12 +150,14 @@ pub(super) fn setting_row(
 
 /// Hairline separator between rows inside a card.
 pub(super) fn divider(ui: &mut egui::Ui, s: &theme::Scheme) {
-    ui.add_space(2.0);
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
+    ui.add_space(theme::spacing::XXS);
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
+        egui::Sense::hover(),
+    );
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
-    ui.add_space(2.0);
+    ui.add_space(theme::spacing::XXS);
 }
 
 /// Subtle caption under the retention row: how much is stored (or the last
@@ -185,13 +189,11 @@ pub(super) fn history_caption(ui: &mut egui::Ui, s: &theme::Scheme, store: &Hist
     });
 }
 
-/// `N pages stored`, singular-aware.
+/// `N pages stored`, singular-aware. Delegates the singular/plural rule to
+/// the history page's memoized caption (single source; the `" stored"`
+/// suffix stays here, where the persistence meaning lives).
 pub(super) fn count_label(count: usize) -> String {
-    if count == 1 {
-        "1 page stored".to_string()
-    } else {
-        format!("{count} pages stored")
-    }
+    crate::ui::history_page::with_count_label(count, |base| format!("{base} stored"))
 }
 
 /// Full-width destructive action row (trash + label, error-tinted hover).
@@ -295,6 +297,143 @@ pub(super) fn switch(
     response
 }
 
+/// Tab bar height (fixed, so switching tabs never moves the content below).
+const TAB_H: f32 = 36.0;
+/// One shortcut reference row (action + keys, fixed height).
+const SHORTCUT_ROW_H: f32 = 28.0;
+
+/// Preferences tab bar: three equal tabs with stable geometry.
+///
+/// The selected tab carries an accent underline + accent label; hover paints
+/// the neutral wash behind a label whose position never changes. Returns the
+/// newly selected tab, if any.
+pub(super) fn tab_bar(
+    ui: &mut egui::Ui,
+    s: &theme::Scheme,
+    current: PreferencesTab,
+) -> Option<PreferencesTab> {
+    let mut chosen = None;
+    egui::Frame::new()
+        .inner_margin(egui::Margin {
+            left: PAD as i8,
+            right: PAD as i8,
+            top: 4,
+            bottom: 4,
+        })
+        .show(ui, |ui| {
+            let total = ui.available_width();
+            let gap = theme::spacing::XS;
+            // Equal tabs across the row (derived from the tab list, so a new
+            // tab cannot silently overflow the bar).
+            let count = PreferencesTab::ALL.len() as f32;
+            let w = ((total - gap * (count - 1.0)) / count).max(80.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(total, TAB_H),
+                egui::Layout::left_to_right(egui::Align::Center),
+                |ui| {
+                    ui.spacing_mut().item_spacing.x = gap;
+                    for tab in PreferencesTab::ALL {
+                        let selected = tab == current;
+                        if tab_button(ui, s, tab.label(), selected, w).clicked() && !selected {
+                            chosen = Some(tab);
+                        }
+                    }
+                },
+            );
+        });
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
+        egui::Sense::hover(),
+    );
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
+    chosen
+}
+
+/// One tab button: fixed-size, centered label, accent underline when selected.
+fn tab_button(
+    ui: &mut egui::Ui,
+    s: &theme::Scheme,
+    label: &str,
+    selected: bool,
+    w: f32,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(w, TAB_H), egui::Sense::click());
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if response.hovered() && !selected {
+        ui.painter().rect_filled(
+            rect,
+            egui::CornerRadius::same(theme::radius::MENU),
+            s.container_hover,
+        );
+    } else if response.has_focus() {
+        theme::focus_ring(ui, rect, theme::radius::MENU);
+    }
+    if selected {
+        let bar = egui::Rect::from_min_size(
+            egui::pos2(rect.min.x + 12.0, rect.max.y - 3.0),
+            egui::vec2(rect.width() - 24.0, 2.0),
+        );
+        ui.painter().rect_filled(
+            bar,
+            egui::CornerRadius::same(theme::radius::HAIRLINE),
+            s.primary,
+        );
+    }
+    let color = if selected {
+        s.primary
+    } else {
+        s.on_surface_variant
+    };
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        egui::FontId::new(
+            theme::typography::BUTTON,
+            if selected {
+                theme::strong_family()
+            } else {
+                egui::FontFamily::Proportional
+            },
+        ),
+        color,
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
+    });
+    response
+}
+
+/// One shortcut reference row: action on the left, keys on the right.
+///
+/// The keys column is right-aligned by the inner right-to-left layout: egui
+/// anchors that label's galley at the RIGHT edge of its rect (`LayoutJob`
+/// `halign` follows the placing layout), so the shape's `pos` sits at the
+/// column's right edge while the ink extends left of it (the geometry test
+/// measures ink through `galley.rect` for exactly this reason).
+pub(super) fn shortcut_row(ui: &mut egui::Ui, s: &theme::Scheme, action: &str, keys: &str) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), SHORTCUT_ROW_H),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.label(
+                egui::RichText::new(action)
+                    .size(theme::typography::BUTTON)
+                    .color(s.on_surface),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(keys)
+                        .monospace()
+                        .size(theme::typography::UI_SMALL)
+                        .color(s.on_surface_variant),
+                );
+            });
+        },
+    );
+}
+
 /// Borderless close button: a circled hover fill and a thin X.
 pub(super) fn close_button(ui: &mut egui::Ui, s: &theme::Scheme) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(32.0, 32.0), egui::Sense::click());
@@ -368,9 +507,9 @@ pub(super) fn dropdown_row(
 }
 
 /// Dropdown built on [`dropdown_row`]: returns the chosen value, if any.
-/// `name` is the accessible name: egui's `ComboBox` exposes only the current
-/// value, so without it a screen reader announces "Keep 3 months (default),
-/// combo box" with no idea what it sets.
+/// `name` is the accessible name: the field exposes only the current value,
+/// so without it a screen reader announces "Keep 3 months (default), combo
+/// box" with no idea what it sets.
 pub(super) fn dropdown<T: PartialEq + Copy>(
     ui: &mut egui::Ui,
     s: &theme::Scheme,
@@ -382,13 +521,17 @@ pub(super) fn dropdown<T: PartialEq + Copy>(
 ) -> Option<T> {
     let mut chosen = None;
     // Cap the fixed width by the row's remaining space: at high zoom (or a
-    // very narrow window) the 168px combo overran the dialog's right edge
+    // very narrow window) the 168px field overran the dialog's right edge
     // and clipped the control.
     let width = COMBO_W.min((ui.available_width() - 12.0).max(96.0));
-    let combo = egui::ComboBox::from_id_salt(id_salt)
-        .selected_text(selected_text)
+    let (response, popup_id) = dropdown_field(ui, s, id_salt, name, selected_text, width);
+    egui::Popup::menu(&response)
+        .id(popup_id)
         .width(width)
-        .show_ui(ui, |ui| {
+        // The menu closes on the first click (row selection included), like
+        // every other popup in the app.
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClick)
+        .show(|ui| {
             ui.set_min_width(width);
             ui.spacing_mut().item_spacing.y = 0.0;
             for (value, label) in options {
@@ -397,8 +540,108 @@ pub(super) fn dropdown<T: PartialEq + Copy>(
                 }
             }
         });
-    combo
-        .response
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, name));
     chosen
+}
+
+/// The dropdown's closed state: a fixed-height field with the selected value
+/// on the left and a chevron on the right, painted into an exact rect like
+/// every other control in this dialog.
+///
+/// Deliberately NOT egui's `ComboBox`: its button is a `Frame`, and a frame
+/// inside a right-to-left row is laid out from the parent cursor's
+/// `next_widget_position` (for a right-to-left layout that seed sits at the
+/// row's right-CENTER), which parked the box ~7px below the row's middle
+/// while the zoom pill, the switch and the tab buttons — exact rects — stayed
+/// centered. Returns the button response and the id of its menu popup.
+fn dropdown_field(
+    ui: &mut egui::Ui,
+    s: &theme::Scheme,
+    id_salt: &str,
+    name: &str,
+    selected_text: &str,
+    width: f32,
+) -> (egui::Response, egui::Id) {
+    // The shared button metrics: padding + one line of the button text, so
+    // the field matches the theme's buttons instead of a hardcoded height.
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let height =
+        2.0 * ui.spacing().button_padding.y + ui.fonts_mut(|fonts| fonts.row_height(&font));
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
+    let button_id = ui.make_persistent_id(("prefs-dropdown", id_salt));
+    let popup_id = button_id.with("menu");
+    let open = egui::Popup::is_id_open(ui.ctx(), popup_id);
+    let response = ui
+        .interact(rect, button_id, egui::Sense::click())
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    // Enter/`Space` on the focused field opens the menu like a click would.
+    if !open
+        && response.has_focus()
+        && ui.input_mut(|i| {
+            i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                || i.consume_key(egui::Modifiers::NONE, egui::Key::Space)
+        })
+    {
+        egui::Popup::open_id(ui.ctx(), popup_id);
+    }
+    // Surface: the weak-button recipe (resting container, hover wash, the
+    // open state on top) with the shared hairline.
+    let (fill, stroke) = if open {
+        (s.container_high, s.on_surface_variant)
+    } else if response.hovered() {
+        (s.container_hover, s.outline_variant)
+    } else {
+        (s.container_low, s.outline_variant)
+    };
+    ui.painter().rect(
+        rect,
+        egui::CornerRadius::same(theme::radius::CARD),
+        fill,
+        egui::Stroke::new(theme::stroke::HAIRLINE, stroke),
+        egui::StrokeKind::Inside,
+    );
+    if response.has_focus() {
+        theme::focus_ring(ui, rect, theme::radius::CARD);
+    }
+    // Selected value: elided to its own lane, so an overlong value can never
+    // run under the chevron (the shared tile/table recipe).
+    let pad = ui.spacing().button_padding.x;
+    let icon_slot = egui::vec2(16.0, 16.0);
+    let lane_left = rect.min.x + pad;
+    let lane_w = (rect.max.x - pad - icon_slot.x - lane_left).max(1.0);
+    let mut job =
+        egui::text::LayoutJob::simple(selected_text.to_owned(), font.clone(), s.on_surface, lane_w);
+    job.wrap.max_rows = 1;
+    job.wrap.overflow_character = Some('\u{2026}');
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    ui.painter().galley(
+        egui::pos2(lane_left, rect.center().y - galley.size().y * 0.5),
+        galley.clone(),
+        s.on_surface,
+    );
+    // An elided value keeps its full text in a hover tooltip (the app's rule
+    // for every truncated label).
+    let response = if galley.elided {
+        crate::ui::hover_tooltip(response, selected_text)
+    } else {
+        response
+    };
+    // Chevron: the shared vector icon kit, muted like the trailing glyphs of
+    // the other fields.
+    icons::paint(
+        ui,
+        egui::Rect::from_center_size(
+            egui::pos2(rect.max.x - pad - icon_slot.x * 0.5, rect.center().y),
+            icon_slot,
+        ),
+        icons::Icon::ChevronDown,
+        s.on_surface_variant,
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::ComboBox,
+            true,
+            format!("{name}: {selected_text}"),
+        )
+    });
+    (response, popup_id)
 }

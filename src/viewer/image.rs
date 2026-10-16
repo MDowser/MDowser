@@ -177,78 +177,62 @@ fn finish_placeholder(
     resp
 }
 
+/// Shared per-frame image-render context: the five parameters every image
+/// entry point took separately (`selected`, `interactive`, the link-tap
+/// callback, the image cache, the hitbox sink). Bundles them so the four
+/// `render_*` fns stay under the argument cap without `#[allow]`s;
+/// `markdown` builds one from the walk context (`RenderCtx::img_ctx`),
+/// `inline` from its own fragment parameters.
+pub(crate) struct ImgCtx<'a> {
+    pub(crate) selected: bool,
+    pub(crate) interactive: bool,
+    pub(crate) on_link: &'a mut dyn FnMut(&str),
+    pub(crate) images: &'a mut ImageCache,
+    pub(crate) links: &'a mut Vec<LinkHit>,
+}
+
 /// Draws one inline image (inside a paragraph/list line).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_inline_image(
     ui: &mut egui::Ui,
     img: &ImageFrag,
     alt: &str,
     link: Option<&Arc<str>>,
-    selected: bool,
-    interactive: bool,
-    on_link: &mut dyn FnMut(&str),
-    images: &mut ImageCache,
-    links: &mut Vec<LinkHit>,
+    ctx: ImgCtx<'_>,
 ) {
-    render_inline_image_sized(
-        ui,
-        img,
-        alt,
-        link,
-        selected,
-        interactive,
-        on_link,
-        images,
-        links,
-        None,
-    );
+    render_inline_image_sized(ui, img, alt, link, ctx, None);
 }
 
 /// Draws one inline VECTOR image at an explicit height (aspect preserved,
 /// column-clamped): used to give a strip of consecutive SVG icons a common
 /// height, like the source site's CSS does. Raster images ignore `height`.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_inline_image_at_height(
     ui: &mut egui::Ui,
     img: &ImageFrag,
     alt: &str,
     link: Option<&Arc<str>>,
-    selected: bool,
-    interactive: bool,
-    on_link: &mut dyn FnMut(&str),
-    images: &mut ImageCache,
-    links: &mut Vec<LinkHit>,
+    ctx: ImgCtx<'_>,
     height: f32,
 ) {
-    render_inline_image_sized(
-        ui,
-        img,
-        alt,
-        link,
-        selected,
-        interactive,
-        on_link,
-        images,
-        links,
-        Some(height),
-    );
+    render_inline_image_sized(ui, img, alt, link, ctx, Some(height));
 }
 
 /// Shared body of [`render_inline_image`] /
 /// [`render_inline_image_at_height`]; `forced_height` only affects vectors.
-#[allow(clippy::too_many_arguments)]
 fn render_inline_image_sized(
     ui: &mut egui::Ui,
     img: &ImageFrag,
     alt: &str,
     link: Option<&Arc<str>>,
-    selected: bool,
-    interactive: bool,
-    on_link: &mut dyn FnMut(&str),
-    images: &mut ImageCache,
-    links: &mut Vec<LinkHit>,
+    ctx: ImgCtx<'_>,
     forced_height: Option<f32>,
 ) {
+    let ImgCtx {
+        selected,
+        interactive,
+        on_link,
+        images,
+        links,
+    } = ctx;
     let tooltip = tooltip_for(img, alt);
     let clickable = interactive && link.is_some();
     let status = status_for(images, img, interactive);
@@ -325,18 +309,20 @@ fn render_inline_image_sized(
 }
 
 /// Draws a standalone image (paragraph that only contains the image).
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_image_block(
     ui: &mut egui::Ui,
     img: &ImageFrag,
     alt: &str,
     link: Option<&Arc<str>>,
-    selected: bool,
-    interactive: bool,
-    on_link: &mut dyn FnMut(&str),
-    images: &mut ImageCache,
-    links: &mut Vec<LinkHit>,
+    ctx: ImgCtx<'_>,
 ) {
+    let ImgCtx {
+        selected,
+        interactive,
+        on_link,
+        images,
+        links,
+    } = ctx;
     let clickable = interactive && link.is_some();
     let tooltip = tooltip_for(img, alt);
     let status = status_for(images, img, interactive);
@@ -412,7 +398,7 @@ pub(crate) fn render_image_block(
     // Caption: only when the author wrote real alt text.
     let caption = alt.trim();
     if !caption.is_empty() && caption != "[image]" {
-        ui.add_space(2.0);
+        ui.add_space(theme::spacing::XXS);
         ui.vertical_centered(|ui| {
             // Captions are document text: keep them readable (and visibly
             // highlighted) during "Select all" like every other string.
@@ -478,8 +464,10 @@ fn image_placeholder(
                 ui.set_max_width(box_w.max(0.0));
                 ui.vertical_centered(|ui| {
                     ui.add_space(theme::spacing::XS);
-                    let (rect, _) =
-                        ui.allocate_exact_size(egui::vec2(26.0, 26.0), egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(
+                        egui::vec2(theme::ICON_BOX, theme::ICON_BOX),
+                        egui::Sense::hover(),
+                    );
                     icons::paint(ui, rect, icon, s.on_surface_variant);
                     let label = if alt.trim().is_empty() || alt.trim() == "[image]" {
                         message.to_string()
@@ -491,9 +479,15 @@ fn image_placeholder(
                         .color(s.on_surface_variant);
                     let resp = ui.add(egui::Label::new(rt).selectable(false).truncate());
                     if let Some(reason) = reason {
-                        crate::ui::hover_tooltip(resp, reason);
+                        // Server-controlled failure detail: bound what reaches
+                        // the hover card (the fetch path already strips
+                        // credentials; this caps a padded `Content-Type` echo).
+                        let clean = crate::util::strip_credentials_for_log(reason);
+                        let short =
+                            crate::util::truncate_chars(&clean, crate::config::MAX_LOG_LINE_CHARS);
+                        crate::ui::hover_tooltip(resp, &short);
                     }
-                    ui.add_space(2.0);
+                    ui.add_space(theme::spacing::XXS);
                 });
             })
             .response

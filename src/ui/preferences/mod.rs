@@ -5,19 +5,16 @@
 
 //! `ui::preferences`: the floating Preferences dialog.
 //!
-//! - `Preferences`: a FIXED-SIZE, card-style dialog (custom header,
-//!   section cards, list rows) sized to its disarmed content: the History
-//!   and Local data cards fit their rows with no reserved bottom space.
-//!   History retention and the destructive "Delete history" action live in
-//!   the History card; theme, startup zoom and "restore tabs on startup" in
-//!   the Appearance card; "Delete all data and close" (wipes every local
-//!   file and exits) in the Local data card; a compact footer line carries
-//!   the version/own license and the link to the internal third-party
-//!   licenses page (`about:licenses`, opened by `App`; this module never
-//!   navigates).
-//! - The HISTORY LIST is not here: it is the internal `about:history` page
-//!   (`ui::history_page`), rendered in a tab like a document. This module
-//!   keeps only the Preferences overlay: `App` owns its visibility.
+//! - `Preferences`: a FIXED-SIZE, card-style dialog (custom header, tab bar,
+//!   section cards, list rows) sized to its disarmed content. Three tabs:
+//!   General (appearance + version/licenses footer), Data (history retention
+//!   with the destructive "Delete history" action, plus the "Delete all data
+//!   and close" card) and Shortcuts (read-only keyboard shortcut reference
+//!   in English). The HISTORY LIST is not here: it is the internal
+//!   `about:history` page (`ui::history_page`), rendered in a tab like a
+//!   document. This module keeps only the Preferences overlay: `App` owns
+//!   its visibility; the third-party licenses page (`about:licenses`) is
+//!   opened by `App` (this module never navigates).
 //!
 //! STABLE HOVER (fixed bug): every interactive row keeps the SAME geometry
 //! in all visual states. The egui default `selectable_label` only grew its
@@ -74,11 +71,89 @@ const WIPE_CONFIRM_SECS: u64 = config::DELETE_CONFIRM_SECS;
 pub struct PreferencesState {
     /// Preferences dialog visible.
     pub prefs_open: bool,
+    /// Active tab (kept across opens; never persisted to disk).
+    selected: PreferencesTab,
     /// Deadline of the armed "Delete history" confirmation.
     clear_confirm: Option<Instant>,
     /// Deadline of the armed "Delete all data and close" confirmation.
     wipe_confirm: Option<Instant>,
 }
+
+/// One tab of the Preferences dialog.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreferencesTab {
+    /// Appearance + version/licenses footer.
+    #[default]
+    General,
+    /// History retention + both destructive actions.
+    Data,
+    /// Read-only keyboard shortcut reference (English).
+    Shortcuts,
+}
+
+impl PreferencesTab {
+    /// All tabs in bar order.
+    const ALL: [Self; 3] = [Self::General, Self::Data, Self::Shortcuts];
+
+    /// Tab bar label.
+    fn label(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Data => "Data",
+            Self::Shortcuts => "Shortcuts",
+        }
+    }
+}
+
+/// Grouped keyboard shortcut reference (English): `(group, &[(action, keys)])`.
+///
+/// Single source for the Shortcuts tab: a CURATED quick reference, not the
+/// full key map (the complete list lives in `docs/INTERFACE.md`). The bare
+/// `Esc` rows (stop/close) and the keyboard reorders (`Alt`+arrows on a
+/// focused tab or tile) are deliberately left out: they are obvious or niche,
+/// and every row here should be a key a user would not guess. Mirrors
+/// `app::shortcuts` (`handle_shortcuts`), the find bar stepping
+/// (`viewer::overlays::find`) and the macOS menu accelerators (`app::menu`).
+const SHORTCUT_GROUPS: &[(&str, &[(&str, &str)])] = &[
+    (
+        "TABS",
+        &[
+            ("New tab", "Ctrl/Cmd + T"),
+            ("Close tab", "Ctrl/Cmd + W"),
+            ("Select tab 1-9", "Ctrl/Cmd + 1-9"),
+        ],
+    ),
+    (
+        "NAVIGATION",
+        &[
+            ("Focus address field", "Ctrl/Cmd + L"),
+            ("Reload page", "Ctrl/Cmd + R / F5"),
+            ("Open history", "Ctrl + H / Cmd + Y"),
+            ("Bookmark this page", "Ctrl/Cmd + D"),
+            ("Open preferences", "Ctrl/Cmd + ,"),
+        ],
+    ),
+    (
+        "PAGE",
+        &[
+            ("Find in page", "Ctrl/Cmd + F"),
+            (
+                "Next / previous match",
+                "Enter / Shift+Enter (F3 / Shift+F3)",
+            ),
+            ("Select all page text", "Ctrl/Cmd + A"),
+            ("Copy selection or page", "Ctrl/Cmd + C"),
+        ],
+    ),
+    (
+        "ZOOM",
+        &[
+            ("Zoom in", "Ctrl/Cmd + + / ="),
+            ("Zoom out", "Ctrl/Cmd + -"),
+            ("Reset zoom to 100%", "Ctrl/Cmd + 0"),
+        ],
+    ),
+];
 
 /// Side effects of one Preferences frame, performed by `App` (this module
 /// never touches tabs or navigation).
@@ -99,6 +174,7 @@ impl PreferencesState {
     pub fn new() -> Self {
         Self {
             prefs_open: false,
+            selected: PreferencesTab::General,
             clear_confirm: None,
             wipe_confirm: None,
         }
@@ -136,7 +212,7 @@ impl PreferencesState {
         }
     }
 
-    /// Preferences: history, appearance and privacy.
+    /// Preferences dialog with tabs: General, Data and Shortcuts.
     fn show_prefs(
         &mut self,
         ctx: &egui::Context,
@@ -144,6 +220,7 @@ impl PreferencesState {
         prefs: &mut Prefs,
     ) -> PrefsActions {
         let mut open = self.prefs_open;
+        let mut selected = self.selected;
         let mut confirm_until = self.clear_confirm;
         let mut wipe_until = self.wipe_confirm;
         let mut applied_zoom = None;
@@ -189,13 +266,20 @@ impl PreferencesState {
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, TOP_MARGIN))
             .frame(frame)
             .show(ctx, |ui| {
-                // No inter-widget gaps: the header/divider/scroll stack
+                // No inter-widget gaps: the header/tab/scroll stack stays
                 // flush, so the title keeps equal air above and below
                 // (the theme's 8px item spacing would otherwise pile two
                 // gaps plus the body padding under the title).
                 ui.spacing_mut().item_spacing.y = 0.0;
                 dialog_header(ui, s, &mut open);
+                if let Some(tab) = tab_bar(ui, s, selected) {
+                    selected = tab;
+                }
+                // Per-tab scroll id: each tab keeps its own offset (a shared
+                // one handed the scrolled offset to whichever tab came next,
+                // which egui then clamped to that tab's content).
                 egui::ScrollArea::vertical()
+                    .id_salt(("prefs-scroll", selected.label()))
                     .auto_shrink([false, true])
                     .show(ui, |ui| {
                         egui::Frame::new()
@@ -205,273 +289,37 @@ impl PreferencesState {
                                 top: 10,
                                 bottom: 16,
                             })
-                            .show(ui, |ui| {
-                                // ---- History -------------------------------------------
-                                card(ui, s, |ui| {
-                                    // Tight fit: no trailing reserved space,
-                                    // so the card hugs its rows when disarmed.
-                                    ui.spacing_mut().item_spacing.y = 4.0;
-                                    section_title(ui, s, "HISTORY");
-                                    setting_row(ui, s, "Keep visits", |ui| {
-                                        let current = store.retention();
-                                        let selected = Retention::options()
-                                            .iter()
-                                            .find(|(retention, _)| *retention == current)
-                                            .map(|(_, label)| *label)
-                                            .unwrap_or("Keep 3 months (default)");
-                                        if let Some(retention) = dropdown(
-                                            ui,
-                                            s,
-                                            "prefs-retention",
-                                            "Keep visits",
-                                            selected,
-                                            &Retention::options(),
-                                            current,
-                                        ) {
-                                            store.set_retention(retention);
-                                            // "Forget on exit" extends to the
-                                            // encrypted session snapshot:
-                                            // restore-tabs is turned off (and
-                                            // any leftover file deleted) so
-                                            // the privacy promise holds.
-                                            if store.forgets_on_exit() {
-                                                prefs.set_restore_tabs(false);
-                                            }
-                                        }
-                                    });
-                                    history_caption(ui, s, store);
-                                    divider(ui, s);
-                                    let now = Instant::now();
-                                    let confirming = confirm_until.is_some_and(|until| until > now);
-                                    let label = if confirming {
-                                        "Confirm delete"
-                                    } else {
-                                        "Delete history"
-                                    };
-                                    if danger_row(ui, s, label, icons::Icon::Delete).clicked() {
-                                        if confirming {
-                                            store.clear();
-                                            confirm_until = None;
-                                        } else {
-                                            // Shared fail-closed deadline helper
-                                            // (panic-free `Instant` arithmetic).
-                                            confirm_until = Some(crate::config::deadline_after(
-                                                CLEAR_CONFIRM_SECS,
-                                            ));
-                                        }
-                                    }
-                                    // Fit content: the note only takes space
-                                    // while armed, pushing the cards below.
-                                    let armed =
-                                        confirm_until.is_some_and(|until| until > Instant::now());
-                                    confirm_note(
+                            .show(ui, |ui| match selected {
+                                PreferencesTab::General => {
+                                    Self::render_general(
                                         ui,
-                                        armed,
-                                        "Click again to delete every visit.",
+                                        store,
+                                        prefs,
+                                        &mut applied_zoom,
+                                        &mut open,
+                                        &mut open_licenses,
                                     );
-                                    if armed {
-                                        // Keep the armed label from going stale.
-                                        ctx.request_repaint_after(Duration::from_millis(250));
-                                    }
-                                });
-
-                                ui.add_space(theme::spacing::L);
-
-                                // ---- Appearance ----------------------------------------
-                                card(ui, s, |ui| {
-                                    section_title(ui, s, "APPEARANCE");
-                                    setting_row(ui, s, "Theme", |ui| {
-                                        if let Some(theme_pref) = dropdown(
-                                            ui,
-                                            s,
-                                            "prefs-theme",
-                                            "Theme",
-                                            prefs.theme().label(),
-                                            &ThemePref::options(),
-                                            prefs.theme(),
-                                        ) {
-                                            prefs.set_theme(theme_pref);
-                                            prefs.apply_theme(ui.ctx());
-                                        }
-                                    });
-                                    divider(ui, s);
-                                    setting_row(ui, s, "Default zoom", |ui| {
-                                        // Same `- % +` capsule as the toolbar
-                                        // (clicking the readout resets to
-                                        // 100%), stepping like it instead of
-                                        // a slider.
-                                        let mut zoom = prefs.default_zoom();
-                                        crate::ui::navbar::default_zoom_control(ui, &mut zoom);
-                                        if (zoom - prefs.default_zoom()).abs() > f32::EPSILON {
-                                            prefs.set_default_zoom(zoom);
-                                            applied_zoom = Some(prefs.default_zoom());
-                                        }
-                                    });
-                                    divider(ui, s);
-                                    setting_row(ui, s, "Restore tabs on startup", |ui| {
-                                        let mut restore = prefs.restore_tabs();
-                                        if switch(ui, s, "Restore tabs on startup", &mut restore)
-                                            .changed()
-                                        {
-                                            prefs.set_restore_tabs(restore);
-                                        }
-                                    });
-                                    if store.forgets_on_exit() {
-                                        ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(
-                                                    "Off while history is set to Forget on exit: tab URLs are never written to disk.",
-                                                )
-                                                .size(theme::typography::UI_SMALL)
-                                                .color(s.on_surface_variant),
-                                            )
-                                            .selectable(false),
-                                        );
-                                    }
-                                    // A failed delete of the encrypted session
-                                    // file must not pass silently.
-                                    if let Some(error) = prefs.session_delete_error() {
-                                        let resp = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(error)
-                                                    .size(theme::typography::UI_SMALL)
-                                                    .color(s.error),
-                                            )
-                                            .truncate()
-                                            .selectable(false),
-                                        );
-                                        // Truncated at dialog width: the full
-                                        // OS message must stay readable.
-                                        crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
-                                    }
-                                    // Same for a session snapshot that could
-                                    // not be written on the worker: restore
-                                    // would reopen a stale tab list.
-                                    if let Some(error) = prefs.session_save_error() {
-                                        let resp = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(error)
-                                                    .size(theme::typography::UI_SMALL)
-                                                    .color(s.error),
-                                            )
-                                            .truncate()
-                                            .selectable(false),
-                                        );
-                                        crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
-                                    }
-                                    // Same for a preference that could not be
-                                    // persisted (it would silently "revert"
-                                    // on the next launch).
-                                    if let Some(error) = prefs.settings_error() {
-                                        let resp = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(error)
-                                                    .size(theme::typography::UI_SMALL)
-                                                    .color(s.error),
-                                            )
-                                            .truncate()
-                                            .selectable(false),
-                                        );
-                                        crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
-                                    }
-                                });
-
-                                ui.add_space(theme::spacing::L);
-
-                                // ---- Local data ------------------------------------
-                                // "Delete all data and close": removes the whole
-                                // data directory (history, bookmarks, settings,
-                                // session and key) and exits without saving
-                                // anything else. Two clicks like every other
-                                // destructive action.
-                                card(ui, s, |ui| {
-                                    // Tight fit like the History card above.
-                                    ui.spacing_mut().item_spacing.y = 4.0;
-                                    section_title(ui, s, "LOCAL DATA");
-                                    let now = Instant::now();
-                                    let wiping = wipe_until.is_some_and(|until| until > now);
-                                    let wipe_label = if wiping {
-                                        "Confirm delete and close"
-                                    } else {
-                                        "Delete all data and close"
-                                    };
-                                    if danger_row(ui, s, wipe_label, icons::Icon::Delete).clicked() {
-                                        if wiping {
-                                            wipe_until = None;
-                                            wipe_all = true;
-                                        } else {
-                                            wipe_until = Some(crate::config::deadline_after(
-                                                WIPE_CONFIRM_SECS,
-                                            ));
-                                        }
-                                    }
-                                    let wipe_armed =
-                                        wipe_until.is_some_and(|until| until > Instant::now());
-                                    confirm_note(
+                                }
+                                PreferencesTab::Data => {
+                                    Self::render_data(
                                         ui,
-                                        wipe_armed,
-                                        "Click again to delete all data and close.",
-                                    );
-                                    // A wipe that did not go through keeps the
-                                    // app open: say so instead of exiting as if
-                                    // the data were gone.
-                                    if let Some(error) = prefs.wipe_error() {
-                                        let resp = ui.add(
-                                            egui::Label::new(
-                                                egui::RichText::new(error)
-                                                    .size(theme::typography::UI_SMALL)
-                                                    .color(s.error),
-                                            )
-                                            .truncate()
-                                            .selectable(false),
-                                        );
-                                        crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
-                                    }
-                                    if wipe_armed {
-                                        ctx.request_repaint_after(Duration::from_millis(250));
-                                    }
-                                });
-
-                                ui.add_space(theme::spacing::M);
-
-                                // ---- About (compact) ----------------------------------
-                                // ONE left-to-right line on purpose: the dialog
-                                // is content-sized with a bounded height, so
-                                // the card stack above must keep the whole
-                                // option set inside the scroll viewport; a full
-                                // About card is therefore not an option (the
-                                // geometry test pins this). Version and license
-                                // identity stay visible; the link opens the
-                                // embedded `THIRD_PARTY_NOTICES.md`.
-                                ui.horizontal(|ui| {
-                                    ui.label(theme::weak(
-                                        ui,
-                                        concat!(
-                                            "MDowser ",
-                                            env!("CARGO_PKG_VERSION"),
-                                            " · MPL-2.0"
-                                        ),
-                                    ));
-                                    ui.label(theme::weak(ui, "·"));
-                                    let link = text_link(
-                                        ui,
+                                        ctx,
                                         s,
-                                        "View third-party licenses",
-                                        "Licenses of the bundled crates and fonts",
+                                        store,
+                                        prefs,
+                                        &mut confirm_until,
+                                        &mut wipe_until,
+                                        &mut wipe_all,
                                     );
-                                    if link.clicked() {
-                                        // Also dismiss the dialog: `App`
-                                        // opens the page in a new tab, and a
-                                        // floating Preferences window would
-                                        // otherwise sit on top of it.
-                                        open_licenses = true;
-                                        open = false;
-                                    }
-                                });
+                                }
+                                PreferencesTab::Shortcuts => {
+                                    Self::render_shortcuts(ui, s);
+                                }
                             });
                     });
             });
         self.prefs_open = open;
+        self.selected = selected;
         // Closing the dialog (its X or Esc) disarms pending deletes: the
         // two-click confirmations must not survive into a later visit. An
         // ELAPSED deadline is dropped too (keeping a stale `Some(Instant)`
@@ -484,6 +332,284 @@ impl PreferencesState {
             open_licenses,
             wipe_all,
         }
+    }
+
+    /// General tab: appearance card + compact version/licenses footer.
+    fn render_general(
+        ui: &mut egui::Ui,
+        store: &HistoryStore,
+        prefs: &mut Prefs,
+        applied_zoom: &mut Option<f32>,
+        open: &mut bool,
+        open_licenses: &mut bool,
+    ) {
+        let s = theme::scheme_ref(ui);
+        card(ui, s, |ui| {
+            section_title(ui, s, "APPEARANCE");
+            setting_row(ui, s, "Theme", |ui| {
+                if let Some(theme_pref) = dropdown(
+                    ui,
+                    s,
+                    "prefs-theme",
+                    "Theme",
+                    prefs.theme().label(),
+                    &ThemePref::options(),
+                    prefs.theme(),
+                ) {
+                    prefs.set_theme(theme_pref);
+                    prefs.apply_theme(ui.ctx());
+                }
+            });
+            divider(ui, s);
+            setting_row(ui, s, "Default zoom", |ui| {
+                // Same `- % +` capsule as the toolbar (clicking the readout
+                // resets to 100%), stepping like it instead of a slider.
+                let mut zoom = prefs.default_zoom();
+                crate::ui::navbar::default_zoom_control(ui, &mut zoom);
+                if (zoom - prefs.default_zoom()).abs() > f32::EPSILON {
+                    prefs.set_default_zoom(zoom);
+                    *applied_zoom = Some(prefs.default_zoom());
+                }
+            });
+            divider(ui, s);
+            setting_row(ui, s, "Restore tabs on startup", |ui| {
+                let mut restore = prefs.restore_tabs();
+                if switch(ui, s, "Restore tabs on startup", &mut restore).changed() {
+                    prefs.set_restore_tabs(restore);
+                }
+            });
+            if store.forgets_on_exit() {
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(
+                            "Off while history is set to Forget on exit: tab URLs are never written to disk.",
+                        )
+                        .size(theme::typography::UI_SMALL)
+                        .color(s.on_surface_variant),
+                    )
+                    .selectable(false),
+                );
+            }
+            // A failed delete of the encrypted session file must not pass
+            // silently.
+            if let Some(error) = prefs.session_delete_error() {
+                let resp = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(error)
+                            .size(theme::typography::UI_SMALL)
+                            .color(s.error),
+                    )
+                    .truncate()
+                    .selectable(false),
+                );
+                // Truncated at dialog width: the full OS message must stay
+                // readable.
+                crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
+            }
+            // Same for a session snapshot that could not be written on the
+            // worker: restore would reopen a stale tab list.
+            if let Some(error) = prefs.session_save_error() {
+                let resp = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(error)
+                            .size(theme::typography::UI_SMALL)
+                            .color(s.error),
+                    )
+                    .truncate()
+                    .selectable(false),
+                );
+                crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
+            }
+            // Same for a preference that could not be persisted (it would
+            // silently "revert" on the next launch).
+            if let Some(error) = prefs.settings_error() {
+                let resp = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(error)
+                            .size(theme::typography::UI_SMALL)
+                            .color(s.error),
+                    )
+                    .truncate()
+                    .selectable(false),
+                );
+                crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
+            }
+        });
+
+        ui.add_space(theme::spacing::M);
+
+        // ---- Version (compact) ----------------------------------------
+        // ONE left-to-right line on purpose: version and license identity
+        // stay visible without a whole card; the link opens the embedded
+        // `THIRD_PARTY_NOTICES.md`.
+        ui.horizontal(|ui| {
+            ui.label(theme::weak(
+                ui,
+                concat!("MDowser ", env!("CARGO_PKG_VERSION"), " · MPL-2.0"),
+            ));
+            ui.label(theme::weak(ui, "·"));
+            let link = text_link(
+                ui,
+                s,
+                "View third-party licenses",
+                "Licenses of the bundled crates and fonts",
+            );
+            if link.clicked() {
+                // Also dismiss the dialog: `App` opens the page in a new
+                // tab, and a floating Preferences window would otherwise sit
+                // on top of it.
+                *open_licenses = true;
+                *open = false;
+            }
+        });
+    }
+
+    /// Data tab: history retention + delete, and the wipe-everything card.
+    #[allow(clippy::too_many_arguments)]
+    fn render_data(
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        s: &theme::Scheme,
+        store: &mut HistoryStore,
+        prefs: &mut Prefs,
+        confirm_until: &mut Option<Instant>,
+        wipe_until: &mut Option<Instant>,
+        wipe_all: &mut bool,
+    ) {
+        // ---- History --------------------------------------------------
+        card(ui, s, |ui| {
+            // Tight fit: no trailing reserved space, so the card hugs its
+            // rows when disarmed.
+            ui.spacing_mut().item_spacing.y = 4.0;
+            section_title(ui, s, "HISTORY");
+            setting_row(ui, s, "Keep visits", |ui| {
+                let current = store.retention();
+                let selected = Retention::options()
+                    .iter()
+                    .find(|(retention, _)| *retention == current)
+                    .map(|(_, label)| *label)
+                    .unwrap_or("Keep 3 months (default)");
+                if let Some(retention) = dropdown(
+                    ui,
+                    s,
+                    "prefs-retention",
+                    "Keep visits",
+                    selected,
+                    &Retention::options(),
+                    current,
+                ) {
+                    store.set_retention(retention);
+                    // "Forget on exit" extends to the encrypted session
+                    // snapshot: restore-tabs is turned off (and any leftover
+                    // file deleted) so the privacy promise holds.
+                    if store.forgets_on_exit() {
+                        prefs.set_restore_tabs(false);
+                    }
+                }
+            });
+            history_caption(ui, s, store);
+            divider(ui, s);
+            let now = Instant::now();
+            let confirming = confirm_until.is_some_and(|until| until > now);
+            let label = if confirming {
+                "Confirm delete"
+            } else {
+                "Delete history"
+            };
+            if danger_row(ui, s, label, icons::Icon::Delete).clicked() {
+                if confirming {
+                    store.clear();
+                    *confirm_until = None;
+                } else {
+                    // Shared fail-closed deadline helper (panic-free
+                    // `Instant` arithmetic).
+                    *confirm_until = Some(crate::config::deadline_after(CLEAR_CONFIRM_SECS));
+                }
+            }
+            // Fit content: the note only takes space while armed, pushing
+            // the cards below.
+            let armed = confirm_until.is_some_and(|until| until > Instant::now());
+            confirm_note(ui, armed, "Click again to delete every visit.");
+            if armed {
+                // Keep the armed label from going stale.
+                ctx.request_repaint_after(Duration::from_millis(250));
+            }
+        });
+
+        ui.add_space(theme::spacing::L);
+
+        // ---- Local data ------------------------------------------------
+        // "Delete all data and close": removes the whole data directory
+        // (history, bookmarks, settings, session and key) and exits without
+        // saving anything else. Two clicks like every other destructive
+        // action.
+        card(ui, s, |ui| {
+            // Tight fit like the History card above.
+            ui.spacing_mut().item_spacing.y = 4.0;
+            section_title(ui, s, "LOCAL DATA");
+            let now = Instant::now();
+            let wiping = wipe_until.is_some_and(|until| until > now);
+            let wipe_label = if wiping {
+                "Confirm delete and close"
+            } else {
+                "Delete all data and close"
+            };
+            if danger_row(ui, s, wipe_label, icons::Icon::Delete).clicked() {
+                if wiping {
+                    *wipe_until = None;
+                    *wipe_all = true;
+                } else {
+                    *wipe_until = Some(crate::config::deadline_after(WIPE_CONFIRM_SECS));
+                }
+            }
+            let wipe_armed = wipe_until.is_some_and(|until| until > Instant::now());
+            confirm_note(ui, wipe_armed, "Click again to delete all data and close.");
+            // A wipe that did not go through keeps the app open: say so
+            // instead of exiting as if the data were gone.
+            if let Some(error) = prefs.wipe_error() {
+                let resp = ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(error)
+                            .size(theme::typography::UI_SMALL)
+                            .color(s.error),
+                    )
+                    .truncate()
+                    .selectable(false),
+                );
+                crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
+            }
+            if wipe_armed {
+                ctx.request_repaint_after(Duration::from_millis(250));
+            }
+        });
+    }
+
+    /// Shortcuts tab: read-only keyboard shortcut reference (English).
+    fn render_shortcuts(ui: &mut egui::Ui, s: &theme::Scheme) {
+        card(ui, s, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            section_title(ui, s, "KEYBOARD SHORTCUTS");
+            // A beat of air above the first group: the title and the group
+            // label would otherwise sit as close as two rows inside a group.
+            ui.add_space(theme::spacing::L);
+            for (gi, (group, rows)) in SHORTCUT_GROUPS.iter().enumerate() {
+                if gi > 0 {
+                    divider(ui, s);
+                }
+                ui.label(
+                    theme::strong(egui::RichText::new(*group).size(theme::typography::UI_SMALL))
+                        .color(s.on_surface_variant),
+                );
+                for (action, keys) in *rows {
+                    shortcut_row(ui, s, action, keys);
+                }
+            }
+            ui.add_space(theme::spacing::S);
+            ui.label(theme::weak(
+                ui,
+                "Ctrl/Cmd means Ctrl on Windows/Linux, Cmd on macOS.",
+            ));
+        });
     }
 }
 

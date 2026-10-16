@@ -5,6 +5,189 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Shortcuts tab in Preferences: a read-only keyboard shortcut quick
+  reference in English (Tabs / Navigation / Page / Zoom), curating the keys
+  `app::shortcuts` handles, the find-bar stepping and the macOS menu
+  accelerators down to the non-obvious ones (no bare `Esc` rows, no keyboard
+  reorders; the full list stays in `docs/INTERFACE.md`).
+  (`src/ui/preferences/`, `docs/`.)
+- Find in page (`Ctrl/Cmd+F`, or the right-click menu's "Find in page" row)
+  on document pages (loaded documents and
+  `about:licenses`): a floating bar built from the app's own chrome kit
+  (omnibox-style capsule with the magnifier, a fixed muted `n/m` count,
+  circular previous/next/close icon buttons). Case-insensitive substring
+  over the rendered text (prose, headings, lists, quotes, tables and fenced
+  code), amber highlight with a stronger current match (code rows wash
+  uniformly), `Enter`/`Shift+Enter`
+  (`F3`/`Shift+F3`) navigation, with the sheet scrolling the current match
+  into view (down or up) until it is visible, `Esc` to close. Searching
+  never re-wraps the page and never turns color emoji monochrome: matches
+  ride on the same laid-out text with the wash painted behind it.
+  (`src/viewer/find.rs`, `src/viewer/find/tests.rs`,
+  `src/viewer/overlays/find.rs`, `src/app/shortcuts.rs`,
+  `src/viewer/inline/`, `src/viewer/inline/tests_find.rs`,
+  `src/viewer/code/`, `src/viewer/markdown/`, `src/viewer/tests_find.rs`,
+  `src/viewer/table/`, `src/config/mod.rs`.)
+
+### Changed
+
+- The `about:history` page got a visual pass: the visits group into rolling
+  date sections (Today / Yesterday / Previous 7 days / Previous 30 days /
+  Older), each row carries its site favicon (shared session cache; globe or
+  file glyph as fallback) with the title, relative age and remove X, the
+  search box is a capsule with a magnifier and a clear button, the header
+  prints the total and the active retention window, the footer repeats the
+  count ("N of M pages" while filtering), a failed save/delete surfaces its
+  error there, and the empty state is an illustrated call to action.
+  (`src/ui/history_page/`, `src/ui/icons/mod.rs`, `src/viewer/mod.rs`.)
+- Preferences is a tabbed dialog now: General (theme, default zoom, restore
+  tabs on startup, plus the version/own-license line and the "View
+  third-party licenses" link), Data (history retention, "Delete history",
+  "Delete all data and close") and Shortcuts. While the dialog stays open
+  the selected tab and each tab's scroll position are kept (neither is
+  written to disk), and every tab is content-sized as before.
+  (`src/ui/preferences/`, `docs/`.)
+- Favicon cache bounds: the per-session origin cap doubles to 512 hosts
+  (`MAX_FAVICON_HOSTS`) and icons decode at `MAX_FAVICON_DIM` 160 px instead
+  of 384 px — they never draw larger than the ~27 pt toolbar glyph (143
+  device px at the widest zoom plus a 300% display scale), so a full cache
+  now holds at most 50 MiB of textures instead of 144 MiB.
+  (`src/config/mod.rs`, `src/media/favicon.rs`, `docs/`.)
+- Standardization: the find washes live in the `Scheme`
+  (`find_match`/`find_current`) instead of hardcoded RGB branches, every
+  chrome icon button shares `theme::ICON_BOX` (26px), the gallery gap and
+  step gaps share `spacing::M`, headings rest on `spacing::XL`, and the
+  content fade geometry is named constants — same pixels except the step
+  gap (10px → 8px) and H1/H2 top air (20/18px → 16px), now on the scale.
+  (`src/ui/theme/`, `src/ui/tabs/`, `src/ui/navbar/`, `src/ui/omnibox/`,
+  `src/ui/history_page/`, `src/viewer/markdown/`, `docs/`.)
+- Performance: in-page find counts without the per-fragment `Vec` (new
+  `find::count_occurrences`/`contains_match`), code blocks borrow the
+  lowercased query instead of cloning it per block per frame, and the
+  visible-row wash stops at the first hit; emoji eviction finds the oldest
+  tick in one scan and removes it O(1) (no per-candidate `String` clone,
+  no second `position` scan, no queue memmove — same LRU policy).
+  (`src/viewer/find.rs`, `src/viewer/code/`, `src/media/emoji/`.)
+- Build/docs sync: `windows.ps1` skips NASM on ARM64 (like CI and
+  `docs/BUILDING.md`) and reads the toolchain channel from
+  `rust-toolchain.toml` instead of a hardcoded `1.98`; `README.md`
+  says `.exe zip`, lists `Ctrl/Cmd+F`, and `docs/BUILDING.md` lists every
+  `make` target (`build`, `check-dist`, `fmt`, `clippy`, `sync-sites`,
+  `check-sites`); `docs/ARCHITECTURE.md` names both find files;
+  `docs/SECURITY.md` documents the find/history-filter caps and the SVG
+  token/depth and bookmark byte numbers. (`windows.ps1`, `README.md`,
+  `docs/`, `CHANGELOG.md`.)
+- Hardening/standardization pass: the error view strips pasted/server
+  credentials before painting `Requested:`/details and before `Copy log`
+  (single `display_line` helper, same text on screen and clipboard);
+  responses declaring more than `MAX_CONTENT_TYPE_VALUES` (8) `Content-Type`
+  values are rejected instead of inspecting an attacker-chosen prefix;
+  image failure tooltips are credential-stripped and bounded to
+  `MAX_LOG_LINE_CHARS`; shared bounds moved into `config`
+  (`MAX_CONTENT_TYPE_VALUES`, `MAX_IMAGE_ALT/TITLE_CHARS`,
+  `MAX_MARKDOWN_RENDER_DEPTH`, `LOCAL_READ_CHUNK_BYTES`,
+  `MAX_CODE_HIGHLIGHT_*`); chrome gaps reuse `spacing::M`/`CHROME_*`
+  tokens (same pixels); the toast announces its text to screen readers;
+  ASCII find counting avoids the per-fragment lowercase allocation.
+  Build scripts are fail-closed (`packaging.sh` `sed`, `validate.sh` temp
+  trap, `build-dist.sh` `DIST` guard + `splitext` zip fallback, collapsed
+  host-copy branch, `lib.sh` `HOME` guard under `set -u`; `make help`
+  lists `all`, `make clean` also drops Flatpak staging). Docs/root sync:
+  per-OS history shortcut, `+`/`=` zoom, global-vs-local shortcut scope,
+  vendored builtin-sites flow, find test files, `getrandom` pin and the
+  shared-vs-local bounds wording. (`src/ui/error_view.rs`,
+  `src/protocol/client/get.rs`, `src/config/mod.rs`,
+  `src/protocol/local.rs`, `src/viewer/`, `src/ui/`, `scripts/`,
+  `Makefile`, `docs/`, `README.md`, `assets/builtin_sites.txt`,
+  `Cargo.toml`, `CHANGELOG.md`.)
+- Standardization round 2: every remaining bare `.strong()` goes through
+  `theme::strong` (real Noto-700 face), every 1px/2px stroke through
+  `stroke::HAIRLINE`/`EMPHASIS` (including the theme's own visuals), the
+  bookmark header through `typography::ROW`/`HEADING`, the history H1
+  through the new `typography::PAGE_TITLE` (30px), hairline gaps through
+  the new `spacing::XXS` (2px), placeholders/accordion headers through
+  `ICON_BOX`, and the tile avatar hues move to `theme::AVATAR_PALETTE`
+  (documented fixed-hue exception); the dead owned `scheme_for` copy is
+  removed (every caller borrows `scheme_ref`), and icon buttons with one
+  static text share `finish_static_icon_button` instead of two closure
+  twins. Same pixels except the menu separator air (5px to 4px, on the
+  scale). (`src/ui/theme/`, `src/ui/`, `src/viewer/`, `docs/`.)
+- Performance round 2: painted-per-frame labels are memoized — the find
+  bar `n/m` count on `(current, total, capped)`, the toolbar zoom readout
+  in a thread-local buffer, the history header/footer captions (with the
+  singular/plural rule shared with Preferences), the code Copy label lazily
+  for both accesskit and hover — tab titles are borrowed with a
+  gated tooltip, the code match wash consumes the line iterator inline
+  (no `Vec` per block per frame), `contains_match` gains an allocation-free
+  ASCII path and gates all four range walks (non-matching fragments skip
+  the lowercase plus `Vec`), inline code skips its wrap probe on fresh
+  rows, `scan_pairs` compares close tags allocation-free, and the
+  `"[image]"`/`"[x] "` frag spellings are `Cow::Borrowed`. Settled frames
+  allocate nothing new on these paths. (`src/viewer/`, `src/ui/`,
+  `docs/ARCHITECTURE.md`.)
+- Hardening round 2: local post-parse read errors echo the `file:` URL
+  through the bounded credential-stripped helper (`local::echo_url`),
+  mirroring the network log sinks; the remaining dispersed bounds move
+  into `config` (`MAX_CODE_CACHE_BYTES`, `MAX_TABLE_WIDTHS_CACHE_BYTES`,
+  `MAX_FONT_ASSET_GZIP_BYTES`, `MAX_SETTINGS_BYTES`) with the sanitizer
+  roles mapped in `util` docs. `docs/SECURITY.md` now names the redirect,
+  concurrency, timeout, autolink/anchor/join, route, render-depth and
+  cache caps too. (`src/protocol/local.rs`, `src/config/mod.rs`,
+  `src/viewer/`, `src/media/emoji/`, `src/settings/`, `src/util.rs`,
+  `docs/`.)
+- Refactor: the four image entry points share one `ImgCtx` bundle (built
+  per call from the walk context via `RenderCtx::img_ctx`) instead of
+  four `too_many_arguments` allows; the history clock and page-count rule
+  are single-sourced (`util::now_secs`, shared count caption).
+  (`src/viewer/image/`, `src/viewer/markdown/`, `src/viewer/inline/`,
+  `src/ui/history_page/`, `src/ui/preferences/`, `src/ui/icons/`.)
+- Docs/build sync: `docs/BUILDING.md` states the real `-SkipDist` meaning
+  (still builds; setup-only needs `-SkipBuild` too), `make help` lists
+  `help`, `docs/ARCHITECTURE.md` drops the removed `scheme_for`, and
+  `docs/SECURITY.md` covers the local echo helper. (`docs/`,
+  `Makefile`.)
+
+### Fixed
+
+- Supply chain: `rustls` 0.23.45 → 0.23.46 (fixes RUSTSEC-2026-0348 /
+  RUSTSEC-2026-0349, low-severity TLS issues) plus its transitive `getrandom`
+  0.4.3 → 0.3.4 pin (via the `tempfile` chain). `cargo audit` + `cargo deny`
+  green. (`Cargo.lock`.)
+- Preferences dropdowns (Theme, Keep visits) are centered in their rows like
+  every other control, and their field is painted into an exact rect with the
+  selected value (elided with a hover tooltip) and the shared chevron icon:
+  egui's `ComboBox` button is a `Frame`, and a frame inside a right-to-left
+  row is anchored from the parent cursor's right-CENTER seed, which parked
+  the box ~7px below the row's middle while the zoom pill, the switch and the
+  tab buttons stayed centered. The menu itself is still egui's popup (click
+  toggles, click-away and `Esc` close it), and `Enter`/`Space` on the focused
+  field opens it. (`src/ui/preferences/`.)
+- Keyboard focus no longer vanishes under the pointer: hand-painted rows
+  (tabs, omnibox suggestions, history rows, generic `row`, bookmark tiles)
+  paint the focus ring IN ADDITION to the hover wash, and the bookmark
+  tile's old `else if` (which never ran — `has_focus` already matched the
+  wash) now shows the ring. (`src/ui/tabs/rows.rs`, `src/ui/omnibox/`,
+  `src/ui/history_page/`, `src/ui/row.rs`, `src/ui/bookmarks/tile.rs`.)
+- Truncated titles/URLs now tooltip their full text on hover (tabs,
+  omnibox suggestions, history rows, bookmark tiles, error `Requested:`,
+  code language chips already did): sighted hover recovers what only
+  accesskit saw, allocation-free off-hover. History rows also announce
+  title + URL + age. (`src/ui/`, `src/viewer/code/`.)
+- History footer delete uses the shared tonal button (themed ramp) with an
+  error-tone focus ring instead of a raw `Button`. (`src/ui/history_page/`.)
+- Bookmark rename hint reads `Bookmark name` (not `Automatic`).
+  (`src/ui/bookmarks/tile.rs`.)
+- Error view uses the dialog-title token (21px, not a 24px literal),
+  announces its title as a label, wraps the requested address with a hover
+  tooltip, and lists hints with the document `·` bullet.
+  (`src/ui/error_view.rs`.)
+- Code Copy buttons announce `Copy <lang> code` (not N identical `Copy`s)
+  with a hover tooltip. (`src/viewer/code/`.)
+
 ## [0.5.3] - 2026-10-15
 
 ### Added

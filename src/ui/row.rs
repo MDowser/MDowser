@@ -81,15 +81,18 @@ fn painted_row_impl(
     } else if spec.enabled && resp.hovered() {
         ui.painter()
             .rect_filled(rect, egui::CornerRadius::same(ROW_RADIUS), spec.hover_fill);
-    } else if spec.enabled && resp.has_focus() {
-        // Keyboard focus ring (hand-painted rows get no `widgets.active`).
+    }
+    if spec.enabled && resp.has_focus() {
+        // Keyboard focus ring paints IN ADDITION to the hover wash (not
+        // instead of it): hiding the ring while hovered lost keyboard
+        // position as soon as the pointer rested on the row.
         crate::ui::theme::focus_ring(ui, rect, ROW_RADIUS);
     }
     ui.painter().text(
         egui::pos2(rect.min.x + spec.pad_x, rect.center().y),
         egui::Align2::LEFT_CENTER,
         spec.label,
-        egui::FontId::proportional(14.5),
+        egui::FontId::proportional(crate::ui::theme::typography::DROPDOWN),
         spec.fg,
     );
     if let Some(suffix) = spec.suffix {
@@ -97,7 +100,7 @@ fn painted_row_impl(
             egui::pos2(rect.max.x - spec.pad_x, rect.center().y),
             egui::Align2::RIGHT_CENTER,
             suffix,
-            egui::FontId::proportional(11.5),
+            egui::FontId::proportional(crate::ui::theme::typography::UI_COMPACT),
             spec.suffix_fg.unwrap_or(spec.fg),
         );
     }

@@ -138,11 +138,24 @@ pub(crate) async fn get_bytes(
     // non-UTF-8 charset was never seen). The COUNT is capped (hostile
     // servers control how many values are declared) and every error/log
     // line built from these values is bounded by its own formatter.
+    // More values than the cap: fail closed instead of inspecting a prefix
+    // an attacker chose (a `text/html` past the cut would otherwise pass).
+    if resp
+        .headers()
+        .get_all(reqwest::header::CONTENT_TYPE)
+        .iter()
+        .count()
+        > config::MAX_CONTENT_TYPE_VALUES
+    {
+        return Err(format!(
+            "access to {url} returned too many content-types (blocked)"
+        ));
+    }
     let content_types: Vec<String> = resp
         .headers()
         .get_all(reqwest::header::CONTENT_TYPE)
         .iter()
-        .take(8)
+        .take(config::MAX_CONTENT_TYPE_VALUES)
         .map(|v| {
             v.to_str()
                 .map(str::to_string)

@@ -310,6 +310,7 @@ pub(super) fn flush_menu(ui: &mut egui::Ui, menu: &Menu<'_>, ctx: &mut RenderCtx
                         ctx.images,
                         ctx.emoji,
                         ctx.links,
+                        &mut ctx.find,
                     );
                 }
             }
@@ -338,6 +339,7 @@ pub(super) fn flush_menu(ui: &mut egui::Ui, menu: &Menu<'_>, ctx: &mut RenderCtx
                             ctx.images,
                             ctx.emoji,
                             ctx.links,
+                            &mut ctx.find,
                         );
                     }
                 });

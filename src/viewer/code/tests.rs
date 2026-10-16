@@ -152,7 +152,14 @@ fn code_galleys_are_reused_and_rebuilt_on_selection() {
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
                 let mut budget = 100;
-                render_body(ui, &block, hl::Lang::Rust, frame == 2, &mut budget);
+                render_body(
+                    ui,
+                    &block,
+                    hl::Lang::Rust,
+                    frame == 2,
+                    &mut budget,
+                    &mut None,
+                );
                 let galley = block
                     .galleys
                     .borrow()
@@ -252,7 +259,7 @@ fn plain_lines_paint_at_their_absolute_rows() {
                 egui::vec2(760.0, 200.0 * 20.0),
             );
             root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
-                super::render_plain_lines(ui, &block, false, 100..110, 20.0);
+                super::render_plain_lines(ui, &block, false, 100..110, 20.0, None);
             });
         },
     );
@@ -304,12 +311,12 @@ fn plain_lines_keep_the_widest_row_width() {
                 egui::Rect::from_min_size(egui::pos2(70.0, 0.0), egui::vec2(760.0, 21.0 * 20.0));
             root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
                 // Only the short rows are visible first.
-                let before = super::render_plain_lines(ui, &block, false, 0..10, 20.0);
+                let before = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None);
                 // The long row (the last one) becomes visible once...
-                let long = super::render_plain_lines(ui, &block, false, 20..21, 20.0);
+                let long = super::render_plain_lines(ui, &block, false, 20..21, 20.0, None);
                 assert!(long > before, "the long row widens the content");
                 // ...and scrolling it away keeps the width.
-                let after = super::render_plain_lines(ui, &block, false, 0..10, 20.0);
+                let after = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None);
                 assert_eq!(after, long, "the widest-row memory must be monotonic");
             });
         },
@@ -330,4 +337,64 @@ fn plain_test_block(body: &str) -> super::CachedBlock {
         bytes: body.len(),
         used: std::cell::Cell::new(0),
     }
+}
+
+/// Find inside a fenced block: the block claims its occurrences up front
+/// (document order) and washes the matching rows with the find highlight
+/// (the galley cache itself stays find-free, so repaints keep hitting it).
+#[test]
+fn find_highlights_matching_code_rows() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    ctx.set_theme(egui::Theme::Light);
+    let block = plain_test_block("let a = 1;\nlet b = 2;\nlet c = 3;");
+    let mut find = Some(crate::viewer::find::FindRender::new("let b", 0, false));
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 700.0),
+            )),
+            ..Default::default()
+        },
+        |root| {
+            egui::CentralPanel::default().show(root, |ui| {
+                let mut budget = 100;
+                super::render_body(ui, &block, hl::Lang::Rust, false, &mut budget, &mut find);
+            });
+        },
+    );
+    out.textures_delta.clear();
+    let fr = find.expect("find cursor");
+    assert_eq!(fr.next_ordinal, 1, "one occurrence claimed for the block");
+    // The highlight background is a painted rect (one per matching row).
+    let bg = {
+        let mut bg = None;
+        let mut probe = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 700.0),
+                )),
+                ..Default::default()
+            },
+            |root| {
+                egui::CentralPanel::default().show(root, |ui| {
+                    bg = Some(crate::ui::theme::find_match_bg(ui));
+                });
+            },
+        );
+        probe.textures_delta.clear();
+        bg.expect("scheme")
+    };
+    let prims = ctx.tessellate(out.shapes.clone(), 1.0);
+    let mut rows = 0usize;
+    for p in &prims {
+        if let egui::epaint::Primitive::Mesh(mesh) = &p.primitive {
+            if mesh.vertices.iter().any(|v| v.color == bg) {
+                rows += 1;
+            }
+        }
+    }
+    assert!(rows >= 1, "one painted row carries the find wash");
 }

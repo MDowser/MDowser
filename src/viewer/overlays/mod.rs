@@ -12,6 +12,7 @@
 //!   A gesture whose press was intercepted before egui (a text selection
 //!   was alive: see `MdowserApp::raw_input_hook`) opens the menu from
 //!   `Tab::pending_context_click` instead of `secondary_clicked`.
+//! - `find`: floating in-page find bar (`Ctrl/Cmd+F`).
 //! - `show_toast`: transient confirmation (copy), auto-dismissed.
 //!
 //! ORDER MATTERS: the document calls `content_menu` BEFORE rendering the
@@ -24,6 +25,8 @@
 //! highlight stays, it belongs to the document). The `Area` constrains
 //! itself to the window, so the popup never spawns off-screen.
 
+pub(crate) mod find;
+
 use super::{has_label_selection, LinkHit};
 use crate::browser::tab::{Tab, TabState};
 use crate::ui::theme;
@@ -31,8 +34,8 @@ use eframe::egui;
 
 /// Menu width: every row shares it, so the popup has clean straight edges.
 const MENU_W: f32 = 212.0;
-/// Menu row height (compact: no chunky default button padding).
-const ROW_H: f32 = 30.0;
+/// Menu row height: the shared dropdown-row token (pixel-identical).
+const ROW_H: f32 = crate::config::CHROME_DROPDOWN_ROW_H;
 /// Horizontal padding inside a row (label and shortcut hint).
 const ROW_PAD: f32 = 10.0;
 
@@ -43,6 +46,8 @@ enum MenuAction {
     Copy,
     /// Highlight the whole document (drops any native selection).
     SelectAll,
+    /// Open the in-page find bar (same as `Ctrl/Cmd+F`).
+    FindPage,
 }
 
 /// Right-click context menu over the document.
@@ -54,6 +59,7 @@ enum MenuAction {
 /// - `Open link in new tab` (only when the right-click landed on a link).
 /// - `Copy`: the drag selection when there is one, else the whole page text.
 /// - `Select all`: whole-page highlight; `Ctrl/Cmd+C` then copies it.
+/// - `Find in page`: opens the find bar (same as `Ctrl/Cmd+F`).
 ///
 /// egui has no cross-widget selection model that can be driven from the
 /// outside, so "Select all" highlights the whole page (`Tab::selected_all`)
@@ -165,6 +171,11 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     } else {
         "Copy the whole page text"
     };
+    let find_hint: &str = if cfg!(target_os = "macos") {
+        "Cmd+F"
+    } else {
+        "Ctrl+F"
+    };
     let mut action: Option<MenuAction> = None;
     let mut open_new: Option<String> = None;
     // Keyboard navigation: Up/Down move focus between the rows, Enter
@@ -172,7 +183,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     // row focused: the ring lit "Copy" (without a link under the cursor) on
     // every open, which read as a pre-selected entry. The rows are real
     // widgets with explicit ids, so the keys still reach them.
-    let row_count = if tab.context_link.is_some() { 3 } else { 2 };
+    let row_count = if tab.context_link.is_some() { 4 } else { 3 };
     let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab.id, index));
     let (menu_up, menu_down, menu_enter) = ctx.input(|i| {
         (
@@ -233,6 +244,11 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
                 if all_row.clicked() || (menu_enter && all_row.has_focus()) {
                     action = Some(MenuAction::SelectAll);
                 }
+                menu_separator(ui);
+                let find_row = row(ui, "Find in page", Some(find_hint));
+                if find_row.clicked() || (menu_enter && find_row.has_focus()) {
+                    action = Some(MenuAction::FindPage);
+                }
             });
         });
     // Click outside the popup closes it (rows above set `action`/`open_new`).
@@ -287,18 +303,27 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
             super::select_all(&ctx, tab);
             None
         }
+        Some(MenuAction::FindPage) => {
+            tab.context_open = false;
+            // The bar owns the follow-up: `show` focuses the field (and
+            // scrolls to the first match once a query exists) on its next
+            // draw, which happens later in this same frame.
+            tab.find.show(tab.doc_generation);
+            None
+        }
         None => None,
     }
 }
 
 /// Drops any menu-row keyboard focus left in egui memory when the menu is
 /// closed, so a rebuilt row cannot ring itself on the next open.
-/// Max 3 rows (`Open link in new tab` + `Copy` + `Select all`).
+/// Max 4 rows (`Open link in new tab` + `Copy` + `Select all` +
+/// `Find in page`).
 fn surrender_menu_focus(ctx: &egui::Context, tab_id: usize) {
     let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
     if let Some(id) = ctx
         .memory(|m| m.focused())
-        .filter(|id| (0..3).any(|index| row_id(index) == *id))
+        .filter(|id| (0..4).any(|index| row_id(index) == *id))
     {
         ctx.memory_mut(|m| m.surrender_focus(id));
     }
@@ -358,14 +383,14 @@ fn menu_row(
 /// Thin grouped separator between menu sections (dimmer than `ui.separator`).
 fn menu_separator(ui: &mut egui::Ui) {
     let s = theme::scheme_ref(ui);
-    ui.add_space(5.0);
+    ui.add_space(theme::spacing::XS);
     let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width().max(0.0), 1.0),
+        egui::vec2(ui.available_width().max(0.0), theme::stroke::HAIRLINE),
         egui::Sense::hover(),
     );
     ui.painter()
         .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
-    ui.add_space(5.0);
+    ui.add_space(theme::spacing::XS);
 }
 
 /// Transient confirmation (copy) at the bottom of the screen.
@@ -387,7 +412,12 @@ pub(crate) fn show_toast(root: &mut egui::Ui, tab: &mut Tab) {
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.label(egui::RichText::new(text).strong());
+                let resp = ui.label(theme::strong(egui::RichText::new(&text)));
+                // Screen-reader name: the toast is custom-painted text with
+                // no widget role otherwise.
+                resp.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text.clone())
+                });
             });
         });
     ctx.request_repaint_after(std::time::Duration::from_millis(300));

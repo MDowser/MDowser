@@ -14,6 +14,21 @@
 //! - All functions are pure, allocation-light and ASCII-safe where noted.
 //! - Internal navigation always keeps the full `https://`/`file://` URL;
 //!   these helpers only shape what the user sees.
+//!
+//! Sanitizer map (which helper for which sink; they overlap on purpose):
+//! - [`strip_credentials_for_log`] — LOG/ERROR lines: removes `user:pass@`
+//!   userinfo token by token. Every "bad address" message goes through
+//!   [`safe_input_echo`] (truncate + strip); the error view applies it via
+//!   `display_line` to `Requested:`, details and Copy-log alike.
+//! - [`sanitize_title`] — DISPLAY/STORAGE titles: bounds and cleans
+//!   frontmatter/first-heading titles before tabs, history and bookmarks
+//!   store or show them.
+//! - `protocol::client::sanitize_for_display` — DISPLAY addresses: strips
+//!   credentials and hides the scheme before a URL is stored or echoed.
+//! - `protocol::local::echo_url` — the local-file twin of the log sink
+//!   above (bounded + stripped `file:` URL for read-error lines).
+//! - `bookmarks::sanitize_glyph`, `media::decode::sanitize_svg_structure` —
+//!   STORAGE/DECODE gates for tile glyphs and SVG structure, not addresses.
 
 /// Removes one leading `https://`, `http://` or `file://` prefix for display.
 ///

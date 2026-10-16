@@ -118,6 +118,7 @@ fn run_flow_selected(
                         &mut images,
                         &mut emoji,
                         &mut links,
+                        &mut None,
                     );
                 }
             });
@@ -485,6 +486,7 @@ fn code_pill_hugs_the_glyphs_and_keeps_the_body_baseline() {
                         &mut images,
                         &mut emoji,
                         &mut links,
+                        &mut None,
                     );
                 }
             });

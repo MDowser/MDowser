@@ -63,7 +63,19 @@ attack surface:
   field itself); history stacks are capped at 250 entries; titles capped at
   256 chars (Unicode bidi/zero-width controls dropped); log lines truncated
   at 1000 chars; link context-menu hitboxes are capped at 4096 per frame
-  (navigation itself stays capped by the events/block budgets).
+  (navigation itself stays capped by the events/block budgets); in-page find
+  is capped at 256 query chars (`MAX_FIND_QUERY_CHARS`) and 2000 matches
+  (`MAX_FIND_MATCHES`, extra hits render normally with an `N+` count), and
+  the history filter field at 512 chars (`MAX_HISTORY_FILTER_CHARS`).
+  Redirects stop at 8 (`MAX_REDIRECTS`); network concurrency at 6 fetches
+  + 6 local reads over 4 worker threads, with a 20 s request timeout (60 s
+  per image, 15 s per favicon, 5 s image gate) and a 20 s slot wait;
+  color-emoji raster jobs at 4 (`MAX_CONCURRENT_EMOJI`); autolinks at
+  20 000 per document, anchors at 20 000, link joins bounded
+  (8192 joins / depth 2048), route candidates at 5, render nesting at depth
+  48 with code highlighting capped at 4000 lines / 400 KiB; the code/table
+  render caches at 32 MiB / 16 MiB and the embedded-font gzip expansion at
+  64 MiB (all `config::MAX_*`, so one module owns every bound).
 - Single-flight per tab: a new navigation cancels the previous fetch
   cooperatively (cancel flag checked per candidate/chunk).
 - Wall-clock deadlines never panic: slot waits, image/favicon budget
@@ -121,7 +133,7 @@ attack surface:
   (checked from the header before decoding AND against the decoded frame),
   512 MiB decoder allocation, 384 MiB GPU texture budget per
   document plus a 768 MiB process-wide texture budget across tabs AND
-  favicons (icons decode at `MAX_FAVICON_DIM`, 384 px, so `MAX_FAVICON_HOSTS`
+  favicons (icons decode at `MAX_FAVICON_DIM`, 160 px, so `MAX_FAVICON_HOSTS`
   icons cannot approach the old multi-GiB worst case),
   512 images per document, 6 concurrent image jobs (at most 3 per document),
   60s network timeout per
@@ -168,7 +180,8 @@ attack surface:
   CSS `filter:` is checked in every `<style>` element regardless of `type`
   (the renderer may honor the text even for non-`text/css` types). Fonts are the app's own bundled faces (never
   system
-  fonts), the source is token-capped and nesting is DEPTH-capped before the
+  fonts), the source is token-capped (`MAX_SVG_TOKENS`, 400k) and nesting is
+  DEPTH-capped (`MAX_SVG_DEPTH`, 512) before the
   XML parser runs (a deep `<g>` chain overflows the recursive parser/usvg
   stack even under the token count, which closing tags inflate without
   nesting), and the `<use>` expansion count is
@@ -306,12 +319,14 @@ attack surface:
   preservation as history): they are
   explicit user data with no retention window, capped at 2000 entries (an
   add at the cap is refused with a toast, never silently dropping an
-  older bookmark) AND at `MAX_BOOKMARK_STORE_BYTES` of serialized
-  plaintext (an entry that would cross the byte budget — an ADD or a
+  older bookmark) AND at 48 MiB of serialized
+  plaintext (`MAX_BOOKMARK_STORE_BYTES`; an entry that would cross the byte budget — an ADD or a
   tile rename — is refused the same
   way; a body over it that arrived from disk is trimmed oldest-first on
   load, and the encrypted-file read cap is derived from the plaintext
-  budget plus the AEAD overhead), and listed ONLY on the Home page. A
+  budget plus the AEAD overhead; the settings read cap
+  (`config::MAX_SETTINGS_BYTES`, 256 KiB) lives in the same module), and
+  listed ONLY on the Home page. A
   failed save is surfaced there instead of looking successful. The stored
   tile customizations (name, glyph, palette color) are sanitized whenever
   they enter the store or are read back (control characters dropped, glyph
@@ -334,7 +349,10 @@ attack surface:
   userinfo host for `https://host`, while the plain `user:pass@host` and
   `user:pass@host:8080` forms keep working with credentials stripped. Local
   ("bad path") messages echo the rejected input through the same bounded,
-  credential-free helper. The stripping does not depend on the caller: the
+  credential-free helper, and the post-parse local read errors echo the
+  `file:` URL through it as well (`protocol::local::echo_url`): the parser
+  already rejects userinfo upstream, but the log sink stays safe even if a
+  credentialed URL ever reaches it, mirroring the network path. The stripping does not depend on the caller: the
   shared network entry point (`protocol::client::get_bytes`) removes
   authority credentials from the request URL itself, fail-closed, before
   anything is sent (and its own rejection message reuses the shared
@@ -346,7 +364,8 @@ attack surface:
   before the body is read (defense in depth over `https_only(true)`).
   Userinfo on the LANDED redirect URL is stripped before display/history
   (fail-closed when it cannot be removed), collected `Content-Type`
-  values are capped at 8, and route/display URLs enforce the SERIALIZED
+  values are capped at 8 (`MAX_CONTENT_TYPE_VALUES`; more values are
+  rejected instead of inspecting an attacker-chosen prefix), and route/display URLs enforce the SERIALIZED
   `config::MAX_URL_BYTES` cap after `.md`/index expansion (a byte cap:
   percent-encoding makes one 4-byte input char up to 12 ASCII bytes, so the
   old char-based check on the serialized URL silently dropped valid

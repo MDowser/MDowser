@@ -100,8 +100,11 @@ pub(super) fn draw_action_row(
     if resp.hovered() {
         ui.painter()
             .rect_filled(rect, egui::CornerRadius::same(ROW_RADIUS), s.container_high);
-    } else if resp.has_focus() {
-        // Shared focus ring (same token as every other hand-painted row).
+    }
+    if resp.has_focus() {
+        // Shared focus ring IN ADDITION to the hover wash (same rule as
+        // every other hand-painted row): hiding it while hovered lost
+        // keyboard position as soon as the pointer rested on the row.
         theme::focus_ring_with(ui, rect, ROW_RADIUS, s);
     }
     let color = if resp.hovered() {
@@ -364,6 +367,10 @@ pub(super) fn expanded_row(
     row_resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, title)
     });
+    // Sighted hover: the title truncates, and the collapsed rail already
+    // tooltips while the expanded row did not. Gated (not lazy): the text
+    // is borrowed, so hovered frames alone allocate.
+    let row_resp = crate::ui::hover_tooltip(row_resp, title);
     // Title (non-interactive label: the row itself handles selection).
     // The right edge reserves the floating scrollbar's lane: the bar senses
     // the full bar width at the overlay's right edge even while invisible,

@@ -237,7 +237,8 @@ const TAB_H: f32 = 30.0;
 fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
     let scheme = theme::scheme_ref(ui);
     let width = ui.available_width().max(1.0);
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, 26.0), egui::Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(egui::vec2(width, theme::ICON_BOX), egui::Sense::click());
     if resp.hovered() {
         ui.painter().rect_filled(
             rect,
@@ -266,7 +267,10 @@ fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
         theme::focus_ring(ui, rect, theme::radius::SMALL);
     }
     ui.painter().galley(
-        egui::pos2(rect.min.x + 6.0, rect.center().y - galley.size().y / 2.0),
+        egui::pos2(
+            rect.min.x + theme::spacing::S,
+            rect.center().y - galley.size().y / 2.0,
+        ),
         galley,
         scheme.on_surface,
     );
@@ -398,7 +402,7 @@ fn render_card(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx:
             ui.set_min_width(ui.available_width().max(1.0));
             render_range(ui, events, *i, close, ctx);
         });
-    ui.add_space(2.0);
+    ui.add_space(theme::spacing::XS);
     *i = after;
 }
 
@@ -428,10 +432,10 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 (n + 1).to_string(),
-                egui::FontId::proportional(12.0),
+                egui::FontId::proportional(theme::typography::UI_SMALL),
                 scheme.on_secondary_container,
             );
-            ui.add_space(10.0);
+            ui.add_space(theme::spacing::M);
             ui.vertical(|ui| {
                 if let Some(title) = titles.get(n).filter(|t| !t.is_empty()) {
                     let shown = crate::util::truncate_chars(
@@ -439,7 +443,7 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
                         crate::config::MAX_COMPONENT_LABEL_CHARS,
                     );
                     let truncated = shown.len() < title.len();
-                    let label = ui.label(egui::RichText::new(shown.into_owned()).strong());
+                    let label = ui.label(theme::strong(egui::RichText::new(shown.into_owned())));
                     if truncated {
                         crate::ui::hover_tooltip(label, title.as_str());
                     }
@@ -464,8 +468,6 @@ struct Scan {
 /// ranges plus each child's label, stopping after the container's close.
 /// Nested same-name containers are skipped by depth.
 fn scan_pairs(events: &[Event<'static>], start: usize, outer: &str, inner: &str) -> Option<Scan> {
-    let close_outer = format!("/{outer}");
-    let close_inner = format!("/{inner}");
     let mut depth = 1usize;
     let mut labels = Vec::new();
     let mut ranges = Vec::new();
@@ -475,7 +477,7 @@ fn scan_pairs(events: &[Event<'static>], start: usize, outer: &str, inner: &str)
         if let Some((fields, after)) = marker_at(events, j) {
             match fields[0].as_str() {
                 k if k == outer => depth += 1,
-                k if k == close_outer => {
+                k if is_close_tag(k, outer) => {
                     depth -= 1;
                     if depth == 0 {
                         if let Some(s) = open.take() {
@@ -492,7 +494,7 @@ fn scan_pairs(events: &[Event<'static>], start: usize, outer: &str, inner: &str)
                     labels.push(fields.get(1).cloned().unwrap_or_default());
                     open = Some(after);
                 }
-                k if k == close_inner && depth == 1 => {
+                k if is_close_tag(k, inner) && depth == 1 => {
                     if let Some(s) = open.take() {
                         ranges.push((s, j));
                     }

@@ -342,7 +342,14 @@ if (-not $isAdmin) {
 
 Ensure-Package "Rustlang.Rustup" "rustup"
 Ensure-Msvc
-Ensure-Package "NASM.NASM" "nasm"
+# NASM only on x86/x86_64 hosts (rav1d + aws-lc-sys assembly): ARM64 hosts
+# assemble with the system toolchain and need none (see docs/BUILDING.md).
+# `windows-11-arm` CI runners follow the same rule (no NASM there).
+if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+    Ensure-Package "NASM.NASM" "nasm"
+} else {
+    Write-Host "SKIP  NASM.NASM (ARM64 host needs no NASM)"
+}
 Ensure-Package "Git.Git" "git"
 # Probe, not just presence: Windows ships a Store-stub python.exe that
 # exists on PATH but only opens the Store (nonzero exit).
@@ -357,8 +364,14 @@ if (-not (Has-Cmd llvm-strip)) {
 }
 Ensure-Python3Shim
 
-$probes = @{ cargo = "--version"; rustc = "--version"; nasm = "-v" }
-foreach ($t in @("cargo", "rustc", "nasm")) {
+$probes = @{ cargo = "--version"; rustc = "--version" }
+$probeTargets = @("cargo", "rustc")
+# NASM is x86/x86_64-only (see above): do not fail ARM64 hosts for it.
+if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+    $probes["nasm"] = "-v"
+    $probeTargets += "nasm"
+}
+foreach ($t in $probeTargets) {
     if (-not (Has-Cmd $t)) { throw "$t not on PATH after setup" }
     & $t $probes[$t] >$null 2>&1
     if ($LASTEXITCODE -ne 0) { throw "$t on PATH but not runnable" }
@@ -378,11 +391,19 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "==>  toolchain"
 cargo --version
 rustc --version
-nasm -v
+if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") { nasm -v }
 if (-not $SkipSetup) {
-    # The channel matches `rust-toolchain.toml` (the pin cargo itself
-    # honors); `-SkipSetup` installs nothing, so it must not run there.
-    rustup toolchain install 1.98
+    # The channel is the single source in `rust-toolchain.toml` (the pin
+    # cargo itself honors, matching `Cargo.toml` `rust-version`);
+    # `-SkipSetup` installs nothing, so it must not run there.
+    $toolchainChannel = "1.98"
+    $toolchainFile = Join-Path $Root "rust-toolchain.toml"
+    $m = Select-String -Path $toolchainFile -Pattern 'channel\s*=\s*"([^"]+)"' |
+        Select-Object -First 1
+    if ($m -and $m.Matches.Groups[1].Value) {
+        $toolchainChannel = $m.Matches.Groups[1].Value
+    }
+    rustup toolchain install $toolchainChannel
     if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
 }
 

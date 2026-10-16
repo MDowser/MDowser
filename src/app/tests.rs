@@ -609,3 +609,88 @@ fn stored_window_geometry_falls_back_to_centering_without_its_monitor() {
         Some(stored)
     );
 }
+
+/// `Ctrl/Cmd+F` on a loaded page opens the find bar, and the bar's next
+/// frame gives the query field the keyboard with the previous query
+/// SELECTED (typing replaces it). Esc closes; the query survives for the
+/// next open.
+#[test]
+fn find_shortcut_focuses_and_selects_the_query() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(vec![loaded_tab(1, "https://ex.com/a/", Some("A"))], 0);
+    let tab_id = app.tabs[0].id;
+    let edit_id = eframe::egui::Id::new(("find-query", tab_id));
+    let key = |modifiers: eframe::egui::Modifiers| eframe::egui::Event::Key {
+        key: eframe::egui::Key::F,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers,
+    };
+    // One frame with Ctrl/Cmd+F: `handle_shortcuts` sets the open+focus
+    // request, the bar (drawn later in the same pass) consumes it on its
+    // first REAL frame.
+    let frame = |ctx: &eframe::egui::Context,
+                 app: &mut super::MdowserApp,
+                 events: Vec<eframe::egui::Event>| {
+        let input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(900.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |root| {
+            app.handle_shortcuts(ctx);
+            let active = app.active;
+            crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
+        });
+        out.textures_delta.clear();
+    };
+    frame(&ctx, &mut app, vec![key(eframe::egui::Modifiers::COMMAND)]);
+    assert!(app.tabs[0].find.open, "Ctrl/Cmd+F opened the bar");
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![]);
+    }
+    assert!(
+        ctx.memory(|m| m.has_focus(edit_id)),
+        "the query field owns the keyboard"
+    );
+    // Type a query the usual way, then close with Esc and reopen with the
+    // shortcut: the query comes back selected.
+    for ch in ["a", "b"] {
+        frame(
+            &ctx,
+            &mut app,
+            vec![eframe::egui::Event::Text(ch.to_string())],
+        );
+    }
+    assert_eq!(app.tabs[0].find.query, "ab");
+    frame(
+        &ctx,
+        &mut app,
+        vec![eframe::egui::Event::Key {
+            key: eframe::egui::Key::Escape,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: eframe::egui::Modifiers::NONE,
+        }],
+    );
+    assert!(!app.tabs[0].find.open, "Esc closed the bar");
+    frame(&ctx, &mut app, vec![key(eframe::egui::Modifiers::COMMAND)]);
+    for _ in 0..3 {
+        frame(&ctx, &mut app, vec![]);
+    }
+    assert!(ctx.memory(|m| m.has_focus(edit_id)), "focused again");
+    let state = eframe::egui::TextEdit::load_state(&ctx, edit_id).expect("field state");
+    let range = state.cursor.char_range().expect("query selected");
+    let (a, b) = (range.primary.index.0, range.secondary.index.0);
+    assert_eq!(
+        (a.min(b), a.max(b)),
+        (0, 2),
+        "the kept query comes up selected"
+    );
+}

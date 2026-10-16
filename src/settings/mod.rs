@@ -69,8 +69,9 @@ const SESSION_MAGIC: &str = "MDowser-session";
 /// Version of the session layout (inside the encrypted blob).
 const SESSION_VERSION: u8 = 1;
 /// Upper bound on the settings file we are willing to read before rewriting
-/// it from scratch (a corrupt/hostile local file must not be loaded whole).
-const MAX_SETTINGS_BYTES: u64 = 256 * 1024;
+/// it from scratch ([`config::MAX_SETTINGS_BYTES`]: a corrupt/hostile local
+/// file must not be loaded whole).
+const MAX_SETTINGS_BYTES: u64 = config::MAX_SETTINGS_BYTES;
 /// Upper bound on the session plaintext: one capped URL per tab plus the header.
 ///
 /// The input cap counts CHARS, but `Url::to_string` percent-encodes: one
@@ -108,7 +109,7 @@ impl ThemePref {
         ]
     }
 
-    /// Human label (also used as the ComboBox's selected text).
+    /// Human label (also shown as the dropdown field's selected text).
     pub fn label(self) -> &'static str {
         match self {
             ThemePref::System => "System",

@@ -453,45 +453,57 @@ impl EmojiCache {
     /// recently used first (a cluster used every frame survives a burst of
     /// one-shot emoji), releasing each evicted texture's reservation.
     ///
-    /// One O(n) pass per victim (the old code scanned the queue once to pick
-    /// and again to remove, ~1M comparisons per insert at the 1024-entry cap
-    /// on the UI thread).
+    /// One O(n) scan per victim to find the oldest tick (the minimum over an
+    /// unstructured queue is inherently linear), then an O(1) removal: the
+    /// queue order carries no policy (victims come from the `used` tick, not
+    /// the queue position), so the victim swaps with the back instead of
+    /// memmoving the whole queue, and the key is cloned once — the old code
+    /// cloned a `String` per candidate while scanning plus a second O(n)
+    /// `position` scan to remove it.
     fn evict(&mut self) {
         while self.order.len() > config::EMOJI_CACHE_ENTRIES
             || self.bytes > config::EMOJI_CACHE_BYTES
         {
-            let Some(victim) = self.oldest_entry() else {
+            let Some(idx) = self.oldest_index() else {
                 break;
             };
-            self.drop_entry(&victim);
+            self.drop_at(idx);
         }
     }
 
-    /// The least-recently-used key: a non-texture slot (no last-use tick) is
-    /// always the better victim, else the oldest texture tick.
-    fn oldest_entry(&self) -> Option<(u32, String)> {
-        let mut best: Option<((u32, String), u64)> = None;
-        for (px, cluster) in &self.order {
+    /// Index into `order` of the least-recently-used key: a non-texture slot
+    /// (no last-use tick) is always the better victim, else the oldest
+    /// texture tick. Ties keep queue order (first wins); all tick-0 slots
+    /// are equally good, so the scan stops at the first one.
+    fn oldest_index(&self) -> Option<usize> {
+        let mut best_idx: Option<usize> = None;
+        let mut best_used = u64::MAX;
+        for (idx, (px, cluster)) in self.order.iter().enumerate() {
             let used = match self.textures.get(px).and_then(|m| m.get(cluster)) {
                 Some(Cached::Texture(_, _, used)) => *used,
                 // Non-texture slots carry no last use: always the first
                 // victims (tick 0 is older than any live texture's).
                 _ => 0,
             };
-            if best.as_ref().is_none_or(|(_, at)| used < *at) {
-                best = Some(((px.to_owned(), cluster.clone()), used));
+            if used < best_used {
+                best_used = used;
+                best_idx = Some(idx);
+                if used == 0 {
+                    break;
+                }
             }
         }
-        best.map(|(key, _)| key)
+        best_idx
     }
 
-    /// Removes one key from both the order queue and the texture map,
-    /// releasing its reservation (and invalidating table measurements when
-    /// a color texture falls back to monochrome text).
-    fn drop_entry(&mut self, victim: &(u32, String)) {
-        if let Some(pos) = self.order.iter().position(|key| key == victim) {
-            self.order.remove(pos);
-        }
+    /// Removes the `order[idx]` key from both the order queue and the texture
+    /// map, releasing its reservation (and invalidating table measurements
+    /// when a color texture falls back to monochrome text).
+    fn drop_at(&mut self, idx: usize) {
+        let Some((px, cluster)) = self.order.swap_remove_back(idx) else {
+            return;
+        };
+        let victim = (px, cluster);
         let removed = self
             .textures
             .get_mut(&victim.0)
@@ -508,7 +520,7 @@ impl EmojiCache {
             // key so `has_pending`/`poll` never track a slot that is gone
             // (the worker finishes on its own and releases its job slot).
             Some(Cached::Loading(..)) => {
-                self.loading.retain(|key| key != victim);
+                self.loading.retain(|key| key != &victim);
             }
             _ => {}
         }
@@ -793,7 +805,8 @@ fn decompress(data: &[u8]) -> Option<Vec<u8>> {
         return Some(data.to_vec());
     }
     let mut out = Vec::new();
-    let mut decoder = flate2::read::GzDecoder::new(data).take(64 * 1024 * 1024);
+    let mut decoder =
+        flate2::read::GzDecoder::new(data).take(crate::config::MAX_FONT_ASSET_GZIP_BYTES);
     decoder.read_to_end(&mut out).ok()?;
     Some(out)
 }

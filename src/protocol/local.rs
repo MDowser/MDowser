@@ -29,8 +29,8 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use url::Url;
 
-/// Read chunk size (bytes): bounds the work between cancel checks.
-const READ_CHUNK_BYTES: usize = 64 * 1024;
+/// Read chunk size (bytes): single source in [`config::LOCAL_READ_CHUNK_BYTES`].
+const READ_CHUNK_BYTES: usize = config::LOCAL_READ_CHUNK_BYTES;
 
 /// True when `url` is a local-file document URL.
 pub(crate) fn is_file_url(url: &Url) -> bool {
@@ -183,16 +183,26 @@ fn normalize_path(path: &Path) -> PathBuf {
     out
 }
 
+/// Bounded, credential-stripped echo of a parsed `file:` URL for error lines.
+///
+/// Mirrors the network path (`client::fetch` strips at every log sink):
+/// `parse_file_url` already rejects userinfo upstream, but these sinks stay
+/// safe even if a credentialed URL ever reaches them.
+fn echo_url(url: &Url) -> String {
+    crate::util::safe_input_echo(url.as_str())
+}
+
 /// Local path of a `file` URL, rejecting remote hosts.
 pub(crate) fn local_path(url: &Url) -> Result<PathBuf, String> {
+    let echo = echo_url(url);
     if !is_local_host(url) {
         let host = url.host_str().unwrap_or_default();
         return Err(format!(
-            "access to {url}: remote file host '{host}' is not supported"
+            "access to {echo}: remote file host '{host}' is not supported"
         ));
     }
     url.to_file_path()
-        .map_err(|_| format!("access to {url} is not a local path"))
+        .map_err(|_| format!("access to {echo} is not a local path"))
 }
 
 /// Candidate `(url, path)` pairs for a file URL, in resolution order.
@@ -283,54 +293,55 @@ fn read_bytes_at(
     cancel: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
     use std::io::Read as _;
+    let echo = echo_url(url);
     if cancel.load(Ordering::Relaxed) {
-        return Err(format!("access to {url} cancelled"));
+        return Err(format!("access to {echo} cancelled"));
     }
     let meta = match std::fs::metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(format!("access to {url} does not exist (404)"));
+            return Err(format!("access to {echo} does not exist (404)"));
         }
-        Err(e) => return Err(format!("access to {url}: {e}")),
+        Err(e) => return Err(format!("access to {echo}: {e}")),
     };
     if meta.is_dir() {
-        return Err(format!("access to {url} is a directory"));
+        return Err(format!("access to {echo} is a directory"));
     }
     // Only regular files are readable: a FIFO with no writer blocks `open`
     // forever (no timeout can interrupt it) and would permanently consume a
     // global fetch slot; sockets/devices have no business being a document.
     // `metadata` follows symlinks, so links to regular files still pass.
     if !meta.is_file() {
-        return Err(format!("access to {url} is not a regular file"));
+        return Err(format!("access to {echo} is not a regular file"));
     }
     // Early cutoff on the metadata length (cheap anti-abuse, no read).
     if meta.len() > cap as u64 {
-        return Err(format!("access to {url} exceeds {cap} bytes"));
+        return Err(format!("access to {echo} exceeds {cap} bytes"));
     }
-    let mut file = open_read_no_block(path).map_err(|e| format!("access to {url}: {e}"))?;
+    let mut file = open_read_no_block(path).map_err(|e| format!("access to {echo}: {e}"))?;
     // Re-check the OPENED handle's type: if the path was swapped between
     // `metadata` and `open`, the opened handle is what we actually read, and
     // `O_NONBLOCK` kept the open itself from blocking on a FIFO.
     match file.metadata() {
         Ok(m) if m.is_file() => {}
-        Ok(_) => return Err(format!("access to {url} is not a regular file")),
-        Err(e) => return Err(format!("access to {url}: {e}")),
+        Ok(_) => return Err(format!("access to {echo} is not a regular file")),
+        Err(e) => return Err(format!("access to {echo}: {e}")),
     }
     let mut buf: Vec<u8> = Vec::with_capacity((meta.len() as usize).min(cap));
     let mut chunk = [0u8; READ_CHUNK_BYTES];
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return Err(format!("access to {url} cancelled"));
+            return Err(format!("access to {echo} cancelled"));
         }
         let n = file
             .read(&mut chunk)
-            .map_err(|e| format!("access to {url} error reading file: {e}"))?;
+            .map_err(|e| format!("access to {echo} error reading file: {e}"))?;
         if n == 0 {
             break;
         }
         // Running cap: the metadata check above can race a growing file.
         if buf.len().saturating_add(n) > cap {
-            return Err(format!("access to {url} exceeds {cap} bytes"));
+            return Err(format!("access to {echo} exceeds {cap} bytes"));
         }
         buf.extend_from_slice(&chunk[..n]);
     }

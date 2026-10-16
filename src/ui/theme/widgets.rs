@@ -193,6 +193,30 @@ pub fn card(ui: &egui::Ui) -> egui::Frame {
 /// so changing one cannot silently overflow the other.
 pub const CODE_PAD_X: f32 = 16.0;
 
+/// Square box of every chrome icon button (tab close, omnibox clear slot,
+/// history capsule clear, navbar zoom buttons): 26px. Single source so the
+/// click targets cannot drift apart across surfaces (all were 26px literals).
+pub const ICON_BOX: f32 = 26.0;
+
+/// Tile avatar hues for letter/emoji avatars: mid/dark tones with readable
+/// white glyphs in BOTH themes.
+///
+/// Intentional fixed-hue exception to the `Scheme` tokens: these are
+/// identity colors (the stored bookmark index names one of eight hues),
+/// not chrome surfaces, so they must not shift with the theme the way
+/// `alert_*`/surface tones do. `config::MAX_BOOKMARK_COLORS` keeps stored
+/// indexes in range (a test pins the two together).
+pub const AVATAR_PALETTE: [egui::Color32; 8] = [
+    egui::Color32::from_rgb(9, 105, 218),  // blue
+    egui::Color32::from_rgb(26, 127, 55),  // green
+    egui::Color32::from_rgb(154, 103, 0),  // amber
+    egui::Color32::from_rgb(207, 34, 46),  // red
+    egui::Color32::from_rgb(130, 80, 223), // purple
+    egui::Color32::from_rgb(191, 57, 137), // pink
+    egui::Color32::from_rgb(5, 80, 174),   // dark blue
+    egui::Color32::from_rgb(87, 96, 106),  // slate
+];
+
 /// Card for code blocks: muted surface, 6px corners, 16px padding and NO
 /// border (a `pre` block has no stroke; the app's header row with language +
 /// Copy stays).
@@ -346,13 +370,17 @@ pub fn scrollbar_lane(ui: &egui::Ui) -> i8 {
 
 /// Top inner fade (recessed-sheet effect): paints a subtle vertical
 /// gradient strip at the top of `rect` (container tone fading to
-/// transparent). `Frame` cannot do gradients, so this draws ~16 thin
+/// transparent). `Frame` cannot do gradients, so this draws thin
 /// 1px rects. Call AFTER the scroll content, as a non-interactive overlay.
 pub fn paint_content_fade(ui: &egui::Ui, rect: egui::Rect) {
     let s = scheme_ref(ui);
     let base = s.container_low;
-    let steps = 16;
-    let height = 20.0;
+    // Single source for the fade geometry: height, peak alpha and steps.
+    const FADE_HEIGHT: f32 = 20.0;
+    const FADE_PEAK_ALPHA: f32 = 26.0;
+    const FADE_STEPS: i32 = 16;
+    let steps = FADE_STEPS;
+    let height = FADE_HEIGHT;
     if rect.height() <= 0.0 || rect.width() <= 0.0 {
         return;
     }
@@ -366,7 +394,9 @@ pub fn paint_content_fade(ui: &egui::Ui, rect: egui::Rect) {
     let p = ui.painter();
     for i in 0..steps {
         let t = i as f32 / steps as f32;
-        let alpha = ((1.0 - t) * 26.0).round().clamp(0.0, 26.0) as u8;
+        let alpha = ((1.0 - t) * FADE_PEAK_ALPHA)
+            .round()
+            .clamp(0.0, FADE_PEAK_ALPHA) as u8;
         if alpha == 0 {
             continue;
         }
@@ -418,6 +448,8 @@ pub mod typography {
     pub const HEADING: f32 = 18.0;
     /// Preferences dialog title: 21px.
     pub const DIALOG_TITLE: f32 = 21.0;
+    /// Full-page titles (History landing, error view): 30px.
+    pub const PAGE_TITLE: f32 = 30.0;
     /// Landing display face: 38px.
     pub const DISPLAY: f32 = 38.0;
 }
@@ -467,6 +499,8 @@ pub fn pill_radius(h: f32) -> egui::CornerRadius {
 /// rules, footnotes and cards stay consistent. Callers must prefer these
 /// over hard-coded `add_space(N)`.
 pub mod spacing {
+    /// Hairline gap (2px): divider air, caption nudges, superscript fudge.
+    pub const XXS: f32 = 2.0;
     /// Tight gap inside a block (4px): empty heading lines, footnote tails.
     pub const XS: f32 = 4.0;
     /// Small gap (6px): heading rules, compact card padding.
@@ -503,7 +537,7 @@ pub fn focus_ring_with(ui: &egui::Ui, rect: egui::Rect, radius: u8, s: &Scheme) 
 /// tone instead of the accent).
 pub fn focus_ring_stroke(ui: &egui::Ui, rect: egui::Rect, radius: u8, color: egui::Color32) {
     ui.painter().rect_stroke(
-        rect.shrink(1.0),
+        rect.shrink(stroke::HAIRLINE),
         egui::CornerRadius::same(radius),
         egui::Stroke::new(stroke::HAIRLINE, color),
         egui::StrokeKind::Inside,
@@ -522,6 +556,29 @@ pub fn select_bg(ui: &egui::Ui) -> egui::Color32 {
 pub fn selected_text(ui: &egui::Ui, rt: egui::RichText) -> egui::RichText {
     rt.background_color(select_bg(ui))
         .color(scheme_ref(ui).on_surface)
+}
+
+/// In-page find match background: pale amber in light mode, deep amber in
+/// dark (light text stays readable on it, like `selected_text` forces the
+/// `on_surface` foreground for the same reason).
+pub fn find_match_bg(ui: &egui::Ui) -> egui::Color32 {
+    scheme_ref(ui).find_match
+}
+
+/// In-page find CURRENT match background: stronger amber than `find_match_bg`.
+pub fn find_current_bg(ui: &egui::Ui) -> egui::Color32 {
+    scheme_ref(ui).find_current
+}
+
+/// Applies the find highlight to `RichText`: amber background plus a forced
+/// high-contrast foreground (links keep their blue on pale yellow otherwise).
+pub fn find_text(ui: &egui::Ui, rt: egui::RichText, current: bool) -> egui::RichText {
+    let bg = if current {
+        find_current_bg(ui)
+    } else {
+        find_match_bg(ui)
+    };
+    rt.background_color(bg).color(scheme_ref(ui).on_surface)
 }
 
 /// Responsive reading-column width: fluid on small windows, capped at 760.

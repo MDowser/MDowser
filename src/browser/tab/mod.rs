@@ -243,6 +243,10 @@ pub struct Tab {
     /// the validity key of [`Self::display_cache`]: every transition that
     /// can change a tab's title or favicon origin bumps it.
     pub(crate) doc_generation: u64,
+    /// In-page find (`Ctrl/Cmd+F`) state: query, current match and last
+    /// rendered total. Per tab; cleared on navigation/tab switch with the
+    /// rest of the overlay state.
+    pub find: crate::viewer::find::FindState,
     /// Memoized `(state kind, generation, title, favicon origin)` for the
     /// tab strip. See [`Self::display`].
     display_cache: Option<(TabStateKind, u64, TabDisplay)>,
@@ -318,6 +322,7 @@ impl Tab {
             site_info: None,
             pending_visit: None,
             doc_generation: 0,
+            find: crate::viewer::find::FindState::default(),
             display_cache: None,
         }
     }
@@ -415,6 +420,9 @@ impl Tab {
         self.pending_context_click = None;
         self.link_hits.clear();
         self.doc_rect = None;
+        // Find never leaks across documents: a stale query would highlight
+        // the wrong page (and its count belongs to that page).
+        self.find.reset();
         // The indicator popup describes the page that was on screen; every
         // navigation and tab switch goes through here, so it can never
         // linger over a different page.

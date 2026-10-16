@@ -47,9 +47,13 @@ use eframe::egui;
 const ROW_H: f32 = crate::config::CHROME_ROW_H;
 /// Zoom pill geometry.
 const ZOOM_H: f32 = crate::config::CHROME_ZOOM_H;
-const ZOOM_BTN: f32 = 26.0;
+const ZOOM_BTN: f32 = crate::ui::theme::ICON_BOX;
 /// Gap between the omnibox and the zoom pill (and before Preferences).
-const ZOOM_GAP: f32 = 8.0;
+/// Single source: the shared block gap.
+const ZOOM_GAP: f32 = crate::ui::theme::spacing::M;
+/// Toolbar inner gutters: horizontal on the shared scale, vertical compact.
+const NAVBAR_PAD_X: f32 = crate::ui::theme::spacing::M;
+const NAVBAR_PAD_Y: i8 = 7;
 /// Preferences icon button width (`icons::icon_button`'s box).
 const PREFS_W: f32 = icons::BUTTON;
 
@@ -105,10 +109,10 @@ pub fn show_navbar(
         .frame(
             egui::Frame::new()
                 .inner_margin(egui::Margin {
-                    left: 8,
-                    right: 8,
-                    top: 7,
-                    bottom: 7,
+                    left: NAVBAR_PAD_X as i8,
+                    right: NAVBAR_PAD_X as i8,
+                    top: NAVBAR_PAD_Y,
+                    bottom: NAVBAR_PAD_Y,
                 })
                 .fill(s.container_low)
                 .stroke(egui::Stroke::NONE),
@@ -182,7 +186,7 @@ pub fn show_navbar(
                 if icons::icon_button(ui, icons::Icon::Home, "Home: new tab page", true).clicked() {
                     tab.go_home();
                 }
-                ui.add_space(6.0);
+                ui.add_space(theme::spacing::S);
 
                 // Omnibox + zoom + preferences: the field takes every pixel
                 // left over. Reserve the pill (when shown), the preferences
@@ -239,6 +243,31 @@ pub(crate) fn default_zoom_control(ui: &mut egui::Ui, zoom: &mut f32) {
     zoom_pill(ui, zoom, ZoomMode::Full);
 }
 
+/// Paints the zoom readout (`"125%"`) with a memoized label: the toolbar
+/// paints every frame, and a fresh `format!` per frame allocated while zoom
+/// stayed put. The buffer lives in a thread-local (the UI thread); the
+/// borrow is held only for the paint call, so no aliasing escapes.
+fn paint_zoom_label(ui: &egui::Ui, at: egui::Pos2, percent: i32, color: egui::Color32) {
+    use std::cell::RefCell;
+    thread_local! {
+        static LABEL: RefCell<(i32, String)> = const { RefCell::new((i32::MIN, String::new())) };
+    }
+    LABEL.with(|cell| {
+        let mut cached = cell.borrow_mut();
+        if cached.0 != percent {
+            cached.0 = percent;
+            cached.1 = format!("{percent}%");
+        }
+        ui.painter().text(
+            at,
+            egui::Align2::CENTER_CENTER,
+            &cached.1,
+            egui::TextStyle::Small.resolve(ui.style()),
+            color,
+        );
+    });
+}
+
 /// Compact zoom capsule: `-` steps down, the readout resets to 100%, `+`
 /// steps up. Always enabled: zooming never touches the network.
 fn zoom_pill(ui: &mut egui::Ui, zoom: &mut f32, mode: ZoomMode) {
@@ -282,13 +311,7 @@ fn zoom_pill(ui: &mut egui::Ui, zoom: &mut f32, mode: ZoomMode) {
             // hand-painted control.
             theme::focus_ring(ui, pct_rect, theme::radius::CARD);
         }
-        ui.painter().text(
-            pct_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            format!("{zoom_percent}%"),
-            egui::TextStyle::Small.resolve(ui.style()),
-            s.on_surface,
-        );
+        paint_zoom_label(ui, pct_rect.center(), zoom_percent, s.on_surface);
         let pct_resp = pct_resp.on_hover_cursor(egui::CursorIcon::PointingHand);
         let pct_resp = crate::ui::hover_tooltip(pct_resp, "Reset zoom to 100%");
         pct_resp.widget_info(|| {

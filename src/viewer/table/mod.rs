@@ -53,7 +53,7 @@ pub(crate) struct TableCtx<'a> {
     pub(crate) in_head: bool,
 }
 
-/// Measured widths of one table, in render order (see [`flush_table`]).
+/// Measured widths of one table, in render order (see [`flush_table_with_find`]).
 struct TableWidths {
     /// `rows[r][c]`: width of every visual line of that cell, in order
     /// (0.0 for empty lines). Rows that lack a cell simply lack the entry.
@@ -100,11 +100,12 @@ struct CachedWidths {
 
 /// Max cached tables (tied to the per-document render budget, like the
 /// code-block cache, so a sequential scan never evicts what it will ask for
-/// again next frame). The byte budget is the real memory bound.
+/// again next frame). The byte budget ([`crate::config::MAX_TABLE_WIDTHS_CACHE_BYTES`])
+/// is the real memory bound.
 const WIDTHS_CACHE_MAX: usize = crate::config::MAX_RENDERED_BLOCKS;
 
 /// Max approximate bytes retained across all cached tables.
-const WIDTHS_CACHE_BYTES_MAX: usize = 16 * 1024 * 1024;
+const WIDTHS_CACHE_BYTES_MAX: usize = crate::config::MAX_TABLE_WIDTHS_CACHE_BYTES;
 
 /// Bumps and returns the LRU use clock.
 fn widths_tick() -> u64 {
@@ -325,7 +326,9 @@ fn table_widths(
 
 mod render;
 
+#[cfg(test)]
 pub(crate) use render::flush_table;
+pub(crate) use render::flush_table_with_find;
 use render::measure_table;
 
 #[cfg(test)]

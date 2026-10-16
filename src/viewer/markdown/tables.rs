@@ -4,7 +4,7 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 //! `viewer::markdown::tables`: the block-level table entry point
-//! (delegates to `viewer::table::flush_table` with the document salt).
+//! (delegates to `viewer::table::flush_table_with_find` with the document salt).
 
 use super::*;
 
@@ -21,13 +21,16 @@ pub(super) fn render_table(
     let interactive = ctx.interactive;
     let viewport_w = ctx.viewport_w;
     let pad = begin_item_block(ui, ctx);
+    // Borrow the find cursor before the layout branches below (both take
+    // `&mut ctx` pieces disjointly through the table call).
+    let find = &mut ctx.find;
     match pad {
         Some(pad) if pad > 0.0 => {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 ui.add_space(pad);
                 ui.vertical(|ui| {
-                    flush_table(
+                    flush_table_with_find(
                         ui,
                         &tb,
                         table_at,
@@ -39,13 +42,14 @@ pub(super) fn render_table(
                         ctx.images,
                         ctx.emoji,
                         ctx.links,
+                        find,
                     );
                 });
             });
         }
         _ => {
             // The table's own rect is only useful to tests.
-            flush_table(
+            flush_table_with_find(
                 ui,
                 &tb,
                 table_at,
@@ -57,6 +61,7 @@ pub(super) fn render_table(
                 ctx.images,
                 ctx.emoji,
                 ctx.links,
+                find,
             );
         }
     }

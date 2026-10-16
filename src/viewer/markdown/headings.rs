@@ -31,14 +31,11 @@ pub(super) fn render_heading(
         HeadingLevel::H6 => 13.6 * ctx.type_scale,
     }
     .min(40.0);
-    // Heading margins: extra air BEFORE the heading (20/18/16px by level,
-    // plus the 6px before an H1/H2 rule) and 8px after it, then the normal
-    // block spacing.
-    match level {
-        HeadingLevel::H1 => ui.add_space(20.0),
-        HeadingLevel::H2 => ui.add_space(18.0),
-        _ => ui.add_space(theme::spacing::XL),
-    }
+    // Heading margins: one `XL` step of air BEFORE every heading (plus the
+    // 6px before an H1/H2 rule) and 8px after it, then the normal block
+    // spacing. The old H1/H2 literals (20/18px) drifted from the spacing
+    // scale; `XL` (16px) keeps every heading on it.
+    ui.add_space(theme::spacing::XL);
     // Anchor click / cross-page fragment: scroll this heading to the top.
     // The fragment may be percent-encoded (`#caf%C3%A9`) or mixed case.
     if let (Some(id), Some(pending)) = (anchor_id, ctx.pending_anchor.as_deref()) {
@@ -90,6 +87,81 @@ pub(super) fn render_heading(
     ui.add_space(theme::spacing::M);
 }
 
+/// Precise find split for a plain heading fragment (at the heading size).
+/// Returns true when painted (at least one valid match claimed).
+fn render_heading_split(
+    ui: &mut egui::Ui,
+    f: &Frag<'_>,
+    text: &str,
+    size: f32,
+    title_color: egui::Color32,
+    selected: bool,
+    fr: &mut crate::viewer::find::FindRender,
+) -> bool {
+    // Pre-gate like the prose path: skips the lowercase + `Vec` for a
+    // non-matching heading.
+    if !crate::viewer::find::contains_match(text, &fr.query_lower) {
+        return false;
+    }
+    let (ranges, fragment_capped) = crate::viewer::find::find_ranges_capped(text, &fr.query_lower);
+    if ranges.is_empty() {
+        return false;
+    }
+    if ranges
+        .iter()
+        .any(|(s, e)| !crate::viewer::find::is_valid_slice(text, *s, *e))
+    {
+        return false;
+    }
+    // Color emoji: the emoji path paints the textures with the wash behind
+    // them (a galley cannot draw a texture), same as body text.
+    if crate::media::emoji::may_contain_emoji(text) {
+        return false;
+    }
+    // Select-all washes the whole page: the caller's fallback paints the
+    // heading uniformly (see `render_plain_split`).
+    if selected {
+        return false;
+    }
+    let Some((start, claimed)) =
+        crate::viewer::inline::claim_fragment(fr, ranges.len(), fragment_capped)
+    else {
+        return false;
+    };
+    // ONE unsplit galley with the washes painted behind the glyphs (see
+    // `paint_find_wash`): separate widgets or per-match sections both moved
+    // the text.
+    crate::viewer::inline::paint_find_wash(
+        ui,
+        style_heading(f, text, size, title_color),
+        text,
+        &ranges,
+        start,
+        claimed,
+        fr,
+    );
+    true
+}
+
+/// The heading's own inline styling: strong at the heading size, in
+/// `title_color`, with the emphasis/strike the fragment carries. Shared with
+/// the unsearched heading path so a searched heading lays out identically.
+fn style_heading(
+    f: &Frag<'_>,
+    text: &str,
+    size: f32,
+    title_color: egui::Color32,
+) -> egui::RichText {
+    let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(title_color);
+    if f.em {
+        rt = rt.italics();
+    }
+    if f.strike {
+        rt = rt.strikethrough();
+    }
+    rt
+}
+
 /// One heading fragment: `title_color`, strong, links accent-blue (inert
 /// when not interactive), select-all forces readable colors.
 pub(super) fn render_heading_frag(
@@ -111,17 +183,7 @@ pub(super) fn render_heading_frag(
     // other inline image: the old code fell through to the alt text and
     // the image was never even registered for fetching.
     if let Some(img) = &f.image {
-        crate::viewer::image::render_inline_image(
-            ui,
-            img,
-            &f.text,
-            f.link.as_ref(),
-            ctx.selected,
-            ctx.interactive,
-            ctx.on_link,
-            ctx.images,
-            ctx.links,
-        );
+        crate::viewer::image::render_inline_image(ui, img, &f.text, f.link.as_ref(), ctx.img_ctx());
         return;
     }
     let scheme = theme::scheme_ref(ui);
@@ -152,10 +214,70 @@ pub(super) fn render_heading_frag(
         return;
     }
     let sel_bg = ctx.selected.then(|| theme::select_bg(ui));
+    // In-page find: plain heading fragments get the same precise split as
+    // body text (at the heading size); links/code/RTL fall back to a
+    // whole-fragment highlight below.
+    if let Some(fr) = ctx.find.as_mut() {
+        if !text.is_empty()
+            && f.link.is_none()
+            && !f.code
+            && !crate::viewer::bidi::contains_rtl(text)
+            && render_heading_split(ui, f, text, size, title_color, ctx.selected, fr)
+        {
+            return;
+        }
+    }
+    let (find_hl, find_scroll): (Option<bool>, bool) = match ctx.find.as_mut() {
+        Some(fr) if !text.is_empty() => {
+            // Reached for links, code, RTL runs and emoji headings (the wash
+            // goes behind their textures) or when the precise split bailed;
+            // a successful split returns above, so nothing is claimed twice.
+            // Pre-gate like the prose path.
+            if !crate::viewer::find::contains_match(text, &fr.query_lower) {
+                (None, false)
+            } else {
+                let (ranges, fragment_capped) =
+                    crate::viewer::find::find_ranges_capped(text, &fr.query_lower);
+                let n = ranges.len();
+                if n == 0 {
+                    (None, false)
+                } else {
+                    let start = fr.claim(n);
+                    let claimed = fr.next_ordinal - start;
+                    if fragment_capped && claimed == n {
+                        fr.capped = true;
+                    }
+                    if claimed == 0 {
+                        (None, false)
+                    } else {
+                        (
+                            Some((start..start + claimed).contains(&fr.current)),
+                            fr.scroll,
+                        )
+                    }
+                }
+            }
+        }
+        _ => (None, false),
+    };
+    let scroll_to = |ui: &egui::Ui, rect: egui::Rect| {
+        ui.scroll_to_rect(rect, Some(egui::Align::Center));
+    };
     // Color emoji for plain heading text; links and code keep the text path.
     // The scalar pre-check avoids the grapheme split for emoji-free text.
+    // An emoji heading takes the whole-fragment wash here (color preserved),
+    // never the precise split: a galley cannot draw a texture.
     if f.link.is_none() && !f.code && crate::media::emoji::may_contain_emoji(text) {
-        let rendered = render_emoji_text(ui, text, size, ctx.emoji, ctx.selected, &|_ui, piece| {
+        let emoji_bg = find_hl
+            .map(|current| {
+                if current {
+                    theme::find_current_bg(ui)
+                } else {
+                    theme::find_match_bg(ui)
+                }
+            })
+            .or(sel_bg);
+        let rendered = render_emoji_text(ui, text, size, ctx.emoji, emoji_bg, &|ui, piece| {
             let mut rt = theme::strong(egui::RichText::new(piece).size(size)).color(title_color);
             if f.em {
                 rt = rt.italics();
@@ -163,12 +285,22 @@ pub(super) fn render_heading_frag(
             if f.strike {
                 rt = rt.strikethrough();
             }
-            if let Some(bg) = sel_bg {
+            if let Some(current) = find_hl {
+                rt = theme::find_text(ui, rt, current);
+            } else if let Some(bg) = sel_bg {
                 rt = rt.background_color(bg);
             }
             rt
         });
-        if rendered {
+        if let Some(rect) = rendered {
+            if find_hl == Some(true) {
+                if let Some(fr) = ctx.find.as_mut() {
+                    fr.current_rect = Some(rect);
+                }
+                if find_scroll {
+                    scroll_to(ui, rect);
+                }
+            }
             return;
         }
     }
@@ -185,10 +317,17 @@ pub(super) fn render_heading_frag(
             if f.strike {
                 rt = rt.strikethrough();
             }
-            if let Some(bg) = sel_bg {
-                rt = rt.background_color(bg).color(title_color);
+            if let Some(current) = find_hl {
+                let resp = body_text(ui, theme::find_text(ui, rt, current));
+                if current && find_scroll {
+                    scroll_to(ui, resp.rect);
+                }
+            } else {
+                if let Some(bg) = sel_bg {
+                    rt = rt.background_color(bg).color(title_color);
+                }
+                body_text(ui, rt);
             }
-            body_text(ui, rt);
         } else if !ctx.interactive {
             // Backdrop: blue like a link, but inert.
             let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(link_color);
@@ -201,10 +340,17 @@ pub(super) fn render_heading_frag(
             if f.strike {
                 rt = rt.strikethrough();
             }
-            if let Some(bg) = sel_bg {
-                rt = rt.background_color(bg);
+            if let Some(current) = find_hl {
+                let resp = body_text(ui, theme::find_text(ui, rt, current));
+                if current && find_scroll {
+                    scroll_to(ui, resp.rect);
+                }
+            } else {
+                if let Some(bg) = sel_bg {
+                    rt = rt.background_color(bg);
+                }
+                body_text(ui, rt);
             }
-            body_text(ui, rt);
         } else {
             let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(link_color);
             if f.code {
@@ -216,10 +362,18 @@ pub(super) fn render_heading_frag(
             if f.strike {
                 rt = rt.strikethrough();
             }
-            if let Some(bg) = sel_bg {
+            let hl_current = find_hl;
+            if let Some(current) = hl_current {
+                rt = theme::find_text(ui, rt, current);
+            } else if let Some(bg) = sel_bg {
                 rt = rt.background_color(bg);
             }
             let resp = ui.link(rt);
+            if let Some(current) = hl_current {
+                if current && find_scroll {
+                    scroll_to(ui, resp.rect);
+                }
+            }
             // In-document anchors are jump targets, never new tabs.
             if !dest.starts_with('#') {
                 push_link_hit(ctx.links, resp.rect, dest);
@@ -232,10 +386,17 @@ pub(super) fn render_heading_frag(
         let mut rt = theme::strong(egui::RichText::new(text).size(size))
             .monospace()
             .color(title_color);
-        if let Some(bg) = sel_bg {
-            rt = rt.background_color(bg);
+        if let Some(current) = find_hl {
+            let resp = body_text(ui, theme::find_text(ui, rt, current));
+            if current && find_scroll {
+                scroll_to(ui, resp.rect);
+            }
+        } else {
+            if let Some(bg) = sel_bg {
+                rt = rt.background_color(bg);
+            }
+            body_text(ui, rt);
         }
-        body_text(ui, rt);
     } else {
         let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(title_color);
         if f.em {
@@ -244,9 +405,16 @@ pub(super) fn render_heading_frag(
         if f.strike {
             rt = rt.strikethrough();
         }
-        if let Some(bg) = sel_bg {
-            rt = rt.background_color(bg);
+        if let Some(current) = find_hl {
+            let resp = body_text(ui, theme::find_text(ui, rt, current));
+            if current && find_scroll {
+                scroll_to(ui, resp.rect);
+            }
+        } else {
+            if let Some(bg) = sel_bg {
+                rt = rt.background_color(bg);
+            }
+            body_text(ui, rt);
         }
-        body_text(ui, rt);
     }
 }

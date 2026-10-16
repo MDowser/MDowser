@@ -85,7 +85,7 @@ Prebuilt archives for macOS, Linux and Windows are attached to every
 
 ```sh
 make        # deps + host release + current-OS dist into dist/
-            #   macOS: universal .app.zip | Linux: tar.gz/.deb/.rpm/flatpak | Windows: .exe
+            #   macOS: universal .app.zip | Linux: tar.gz/.deb/.rpm/flatpak | Windows: .exe zip
 make dist   # deps + host release + EVERY platform into dist/ (macOS, Linux, Windows)
 make install   # install into /usr/local (PREFIX/DESTDIR honored; `make dist-rpm` for RPM)
 make run    # debug build + run
@@ -116,9 +116,10 @@ file rules.
 | `Ctrl/Cmd+T` · `Ctrl/Cmd+W` | New tab · close tab |
 | `Ctrl/Cmd+L` | Focus the address field |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
-| `Ctrl+H` / `Cmd+Y` | History (opens in a new tab) |
+| `Ctrl/Cmd+F` | Find in page |
+| `Ctrl+H` (Win/Linux) · `Cmd+Y` (macOS) | History (opens in a new tab) |
 | `Ctrl/Cmd+D` | Bookmark the current page |
-| `Ctrl/Cmd` `+` / `-` / `0` | Zoom in / out / reset |
+| `Ctrl/Cmd` `+`/`=` / `-` / `0` | Zoom in / out / reset |
 | `Ctrl/Cmd+,` | Preferences |
 
 All shortcuts: [`docs/INTERFACE.md`](docs/INTERFACE.md).

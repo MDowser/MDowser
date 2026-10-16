@@ -47,6 +47,13 @@ FLATPAK="packaging/flatpak/dev.mdowser.app.yaml"
 
 FAILED=0
 
+# Temp files from `mktemp` below are removed on any exit (a killed run must
+# not leave them in `$TMPDIR`); the explicit `rm -f` calls stay as well.
+cleanup_validate_tmp() {
+    rm -f "${TMP_META:-}" "${TMP_OUT:-}" 2>/dev/null || true
+}
+trap cleanup_validate_tmp EXIT
+
 have() { command -v "$1" >/dev/null 2>&1; }
 step() { printf '\n==> %s\n' "$1"; }
 ok() { printf '  ok    %s\n' "$1"; }

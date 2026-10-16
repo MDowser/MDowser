@@ -97,8 +97,8 @@ fn marker_font(size: f32, note: bool) -> egui::FontId {
 /// fill with a white check when done), centered on a body line so the item's
 /// first text row stays aligned. Read-only, with a hover hint.
 pub(super) fn draw_task_checkbox(ui: &mut egui::Ui, done: bool) -> f32 {
-    /// Box side (px): the checkbox's visual size.
-    const BOX: f32 = 14.0;
+    /// Box side (px): the checkbox's visual size (the button type size).
+    const BOX: f32 = theme::typography::BUTTON;
     let s = theme::scheme_ref(ui);
     let (row_rect, resp) = ui.allocate_exact_size(
         egui::vec2(BOX, theme::BODY_LINE_HEIGHT),

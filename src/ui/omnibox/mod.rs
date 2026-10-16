@@ -324,7 +324,8 @@ pub(crate) fn show_omnibox(
     // exactly when the field gains focus (no clear X is drawn before that
     // anyway).
     let slot_needed = bookmark.is_some() || focused || !tab.address.is_empty();
-    let slot_box = 26.0;
+    // Shared chrome icon box (tab close, history clear, zoom buttons).
+    let slot_box = crate::ui::theme::ICON_BOX;
     let slot_rect = egui::Rect::from_center_size(
         egui::pos2(rect.max.x - pad - slot_box * 0.5, rect.center().y),
         egui::vec2(slot_box, slot_box),
@@ -402,7 +403,7 @@ pub(crate) fn show_omnibox(
         s.omnibox_bg
     };
     let stroke = if focused_now {
-        egui::Stroke::new(2.0, s.primary)
+        egui::Stroke::new(theme::stroke::EMPHASIS, s.primary)
     } else {
         egui::Stroke::NONE
     };
@@ -634,7 +635,7 @@ pub(crate) fn show_omnibox(
                 frame.show(ui, |ui| {
                     ui.set_min_width(content_w);
                     ui.set_max_width(content_w);
-                    ui.spacing_mut().item_spacing.y = 2.0;
+                    ui.spacing_mut().item_spacing.y = theme::spacing::XXS;
                     for (index, item) in suggest.items.iter().enumerate() {
                         // Paint the highlight only for an EXPLICIT pick: an
                         // untouched list shows no selected row, so the
@@ -787,9 +788,9 @@ fn site_info_card(
             let inner = frame.show(ui, |ui| {
                 ui.set_min_width(content_w);
                 ui.set_max_width(content_w);
-                ui.spacing_mut().item_spacing.y = 6.0;
+                ui.spacing_mut().item_spacing.y = theme::spacing::S;
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 8.0;
+                    ui.spacing_mut().item_spacing.x = theme::spacing::M;
                     let (icon_rect, _) =
                         ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::hover());
                     icons::paint(ui, icon_rect, indicator_icon(tab), s.primary);
@@ -872,7 +873,10 @@ fn suggest_row(ui: &mut egui::Ui, item: &Suggestion, selected: bool) -> egui::Re
             egui::CornerRadius::same(theme::radius::MENU),
             s.container_hover,
         );
-    } else if resp.has_focus() {
+    }
+    if resp.has_focus() {
+        // Focus ring IN ADDITION to the hover wash: hiding it while hovered
+        // lost keyboard position as soon as the pointer rested on the row.
         theme::focus_ring_with(ui, rect, theme::radius::MENU, s);
     }
     let title = match &item.title {
@@ -903,7 +907,7 @@ fn suggest_row(ui: &mut egui::Ui, item: &Suggestion, selected: bool) -> egui::Re
         |ui| {
             ui.add(
                 egui::Label::new(theme::strong(
-                    egui::RichText::new(title).color(s.on_surface),
+                    egui::RichText::new(title.as_ref()).color(s.on_surface),
                 ))
                 .truncate()
                 .selectable(false),
@@ -932,7 +936,11 @@ fn suggest_row(ui: &mut egui::Ui, item: &Suggestion, selected: bool) -> egui::Re
             );
         },
     );
-    resp
+    // Full title + URL on hover: both lines are truncated, and sighted
+    // hover could not recover them (only accesskit saw the full text).
+    crate::ui::hover_tooltip_lazy(resp, || {
+        format!("{title} — {}", strip_scheme_prefix(&item.url))
+    })
 }
 
 /// Indeterminate progress segment under the capsule.

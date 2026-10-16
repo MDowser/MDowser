@@ -60,7 +60,7 @@ use super::inline::{
     ImageFrag,
 };
 use super::push_link_hit;
-use super::table::{flush_table, TableCtx};
+use super::table::{flush_table_with_find, TableCtx};
 use super::LinkHit;
 use crate::markdown::anchors::AnchorIndex;
 use crate::markdown::document::{is_html_break, is_html_comment};
@@ -94,14 +94,17 @@ const MARKER_GAP: f32 = 4.0;
 /// inside the gutter (never invades the text column).
 const BULLET_SCALE: f32 = 2.5;
 /// Max chars of an image `alt` shown as caption/tooltip.
-const MAX_IMAGE_ALT_CHARS: usize = 512;
+/// Single source in `config::MAX_IMAGE_ALT_CHARS`.
+const MAX_IMAGE_ALT_CHARS: usize = crate::config::MAX_IMAGE_ALT_CHARS;
 /// Max chars of an image `title` tooltip.
-const MAX_IMAGE_TITLE_CHARS: usize = 512;
+/// Single source in `config::MAX_IMAGE_TITLE_CHARS`.
+const MAX_IMAGE_TITLE_CHARS: usize = crate::config::MAX_IMAGE_TITLE_CHARS;
 /// Max recursion depth of the renderer. A hostile document (`> > > …`,
 /// `- - - …`, `***…`) can nest arbitrarily; the renderer is recursive and a
 /// stack overflow on the UI thread aborts the process (it cannot be caught).
 /// Deeper content renders flattened instead of recursing.
-const MAX_RENDER_DEPTH: usize = 48;
+/// Single source in `config::MAX_MARKDOWN_RENDER_DEPTH`.
+const MAX_RENDER_DEPTH: usize = crate::config::MAX_MARKDOWN_RENDER_DEPTH;
 
 /// State of the list item currently being rendered.
 struct ItemState {
@@ -209,6 +212,26 @@ struct RenderCtx<'a> {
     /// whose blocks never run an inline flow (and an empty one) leaves it
     /// set, and the footnote branch places the button on a trailing row.
     pending_back_arrow: Option<&'a str>,
+    /// In-page find cursor for this frame (`None` when the bar is closed or
+    /// the query is empty). Assigns match ordinals in document order while
+    /// painting; the total is handed back to `FindState` after the walk.
+    find: Option<crate::viewer::find::FindRender>,
+}
+
+impl<'a> RenderCtx<'a> {
+    /// Bundles the shared image-render parameters for one `image::render_*`
+    /// call (see `image::ImgCtx`): reborrowed per call, so sequential
+    /// images in one scope each get a fresh bundle without holding the walk
+    /// borrow across the paint.
+    pub(crate) fn img_ctx(&mut self) -> crate::viewer::image::ImgCtx<'_> {
+        crate::viewer::image::ImgCtx {
+            selected: self.selected,
+            interactive: self.interactive,
+            on_link: &mut *self.on_link,
+            images: &mut *self.images,
+            links: &mut *self.links,
+        }
+    }
 }
 
 /// Renders CommonMark Markdown (tables, footnotes, tasklists) in egui.
@@ -233,8 +256,11 @@ struct RenderCtx<'a> {
 ///   (or the `#anchor` form for an in-document jump).
 /// - `links`: screen-space hitboxes of every rendered link (cleared by the
 ///   caller; the right-click menu hit-tests them; anchors are excluded).
+/// - `find`: in-page find state (query/current/scroll in, total/capped out).
+/// - `doc_generation`: per-tab document generation (stale find totals are
+///   dropped when the visible document is replaced).
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn show_markdown(
+pub(crate) fn show_markdown_with_find(
     ui: &mut egui::Ui,
     events: &[Event<'static>],
     anchors: &AnchorIndex,
@@ -249,7 +275,26 @@ pub(crate) fn show_markdown(
     emoji: &mut crate::media::emoji::EmojiCache,
     on_link: &mut dyn FnMut(&str),
     links: &mut Vec<LinkHit>,
+    find: &mut crate::viewer::find::FindState,
+    doc_generation: u64,
 ) {
+    // A replaced document invalidates the last count (it belongs to the old
+    // page); the fresh walk below recounts it before the bar reads it.
+    if find.generation != doc_generation {
+        find.generation = doc_generation;
+        find.current = 0;
+        find.total = 0;
+        find.capped = false;
+    }
+    let find_render = if find.active() {
+        Some(crate::viewer::find::FindRender::new(
+            &find.query,
+            find.current,
+            find.scroll_to_current,
+        ))
+    } else {
+        None
+    };
     let mut ctx = RenderCtx {
         anchors,
         dests,
@@ -277,6 +322,7 @@ pub(crate) fn show_markdown(
         footnotes_started: false,
         unreferenced_footnotes: 0,
         pending_back_arrow: None,
+        find: find_render,
     };
     let mut i = 0usize;
     // Footnote-reference memo generation: bumped only when the DOCUMENT
@@ -297,10 +343,57 @@ pub(crate) fn show_markdown(
     // block budget) can hold the target legitimately: dropping it there made
     // a cross-page `…/page#heading-inside-a-tab` scroll nowhere, and the
     // request could never be applied when the reader later opened that tab.
-    if let Some(target) = pending_anchor.as_deref() {
+    if let Some(target) = ctx.pending_anchor.as_deref() {
         if !anchors.contains(target) {
-            *pending_anchor = None;
+            *ctx.pending_anchor = None;
         }
+    }
+    // Hand the find count back to the tab (the bar reads it next frame, and
+    // this frame already highlighted from the same ordinals).
+    //
+    // The scroll request is RETRIED until the current match shows up: a
+    // target set on a frame the user is still scrolling (egui's wheel
+    // smoothing keeps a scroll delta alive for a few frames) is dropped by
+    // the `ScrollArea` — consuming the request on that first frame lost it
+    // forever. A real user scroll (raw wheel/drag input) cancels the retry
+    // for good: the user's scroll wins.
+    if let Some(render) = ctx.find {
+        find.total = render.next_ordinal;
+        find.capped = render.capped;
+        if find.total == 0 {
+            find.current = 0;
+            find.scroll_to_current = false;
+        } else {
+            if find.current >= find.total {
+                // Wrapped (a shorter query after edits can strand the cursor
+                // past the end): the first match is the sensible target.
+                find.current = 0;
+                find.scroll_to_current = true;
+            }
+            if find.scroll_to_current {
+                let viewport = ui.clip_rect();
+                let visible = render.current_rect.is_some_and(|r| viewport.intersects(r));
+                // NEW user input this frame (a wheel gesture or a pointer
+                // drag) means the user is driving the sheet: their scroll
+                // wins and the retry stops. The wheel's internal SMOOTHING
+                // tail (`is_scrolling`, which keeps eating the scroll target
+                // for a few frames) does NOT cancel: the retry simply lands
+                // once the tail decays.
+                let user_scrolled = ui.ctx().input(|i| {
+                    i.events
+                        .iter()
+                        .any(|e| matches!(e, egui::Event::MouseWheel { .. }))
+                        || i.pointer.primary_down()
+                });
+                if visible || user_scrolled {
+                    find.scroll_to_current = false;
+                }
+            }
+        }
+    } else {
+        find.total = 0;
+        find.capped = false;
+        find.scroll_to_current = false;
     }
     // Blank margin at the very END of the document (`theme::spacing::PAGE_END`):
     // the reading sheet's gutter is symmetric, so a document scrolled to its
@@ -308,6 +401,47 @@ pub(crate) fn show_markdown(
     // block spacing) under the text. The pad is bottom-only, so the top
     // gutter and the scrolled-edge clipping stay unchanged.
     ui.add_space(theme::spacing::PAGE_END);
+}
+
+/// Test-only entry without find state (the bar is closed): existing
+/// document tests render without searching.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn show_markdown(
+    ui: &mut egui::Ui,
+    events: &[Event<'static>],
+    anchors: &AnchorIndex,
+    dests: &crate::protocol::rewrite::DestCache,
+    pending_anchor: &mut Option<String>,
+    doc_salt: u64,
+    selected: bool,
+    interactive: bool,
+    viewport_w: f32,
+    type_scale: f32,
+    images: &mut ImageCache,
+    emoji: &mut crate::media::emoji::EmojiCache,
+    on_link: &mut dyn FnMut(&str),
+    links: &mut Vec<LinkHit>,
+) {
+    let mut find = crate::viewer::find::FindState::default();
+    show_markdown_with_find(
+        ui,
+        events,
+        anchors,
+        dests,
+        pending_anchor,
+        doc_salt,
+        selected,
+        interactive,
+        viewport_w,
+        type_scale,
+        images,
+        emoji,
+        on_link,
+        links,
+        &mut find,
+        doc_salt,
+    );
 }
 
 /// Block-kind renderers (paragraphs, headings, tables, HTML).

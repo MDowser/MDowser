@@ -6,7 +6,7 @@
 # MDowser can open (https protocol with markdown or index.md response).
 #
 # Embedded at compile time (`include_str!`) periodically.
-# TO GROW THE LIST: append one line at any random line in that same format.
+# TO GROW THE LIST: propose the line in MDowser-Sites, then run `make sync-sites`.
 
 https://acceptmarkdown.com/ | Accept Markdown
 https://agentready.md/leaderboard | AgentReady Leaderboard

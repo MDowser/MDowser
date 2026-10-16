@@ -204,7 +204,7 @@ fn press_key(
 #[test]
 fn palette_matches_the_stored_color_bound() {
     assert_eq!(
-        super::PALETTE.len(),
+        crate::ui::theme::AVATAR_PALETTE.len(),
         crate::config::MAX_BOOKMARK_COLORS as usize
     );
 }

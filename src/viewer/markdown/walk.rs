@@ -190,7 +190,7 @@ pub(super) fn render_block(
                     max: egui::pos2(right, rect.max.y + BOX_PAD),
                 };
                 let fill = match accent {
-                    Some(c) => egui::Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), 24),
+                    Some(c) => theme::tint(c, 24),
                     None => scheme.container_low,
                 };
                 ui.painter().set(
@@ -257,8 +257,13 @@ pub(super) fn render_block(
             // the text only on the first frame; later frames hit the cache)
             // and draws the card inside the item/quote indentation.
             let budget = &mut ctx.code_lines_left;
+            // Borrow the find cursor before the indented scope (disjoint
+            // field, like the table call).
+            let find = &mut ctx.find;
             render_indented(ui, pad, |ui| {
-                render_code_block(ui, events, i, lang, selected, doc_salt, block_at, budget);
+                render_code_block(
+                    ui, events, i, lang, selected, doc_salt, block_at, budget, find,
+                );
             });
         }
         Event::Start(Tag::HtmlBlock) => {

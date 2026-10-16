@@ -25,12 +25,14 @@
 //!   new tab / drag reorder / remove) and the inline rename editor (no
 //!   window).
 //! - `history_page`: the internal `about:history` page, rendered in a tab
-//!   like a document (search, per-row remove, delete-all footer). The
+//!   like a document (capsule search over date-grouped rows with favicons,
+//!   per-row remove, delete-all footer). The
 //!   internal `about:licenses` page renders through `viewer` from the
 //!   embedded `THIRD_PARTY_NOTICES.md` (`licenses::document`).
 //! - `error_view`: line-by-line access error.
-//! - `preferences`: the floating Preferences window (retention, theme,
-//!   zoom, restore-tabs, data deletion, licenses link); the history LIST
+//! - `preferences`: the floating, tabbed Preferences window (General:
+//!   theme, zoom, restore-tabs + version/licenses link; Data: retention and
+//!   data deletion; Shortcuts: keyboard reference); the history LIST
 //!   is the internal `about:history` page above.
 //!
 //! Document rendering lives in the top-level `viewer` module; `ui` keeps
@@ -137,7 +139,8 @@ pub(crate) fn select_all_in(ctx: &egui::Context, id: egui::Id, text: &str) {
 
 /// Drops ALL egui-memory state a closed tab parked (both omnibox
 /// suggestion caches + field edit states, history search/filter/clear +
-/// field edit state, Home rename/drag drafts, every per-tab scroll state).
+/// field edit state, Home rename/drag drafts, the find-bar query field,
+/// every per-tab scroll state).
 ///
 /// Single registry: a new per-tab key must be added HERE, so a future
 /// surface cannot leak its closed-tab state by forgetting to extend a
@@ -147,6 +150,11 @@ pub(crate) fn forget_tab(ctx: &egui::Context, tab_id: usize) {
     bookmarks::forget_tab_data(ctx, tab_id);
     home::forget_tab_data(ctx, tab_id);
     omnibox::forget_tab_data(ctx, tab_id);
+    // Find-bar query field (`viewer::overlays::find`): its `TextEditState`
+    // would otherwise linger one entry per closed tab that ever searched.
+    ctx.data_mut(|d| {
+        d.remove::<egui::text_edit::TextEditState>(egui::Id::new(("find-query", tab_id)));
+    });
     // Error-page scroll offset (`viewer::show_content`'s Failed branch).
     forget_scroll_state(ctx, ERROR_SCROLL_ID, tab_id);
 }

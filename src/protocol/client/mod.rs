@@ -266,6 +266,11 @@ fn looks_like_email(s: &str) -> bool {
 /// Non-hierarchical / non-navigable schemes that look like `user:pass@host`
 /// but are not URLs: blocked before the userinfo heuristic can misread them
 /// as `user:pass@host` or `host:port`.
+///
+/// `http`/`ftp`/`ftps` are intentionally NOT listed: they are blocked by the
+/// generic `<scheme>://` / `<scheme>:` branches in [`parse_https`] (and must
+/// keep their scheme in [`sanitize_for_display`], while the schemes below
+/// collapse to a domain-only display when they carry a pasted password).
 const BLOCKED_SCHEMES: &[&str] = &[
     "mailto",
     "tel",

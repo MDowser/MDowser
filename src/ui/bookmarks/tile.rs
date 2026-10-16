@@ -71,10 +71,10 @@ pub(super) struct TileRef<'a> {
 /// of the URL so the same site always gets the same tile color.
 pub(super) fn avatar_color(bookmark: &Bookmark) -> egui::Color32 {
     let index = match bookmark.color {
-        Some(index) if (index as usize) < PALETTE.len() => index as usize,
-        _ => (crate::media::fnv1a(&bookmark.url) % PALETTE.len() as u64) as usize,
+        Some(index) if (index as usize) < theme::AVATAR_PALETTE.len() => index as usize,
+        _ => (crate::media::fnv1a(&bookmark.url) % theme::AVATAR_PALETTE.len() as u64) as usize,
     };
-    PALETTE[index]
+    theme::AVATAR_PALETTE[index]
 }
 
 /// First alphanumeric character of the title (or URL) for the letter
@@ -186,16 +186,18 @@ pub(super) fn bookmark_tile(
         );
     }
     if dragging {
+        // Dragged tile carries the primary ring (same as tab rows).
         ui.painter().rect_stroke(
             rect.shrink(0.5),
             egui::CornerRadius::same(theme::radius::TILE),
-            egui::Stroke::new(1.0, s.primary),
+            egui::Stroke::new(theme::stroke::HAIRLINE, s.primary),
             egui::StrokeKind::Inside,
         );
-    } else if response.has_focus() {
-        // Keyboard focus is otherwise only the hover wash, which reads as
-        // "the pointer happens to be here": draw the same primary ring every
-        // other custom-painted row uses.
+    }
+    if response.has_focus() {
+        // Keyboard focus ring IN ADDITION to the wash (not instead of it):
+        // the old `else if` never ran — `has_focus` already matched the wash
+        // above — so focused tiles showed no ring at all.
         theme::focus_ring_with(ui, rect, theme::radius::TILE, s);
     }
 
@@ -264,7 +266,7 @@ pub(super) fn bookmark_tile(
             field_rect,
             edit_id.with(("name-field", bookmark.url.as_str())),
             &mut state.draft,
-            "Automatic",
+            "Bookmark name",
             crate::config::MAX_TITLE_CHARS,
             focus,
         );
@@ -446,6 +448,12 @@ pub(super) fn bookmark_tile(
             new_tab: ui.input(|i| i.modifiers.command),
         };
     }
+    // Full name + URL on hover: the two-row name elides, and sighted hover
+    // could not recover it (only accesskit saw the truncated title).
+    let _ = crate::ui::hover_tooltip_lazy(response, || {
+        let name = tile_display_name(bookmark);
+        format!("{name} — {}", bookmark.url)
+    });
     TileAction::None
 }
 
@@ -474,9 +482,9 @@ pub(super) fn inline_field(
     let s = theme::scheme_ref(ui);
     let focused = ui.memory(|m| m.has_focus(id));
     let stroke = if focused {
-        egui::Stroke::new(1.0, s.primary)
+        egui::Stroke::new(theme::stroke::HAIRLINE, s.primary)
     } else {
-        egui::Stroke::new(1.0, s.outline_variant)
+        egui::Stroke::new(theme::stroke::HAIRLINE, s.outline_variant)
     };
     ui.painter().rect(
         rect,

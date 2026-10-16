@@ -62,8 +62,6 @@ pub(super) fn render_paragraph(ui: &mut egui::Ui, mut frags: Vec<Frag<'_>>, ctx:
         if let Some(img) = f.image.clone() {
             let alt = f.text.clone();
             let link = f.link.clone();
-            let selected = ctx.selected;
-            let interactive = ctx.interactive;
             let pad = begin_item_block(ui, ctx);
             render_indented(ui, pad, |ui| {
                 crate::viewer::image::render_image_block(
@@ -71,11 +69,7 @@ pub(super) fn render_paragraph(ui: &mut egui::Ui, mut frags: Vec<Frag<'_>>, ctx:
                     &img,
                     &alt,
                     link.as_ref(),
-                    selected,
-                    interactive,
-                    ctx.on_link,
-                    ctx.images,
-                    ctx.links,
+                    ctx.img_ctx(),
                 );
             });
             return;
@@ -142,11 +136,7 @@ pub(super) fn render_inline_line(
                     img,
                     &f.text,
                     f.link.as_ref(),
-                    selected,
-                    interactive,
-                    ctx.on_link,
-                    ctx.images,
-                    ctx.links,
+                    ctx.img_ctx(),
                     height,
                 ),
                 _ => render_frag(
@@ -158,6 +148,7 @@ pub(super) fn render_inline_line(
                     ctx.images,
                     ctx.emoji,
                     ctx.links,
+                    &mut ctx.find,
                 ),
             }
         }
@@ -374,8 +365,6 @@ pub(super) fn render_paragraph_around_blocks(
                         flush(ui, &mut pending, ctx);
                         let alt = f.text.clone();
                         let link = f.link.clone();
-                        let selected = ctx.selected;
-                        let interactive = ctx.interactive;
                         let pad = begin_item_block(ui, ctx);
                         render_indented(ui, pad, |ui| {
                             crate::viewer::image::render_image_block(
@@ -383,11 +372,7 @@ pub(super) fn render_paragraph_around_blocks(
                                 img,
                                 &alt,
                                 link.as_ref(),
-                                selected,
-                                interactive,
-                                ctx.on_link,
-                                ctx.images,
-                                ctx.links,
+                                ctx.img_ctx(),
                             );
                         });
                     }
@@ -416,8 +401,8 @@ pub(super) fn render_paragraph_around_blocks(
 /// they do not fit. Items still loading/failed keep the compact placeholder
 /// box, so the document order never changes while textures arrive.
 pub(super) fn render_image_gallery(ui: &mut egui::Ui, run: &[Frag<'_>], ctx: &mut RenderCtx) {
-    /// Horizontal gap between gallery items (px).
-    const GALLERY_GAP: f32 = 8.0;
+    /// Horizontal gap between gallery items: one `M` step (8px).
+    const GALLERY_GAP: f32 = theme::spacing::M;
     let avail = ui.available_width().max(0.0);
     let widths: Vec<f32> = run
         .iter()
@@ -461,11 +446,7 @@ pub(super) fn render_image_gallery(ui: &mut egui::Ui, run: &[Frag<'_>], ctx: &mu
                         img,
                         &f.text,
                         f.link.as_ref(),
-                        ctx.selected,
-                        ctx.interactive,
-                        ctx.on_link,
-                        ctx.images,
-                        ctx.links,
+                        ctx.img_ctx(),
                     );
                 }
             }

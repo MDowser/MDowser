@@ -80,6 +80,7 @@ make              # deps + host release + current-OS dist into dist/
                   #   macOS: universal .app.zip ONLY
                   #   Linux: .tar.gz + .deb/.rpm + Flatpak bundle
                   #   Windows: .exe zip
+make build        # host release binary only (target/release/mdowser)
 make debug        # host debug (target/debug/mdowser)
 make test         # pipeline: sh syntax + fmt --check + clippy -D warnings + test + doc + debug
 make audit        # supply-chain audit (cargo audit + cargo deny, best-effort)
@@ -90,8 +91,11 @@ make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak
 make install      # runtime files under PREFIX (DESTDIR honored; RPM %install)
 make flatpak      # alias of the Flatpak bundle build (needs flatpak-builder)
 make validate     # best-effort packaging metadata checks (SKIPs when tools missing)
+make check-dist   # privacy gate over dist/ (builder paths/metadata; after packaging)
 make deps         # install build/packaging dependencies (SKIP_SETUP=1 dry run)
-make run | make clean | make help | make icons | make doctor
+make fmt | make clippy | make run | make clean | make help | make icons | make doctor
+make sync-sites   # sync curated omnibox list from MDowser-Sites (manual, network)
+make check-sites  # validate one builtin-sites list file (SITES_FILE, manual, network)
 ```
 
 `make doctor` prints the toolchain exactly as the Makefile sees it (the
@@ -101,7 +105,9 @@ at parse time with the hint that points at it.
 
 `make` (the default target) and `make dist` both run `make deps` first, so
 the widest possible toolchain is installed before building; `SKIP_SETUP=1
-make ...` keeps it to what is already present. `make` then builds the current
+make ...` keeps it to what is already present. Direct script invocations
+(`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that bootstrap.
+`make` then builds the current
 platform's artifact set only (macOS: the universal `.app.zip`; Linux:
 `.tar.gz` + `.deb`/`.rpm` + the Flatpak bundle; Windows: the `.exe` zip),
 while `make dist` builds every platform it can on the host.
@@ -146,7 +152,11 @@ bootstrap and, for dist, the host `cargo build --locked --release` that
 ./scripts/build-test.sh            # same as make test
 ./scripts/build-dist.sh --all      # same as make dist (every platform package)
 ./scripts/build-dist.sh --host-only   # current-OS package (fast, no cross)
+./scripts/build-dist.sh --mac | --linux | --windows | --rpm | --flatpak  # one group
 ./scripts/check-dist.sh            # privacy gate over dist/ (= make check-dist)
+./scripts/validate.sh              # packaging metadata checks (= make validate)
+./scripts/install.sh               # runtime files under PREFIX (= make install)
+./scripts/deps.sh                  # build/packaging deps (= make deps)
 SKIP_SETUP=1 ./scripts/build-dist.sh --all  # without auto-installing toolchains
 ```
 
@@ -192,7 +202,8 @@ enforces the build-artifact privacy rules below.
 On native Windows no `make` or `/bin/sh` is needed: `windows.ps1` (repo root)
 is the winget-only, idempotent equivalent of `make` (deps + host release +
 current-OS dist into `dist/`). It self-elevates via UAC unless `-NoElevate`
-is passed, installs what is missing (Rustup 1.98, MSVC Build Tools + the C++
+is passed, installs what is missing (Rustup at the channel in
+`rust-toolchain.toml`, MSVC Build Tools + the C++
 workload, NASM, Git with Git Bash — the `sh`/`tar`/`sha256sum` runtime the
 packaging needs — Python 3.12 with a `python3` shim, LLVM for `llvm-strip`),
 runs `cargo build --locked --release`, then calls
@@ -213,8 +224,8 @@ Flags: `-Test` (also run `scripts/build-test.sh`), `-Validate` (also run
 `scripts/validate.sh`), `-SkipBuild` (deps + dist only), `-SkipDist` (deps +
 build only), `-SkipSetup` (install nothing, fail when a tool is missing),
 `-NoElevate` (no UAC self-elevation; installs may fail). With `-SkipBuild`
-and `-SkipDist` (or `-SkipDist` without `-Test`/`-Validate`) it is
-setup-only.
+and `-SkipDist` together (and neither `-Test` nor `-Validate`) it is
+setup-only: `-SkipDist` alone still runs the release build.
 
 ### Desktop integration and package formats
 

@@ -84,11 +84,14 @@ pub(crate) fn render_code_span(
     link: Option<&Arc<str>>,
     on_link: &mut dyn FnMut(&str),
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
+    find_hl: Option<bool>,
+    find_scroll: bool,
 ) {
     let styled = |mut rt: egui::RichText| -> egui::RichText {
         rt = rt.monospace();
         if f.strong {
-            rt = rt.strong();
+            rt = theme::strong(rt);
         }
         if f.em {
             rt = rt.italics();
@@ -112,13 +115,28 @@ pub(crate) fn render_code_span(
         // Select-all: the highlight must cover the full line box.
         // Multi-line code spans: the correction below is per row and the
         // golden background keeps every row readable.
+        // (A find match deliberately stays on the TIGHT pill path below:
+        // this branch's `.code()` layout differs from the pill's, so
+        // switching to it made a searched span re-wrap the paragraph.)
         let mut rt = styled(egui::RichText::new(text).color(color).code())
             .line_height(Some(theme::BODY_LINE_HEIGHT));
-        if selected {
+        if let Some(current) = find_hl {
+            rt = theme::find_text(ui, rt, current);
+        } else if selected {
             rt = theme::selected_text(ui, rt);
         }
         if let Some(dest) = link {
             let resp = ui.link(rt);
+            if let Some(current) = find_hl {
+                if current {
+                    if let Some(fr) = find.as_mut() {
+                        fr.current_rect = Some(resp.rect);
+                    }
+                    if find_scroll {
+                        ui.scroll_to_rect(resp.rect, Some(egui::Align::Center));
+                    }
+                }
+            }
             if !dest.starts_with('#') {
                 push_link_hit(links, resp.rect, dest);
             }
@@ -126,7 +144,17 @@ pub(crate) fn render_code_span(
                 on_link(dest);
             }
         } else {
-            body_text(ui, rt);
+            let resp = body_text(ui, rt);
+            if let Some(current) = find_hl {
+                if current {
+                    if let Some(fr) = find.as_mut() {
+                        fr.current_rect = Some(resp.rect);
+                    }
+                    if find_scroll {
+                        ui.scroll_to_rect(resp.rect, Some(egui::Align::Center));
+                    }
+                }
+            }
         }
         return;
     }
@@ -136,6 +164,13 @@ pub(crate) fn render_code_span(
     // code baseline lands ~2px below the surrounding text. Position, don't
     // re-metric: the galley is laid out naturally and translated so its first
     // glyph's baseline shares the body row's.
+    //
+    // A find match rides on the SAME tight pill (the amber comes from
+    // `pill_fill` below), only the ink is forced readable on it: taking the
+    // full-row `.code()` branch instead changed the span's geometry and
+    // re-wrapped paragraphs whose code spans matched (e.g. a space query).
+    let find_color = find_hl.map(|_| theme::scheme_ref(ui).on_surface);
+    let color = find_color.unwrap_or(color);
     let body_ascent = body_font_ascent(ui);
     let mut job = std::sync::Arc::unwrap_or_clone(
         egui::WidgetText::from(styled(egui::RichText::new(text).color(color))).into_layout_job(
@@ -149,16 +184,19 @@ pub(crate) fn render_code_span(
     // so the padding is real layout air (never painted over the neighbors).
     let full = ui.available_width();
     let remaining = ui.available_size_before_wrap().x;
-    let intrinsic = {
+    // The wrap probe (a second full layout per span per frame) only matters
+    // mid-row: at a fresh row (`remaining == full`) the pill never wraps,
+    // and without wrapping there is nothing to decide.
+    let mid_row = remaining + 0.5 < full && ui.layout().main_wrap();
+    let intrinsic = if mid_row {
         // Single-row width of the run: decides whether the pill fits here.
         let mut measure = job.clone();
         measure.wrap.max_width = f32::INFINITY;
         ui.fonts_mut(|fonts| fonts.layout_job(measure)).size().x
+    } else {
+        0.0
     };
-    if intrinsic + 2.0 * CODE_PILL_PAD_X > remaining
-        && remaining + 0.5 < full
-        && ui.layout().main_wrap()
-    {
+    if mid_row && intrinsic + 2.0 * CODE_PILL_PAD_X > remaining {
         // The pill is atomic: fill the rest of this row so the allocation
         // below wraps it whole. (A wrapped label starting after content used
         // to break mid-word and reserve an empty first row.) On a fresh row
@@ -188,13 +226,27 @@ pub(crate) fn render_code_span(
         galley.size(),
     );
 
-    // One pill per visual row, hugging that row's glyph run.
+    // One pill per visual row, hugging that row's glyph run. A find match
+    // tints the pill amber (stronger for the current one) instead of the
+    // code background, so inline code highlights without losing its shape.
+    let pill_fill = match find_hl {
+        Some(true) => theme::find_current_bg(ui),
+        Some(false) => theme::find_match_bg(ui),
+        None => ui.visuals().code_bg_color,
+    };
     for pill in code_pill_rows(&galley, content) {
-        ui.painter().rect_filled(
-            pill,
-            egui::CornerRadius::same(CODE_PILL_RADIUS),
-            ui.visuals().code_bg_color,
-        );
+        ui.painter()
+            .rect_filled(pill, egui::CornerRadius::same(CODE_PILL_RADIUS), pill_fill);
+    }
+    if let Some(current) = find_hl {
+        if current {
+            if let Some(fr) = find.as_mut() {
+                fr.current_rect = Some(outer);
+            }
+            if find_scroll {
+                ui.scroll_to_rect(outer, Some(egui::Align::Center));
+            }
+        }
     }
 
     // Text (selectable) or link, drawn ON TOP of the pill: `put` places the

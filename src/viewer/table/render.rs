@@ -33,7 +33,7 @@ use super::*;
 /// Returns the Grid's own rect (its width is the sum of the column widths);
 /// the card around it still fills the reading column.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn flush_table(
+pub(crate) fn flush_table_with_find(
     ui: &mut egui::Ui,
     tb: &TableCtx<'_>,
     idx: usize,
@@ -45,6 +45,7 @@ pub(crate) fn flush_table(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) -> egui::Rect {
     ui.add_space(theme::spacing::S);
     let narrow = viewport_w < 600.0;
@@ -183,6 +184,7 @@ pub(crate) fn flush_table(
                             images,
                             emoji,
                             links,
+                            find,
                         );
                         cell_rows.push(rect);
                         row_idx += 1;
@@ -201,6 +203,7 @@ pub(crate) fn flush_table(
                             images,
                             emoji,
                             links,
+                            find,
                         );
                         cell_rows.push(rect);
                         row_idx += 1;
@@ -229,6 +232,39 @@ pub(crate) fn flush_table(
 /// A FITTING layout never sums past `usable`, not even by a rounding ulp:
 /// callers read `sum > usable` as "the table does not fit" and re-lay every
 /// column out for horizontal scrolling (see [`settle_rounding`]).
+/// Test-only entry without find state: existing table tests measure and
+/// render without searching.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn flush_table(
+    ui: &mut egui::Ui,
+    tb: &TableCtx<'_>,
+    idx: usize,
+    doc_salt: u64,
+    selected: bool,
+    interactive: bool,
+    viewport_w: f32,
+    on_link: &mut dyn FnMut(&str),
+    images: &mut ImageCache,
+    emoji: &mut crate::media::emoji::EmojiCache,
+    links: &mut Vec<LinkHit>,
+) -> egui::Rect {
+    flush_table_with_find(
+        ui,
+        tb,
+        idx,
+        doc_salt,
+        selected,
+        interactive,
+        viewport_w,
+        on_link,
+        images,
+        emoji,
+        links,
+        &mut None,
+    )
+}
+
 pub(super) fn distribute_columns(natural: &[f32], min_col: f32, usable: f32) -> Vec<f32> {
     let n = natural.len();
     if n == 0 {
@@ -300,7 +336,7 @@ pub(super) fn distribute_columns(natural: &[f32], min_col: f32, usable: f32) -> 
 /// Removes a floating-point residual from the widest column, so a FITTING
 /// layout never sums past `usable` by a rounding ulp.
 ///
-/// The caller (`flush_table`) reads `sum > usable` as "even the floors do
+/// The caller (`flush_table_with_find`) reads `sum > usable` as "even the floors do
 /// not fit" and re-lays every column out for horizontal scrolling, capped
 /// at `scroll_max`; without this guard a fitting two-column table
 /// (`86.25 + 340` grown to fill 757 summed to `757.00006 > 757`) collapsed
@@ -373,7 +409,7 @@ fn paint_table_grid(ui: &egui::Ui, rows: &[Vec<egui::Rect>]) {
     }
 }
 
-/// ONE invisible layout pass over every cell line (see [`flush_table`]).
+/// ONE invisible layout pass over every cell line (see [`flush_table_with_find`]).
 ///
 /// Lines are measured at `max_col - 2*CELL_PAD_X` (the content area inside
 /// the cell padding), so a column is as wide as its content plus padding
@@ -393,7 +429,7 @@ pub(super) fn measure_table(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
 ) -> TableWidths {
-    // Header first, then body: the same order `flush_table` renders.
+    // Header first, then body: the same order `flush_table_with_find` renders.
     let mut order: Vec<&[Vec<Frag<'_>>]> = Vec::with_capacity(1 + tb.rows.len());
     if let Some(h) = tb.headers.as_ref() {
         order.push(h);
@@ -448,6 +484,7 @@ fn render_table_row(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) -> Vec<egui::Rect> {
     let mut rects: Vec<egui::Rect> = Vec::with_capacity(row.len());
     for (col, cell) in row.iter().enumerate() {
@@ -464,6 +501,7 @@ fn render_table_row(
             images,
             emoji,
             links,
+            find,
         ));
     }
     // Pad ragged rows so Grid keeps N columns.
@@ -477,7 +515,7 @@ fn render_table_row(
 /// One table cell, rendered at its column's measured width.
 ///
 /// Returns the scope's rect (the full column at the cell's real height), so
-/// `flush_table` can paint the interior grid from real geometry.
+/// `flush_table_with_find` can paint the interior grid from real geometry.
 ///
 /// The scope is the widget the `Grid` measures, so its width IS the column
 /// width. Lines then align against that real width; using the Grid's
@@ -503,6 +541,7 @@ fn render_table_cell(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) -> egui::Rect {
     let align = match aligns.get(col) {
         Some(Alignment::Center) => egui::Align::Center,
@@ -556,6 +595,7 @@ fn render_table_cell(
                             images,
                             emoji,
                             links,
+                            find,
                         );
                     }
                 },
@@ -581,6 +621,7 @@ fn render_table_line(
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) {
     let avail = ui.available_width().max(1.0).min(col_w).max(1.0);
     let height = ui.spacing().interact_size.y;
@@ -597,7 +638,17 @@ fn render_table_line(
         |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             for f in line {
-                render_frag(ui, f, selected, interactive, on_link, images, emoji, links);
+                render_frag(
+                    ui,
+                    f,
+                    selected,
+                    interactive,
+                    on_link,
+                    images,
+                    emoji,
+                    links,
+                    find,
+                );
             }
         },
     );
@@ -644,6 +695,7 @@ fn measure_line_width(
                     images,
                     emoji,
                     &mut ignored_links,
+                    &mut None,
                 );
             }
         },

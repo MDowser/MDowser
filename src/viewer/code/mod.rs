@@ -43,8 +43,9 @@ use std::rc::Rc;
 
 /// Huge-block guard: above either bound the block renders as plain
 /// selectable lines instead of per-line highlighted spans.
-const MAX_LINES: usize = 4000;
-const MAX_BYTES: usize = 400_000;
+/// Single sources in `config::MAX_CODE_HIGHLIGHT_*`.
+const MAX_LINES: usize = crate::config::MAX_CODE_HIGHLIGHT_LINES;
+const MAX_BYTES: usize = crate::config::MAX_CODE_HIGHLIGHT_BYTES;
 
 /// Code line height (px): the body line height, so a code card and the
 /// prose around it share one row grid (the monospace family draws at the
@@ -171,9 +172,10 @@ fn cache_tick() -> u64 {
 }
 
 /// Max approximate bytes retained by the cache across all blocks.
-/// A body alone can reach `MAX_BODY_BYTES` (10 MiB); a handful of giant
-/// blocks would otherwise sit in RAM for the process lifetime.
-const CACHE_BYTES_MAX: usize = 32 * 1024 * 1024;
+/// ([`crate::config::MAX_CODE_CACHE_BYTES`]: a body alone can reach
+/// `MAX_BODY_BYTES`, so a handful of giant blocks would otherwise sit in
+/// RAM for the process lifetime.)
+const CACHE_BYTES_MAX: usize = crate::config::MAX_CODE_CACHE_BYTES;
 
 /// Approximate heap bytes of one span line set.
 fn spans_bytes(lines: &SpanLines) -> usize {
@@ -366,8 +368,10 @@ fn render_plain_lines(
     selected: bool,
     visible: std::ops::Range<usize>,
     row_h: f32,
+    find_query: Option<&str>,
 ) -> f32 {
     let mut widest = 0.0_f32;
+    let find_bg = find_query.is_some().then(|| theme::find_match_bg(ui));
     for (row, line) in block
         .body
         .split('\n')
@@ -399,6 +403,15 @@ fn render_plain_lines(
         // `row - visible.start` painted the visible rows at the block TOP,
         // leaving the scrolled viewport blank.
         let y = ui.max_rect().top() + row as f32 * row_h;
+        if let (Some(query), Some(bg)) = (find_query, find_bg) {
+            if crate::viewer::find::count_occurrences(line, query) > 0 {
+                let rect = egui::Rect::from_min_size(
+                    egui::pos2(ui.max_rect().left(), y),
+                    egui::vec2(ui.max_rect().width().max(1.0), row_h),
+                );
+                ui.painter().rect_filled(rect, 0.0, bg);
+            }
+        }
         ui.painter().galley(
             egui::pos2(ui.max_rect().left(), y),
             galley,
@@ -409,6 +422,16 @@ fn render_plain_lines(
     let widest = widest.max(block.plain_max_w.get());
     block.plain_max_w.set(widest);
     widest
+}
+
+/// Accessible/tooltip label for a code block's Copy button (`"Copy code"`,
+/// or `"Copy <lang> code"` so N blocks do not list N identical nodes).
+fn copy_a11y(chip: &str) -> String {
+    if chip.is_empty() {
+        "Copy code".to_string()
+    } else {
+        format!("Copy {chip} code")
+    }
 }
 
 /// Consumes one fenced code block (from just past its `Start` to its `End`)
@@ -426,6 +449,7 @@ pub(crate) fn render_code_block(
     doc_salt: u64,
     block_at: usize,
     budget: &mut usize,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) {
     let lang = hl::norm_lang(lang_info);
     // Past the per-document line budget nothing will be shown: collect the
@@ -433,7 +457,7 @@ pub(crate) fn render_code_block(
     let tokenize = *budget > 0;
     let block = block_for(events, i, lang, doc_salt, block_at, tokenize);
     code_card(
-        ui, &block, lang, lang_info, selected, block_at, doc_salt, budget,
+        ui, &block, lang, lang_info, selected, block_at, doc_salt, budget, find,
     );
 }
 
@@ -448,6 +472,7 @@ fn code_card(
     block_at: usize,
     doc_salt: u64,
     budget: &mut usize,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) {
     ui.add_space(theme::spacing::S);
     // Code block: `#f6f8fa` surface, no border, 6px corners, 16px padding
@@ -479,11 +504,20 @@ fn code_card(
                 // vertical padding AND skips the `interact_size` floor: an
                 // explicit 24px floor keeps the primary click target from
                 // being a ~17px sliver next to 30-36px controls.
+                // Accessible name carries the language: a page with N code
+                // blocks listed N identical "Copy" buttons otherwise. Both
+                // built lazily (`widget_info` materializes only on
+                // interaction, the tooltip only on hover), so a settled
+                // frame allocates nothing here.
                 let copy = ui.add(
                     egui::Button::new("Copy")
                         .small()
-                        .min_size(egui::vec2(0.0, 24.0)),
+                        .min_size(egui::vec2(0.0, theme::BODY_LINE_HEIGHT)),
                 );
+                let copy = crate::ui::hover_tooltip_lazy(copy, || copy_a11y(chip));
+                copy.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, copy_a11y(chip))
+                });
                 if copy
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .clicked()
@@ -509,7 +543,7 @@ fn code_card(
                 });
             });
         });
-        ui.add_space(2.0);
+        ui.add_space(theme::spacing::XXS);
         // Horizontal scroll for long lines, virtualized on the vertical
         // axis. Id salted by document (tab included) + the block's event
         // index, so two blocks of one document never share scroll state and
@@ -527,7 +561,7 @@ fn code_card(
                 bottom: theme::scrollbar_lane(ui),
             })
             .show(ui, |ui| {
-                render_body(ui, block, lang, selected, budget);
+                render_body(ui, block, lang, selected, budget, find);
             });
     });
     ui.add_space(theme::spacing::M);
@@ -548,10 +582,46 @@ fn render_body(
     lang: hl::Lang,
     selected: bool,
     budget: &mut usize,
+    find: &mut Option<crate::viewer::find::FindRender>,
 ) {
     let total = block.line_count;
     let shown = total.min(*budget);
     *budget = budget.saturating_sub(shown);
+    // In-page find claims the block's occurrences up front (document order),
+    // highlights visible matching rows with the amber wash and scrolls the
+    // current match's row into view on navigation frames only.
+    let (find_start, find_n, find_scroll) = match find.as_mut() {
+        Some(fr) if !fr.query_lower.is_empty() => {
+            // Pre-gate: a non-matching block skips the whole-body lowercase
+            // + `Vec` (the body can be kilobytes of code).
+            if !crate::viewer::find::contains_match(&block.body, &fr.query_lower) {
+                (0, 0, false)
+            } else {
+                let (ranges, block_capped) =
+                    crate::viewer::find::find_ranges_capped(&block.body, &fr.query_lower);
+                let n = ranges.len();
+                if n == 0 {
+                    (0, 0, false)
+                } else {
+                    let start = fr.claim(n);
+                    let claimed = fr.next_ordinal - start;
+                    if block_capped && claimed == n {
+                        // More occurrences than the per-block cap allows: the
+                        // bar shows `N+` even when the GLOBAL cap was not hit.
+                        fr.capped = true;
+                    }
+                    (start, claimed, fr.scroll)
+                }
+            }
+        }
+        _ => (0, 0, false),
+    };
+    let find_active = find_n > 0;
+    // Borrow the lowercased query (no per-block `String` clone per frame):
+    // `fr` outlives this frame's paint, so the `&str` stays valid.
+    let find_query: Option<&str> = find
+        .as_ref()
+        .and_then(|fr| find_active.then_some(fr.query_lower.as_str()));
     let s = theme::scheme_ref(ui);
     // Spans first (filled lazily after a body-only cache hit), then the
     // ROW STRIDE: epaint rounds every row height to a whole device pixel,
@@ -579,11 +649,43 @@ fn render_body(
     };
     let row_h = row_h.max(1.0);
     let visible = code_viewport(ui, shown, row_h);
+    // Find scroll target (navigation frames only): the row holding the
+    // current match, so the outer document centers it instead of the
+    // block top. `find_start`/`find_n` are this block's claimed ordinals.
+    // The row rect is kept for the caller's visibility retry (recorded on
+    // the find cursor after the painting borrows end below).
+    let mut current_row_rect: Option<egui::Rect> = None;
+    if find_scroll && find_active {
+        if let (Some(query), Some(fr)) = (find_query, find.as_ref()) {
+            let current = fr.current;
+            if current >= find_start && current < find_start + find_n {
+                let mut ordinal = find_start;
+                for (idx, line) in block.body.split('\n').enumerate() {
+                    let n = crate::viewer::find::count_occurrences(line, query);
+                    if current >= ordinal && current < ordinal + n {
+                        let y = ui.max_rect().top() + idx as f32 * row_h;
+                        let rect = egui::Rect::from_min_size(
+                            egui::pos2(ui.max_rect().left(), y),
+                            egui::vec2(ui.max_rect().width().max(1.0), row_h),
+                        );
+                        current_row_rect = Some(rect);
+                        ui.scroll_to_rect(rect, Some(egui::Align::Center));
+                        break;
+                    }
+                    ordinal += n;
+                    if ordinal > current {
+                        break;
+                    }
+                }
+            }
+        }
+    }
     // Painted galleys register no layout, so the content rect must be
     // widened/heightened explicitly: without this the horizontal scroll area
     // sees a content width of zero and a long line could never be reached.
+    let find_bg = find_active.then(|| theme::find_match_bg(ui));
     let content_w = if lines.is_none() {
-        render_plain_lines(ui, block, selected, visible, row_h)
+        render_plain_lines(ui, block, selected, visible.clone(), row_h, find_query)
     } else {
         let cache = block.galleys.borrow();
         // The widest laid-out line covers every row, not just the visible
@@ -591,6 +693,19 @@ fn render_body(
         // clamped offset) shrink while a long line was above/below it.
         // Paint the visible slice directly (the old `take(end).skip(start)`
         // walked every row scrolled past on each frame).
+        //
+        // Find wash for visible matching rows (painted BEFORE the galley so
+        // the text stays on top): line text comes from the cached body, so
+        // the galley cache stays find-free. `contains_match` stops at the
+        // first hit, and the line iterator is consumed inline: the old
+        // `match_lines: Vec<bool>` allocated per block per frame.
+        let mut match_iter = find_query.map(|query| {
+            block
+                .body
+                .split('\n')
+                .skip(visible.start)
+                .map(move |line| crate::viewer::find::contains_match(line, query))
+        });
         for (row, galley) in cache
             .lines
             .get(visible.start..visible.end)
@@ -600,6 +715,19 @@ fn render_body(
         {
             let offset = visible.start + row;
             let y = ui.max_rect().top() + offset as f32 * row_h;
+            let matched = match_iter
+                .as_mut()
+                .and_then(|it| it.next())
+                .unwrap_or(false);
+            if matched {
+                if let Some(bg) = find_bg {
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(ui.max_rect().left(), y),
+                        egui::vec2(cache.max_w.max(1.0), row_h),
+                    );
+                    ui.painter().rect_filled(rect, 0.0, bg);
+                }
+            }
             ui.painter().galley(
                 egui::pos2(ui.max_rect().left(), y),
                 std::sync::Arc::clone(galley),
@@ -612,6 +740,14 @@ fn render_body(
     let content_rect =
         egui::Rect::from_min_size(ui.max_rect().left_top(), egui::vec2(content_w, content_h));
     ui.expand_to_include_rect(content_rect);
+    // Hand this block's current-match row to the caller's visibility retry
+    // (`ShowMarkdown`'s tail): done HERE, after every immutable borrow of
+    // the find cursor above.
+    if let Some(rect) = current_row_rect {
+        if let Some(fr) = find.as_mut() {
+            fr.current_rect = Some(rect);
+        }
+    }
     if shown < total {
         // The rows above are PAINTED, not laid out: the layout cursor is
         // still at the block's top, so the notice must be advanced past the

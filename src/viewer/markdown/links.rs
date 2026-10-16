@@ -159,11 +159,7 @@ pub(super) fn render_link_stack(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &mut
                                 img,
                                 &f.text,
                                 f.link.as_ref(),
-                                ctx.selected,
-                                ctx.interactive,
-                                ctx.on_link,
-                                ctx.images,
-                                ctx.links,
+                                ctx.img_ctx(),
                                 height,
                             )
                         }
@@ -176,6 +172,7 @@ pub(super) fn render_link_stack(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &mut
                             ctx.images,
                             ctx.emoji,
                             ctx.links,
+                            &mut ctx.find,
                         ),
                     }
                 }

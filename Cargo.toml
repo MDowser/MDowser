@@ -73,11 +73,11 @@ print_stderr = { level = "warn", priority = -1 }
 # total deps is small and GUI-regression risk is high, so defaults stay.
 eframe = "0.36"
 # Modern HTTPS client with HTTP/2. rustls only (no native-tls) to stay cross-platform.
-# NOTE: no system proxy on purpose (see protocol/client.rs).
+# NOTE: no system proxy on purpose (see protocol/client/).
 # `stream` reads the body in chunks with an anti-abuse cap.
 # `gzip`/`brotli`/`deflate`: transparent decompression. Text/markdown and
 # SVG/HTML-ish payloads shrink 3-10x over the wire; the anti-abuse caps run
-# on the DECOMPRESSED stream (see protocol/client.rs).
+# on the DECOMPRESSED stream (see protocol/client/).
 reqwest = { version = "0.13", default-features = false, features = [
     "rustls",
     "http2",

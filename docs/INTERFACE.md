@@ -93,7 +93,7 @@ there. macOS always shows a system menu bar, so it is completed there
 Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File
 (New Tab `Cmd+T`, Close Tab `Cmd+W`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
 Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Zoom In
-`Cmd+=`, Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show History
+`Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show History
 `Cmd+Y`) and Window (Minimize, Zoom, Bring All to Front). Every item replays
 the same shortcut the keyboard does, so the menu and the keys share one
 handler; Paste reads the clipboard exactly like `Cmd+V` does. The bar shows
@@ -183,45 +183,55 @@ zooming in never hides the pill itself.
 ## Preferences
 
 Gear icon, the last button in the toolbar, after the zoom pill and always
-visible. Opens a card-style dialog (custom header, grouped cards, toggle
-switch) with a FIXED WIDTH and a content-sized height, top-anchored: the
-History and Local data cards hug their rows with no reserved bottom space,
-and arming a delete-confirmation note only pushes the cards below it (the
-inner scroll appears only when the armed stack exceeds the viewport).
+visible. Opens a card-style dialog (custom header, tab bar, grouped cards,
+toggle switch) with a FIXED WIDTH and a content-sized height, top-anchored:
+each tab's cards hug their rows with no reserved bottom space, and arming a
+delete-confirmation note only pushes the cards below it (the inner scroll
+appears only when the armed stack exceeds the viewport). The selected tab
+is kept while the dialog stays open (never written to disk), and each tab
+keeps its own scroll position.
 
-- The History card holds the retention dropdown ("Forget on exit", "Keep 1
-  month", "Keep 3 months (default)", "Keep 6 months", "Keep 1 year", "Keep
-  forever") and the destructive "Delete
-  history" action (two-click confirmation); the encrypted store location
-  shows as a
-  tooltip on the stored-count caption. Selecting "Forget on exit" also turns
-  off "restore tabs on startup" and deletes `session.bin`: that encrypted
-  snapshot holds visited URLs, and the mode promises nothing on disk.
-- The Appearance card holds the theme (System/Light/Dark), the default zoom
-  (the same `- % +` pill as the toolbar; clicking the readout resets to
-  100%) and "restore tabs on startup" (a caption under the switch explains when
-  it is off because of "Forget on exit").
-- The Local data card holds "Delete all data and close" (two-click
-  confirmation): deletes the whole data directory (history, bookmarks,
-  settings, session and the shared key) and exits immediately with
-  `process::exit` without further saves. A deletion that FAILS (a file still
-  open elsewhere, permissions) does NOT close the app and does not pretend
-  the data is gone: the card shows the error, writes resume and the next
-  attempt can succeed.
-- A compact footer line shows the version and the app's own license
-  (`MDowser <ver> · MPL-2.0`) and holds the "View third-party
-  licenses" link, which opens `about:licenses` in a new tab.
+- The General tab holds the appearance card — theme (System/Light/Dark),
+  default zoom (the same `- % +` pill as the toolbar; clicking the readout
+  resets to 100%) and "restore tabs on startup" (a caption under the switch
+  explains when it is off because of "Forget on exit") — plus a compact
+  footer line with the version and the app's own license (`MDowser <ver> ·
+  MPL-2.0`) and the "View third-party licenses" link, which opens
+  `about:licenses` in a new tab.
+- The Data tab holds the history card — the retention dropdown ("Forget on
+  exit", "Keep 1 month", "Keep 3 months (default)", "Keep 6 months", "Keep 1
+  year", "Keep forever"), the destructive "Delete history" action (two-click
+  confirmation) and the stored-count caption (the encrypted store location
+  shows as its tooltip); selecting "Forget on exit" also turns off "restore
+  tabs on startup" and deletes `session.bin`, because that encrypted snapshot
+  holds visited URLs and the mode promises nothing on disk — and the local
+  data card with "Delete all data and close" (two-click confirmation):
+  deletes the whole data directory (history, bookmarks, settings, session and
+  the shared key) and exits immediately with `process::exit` without further
+  saves. A deletion that FAILS (a file still open elsewhere, permissions)
+  does NOT close the app and does not pretend the data is gone: the card
+  shows the error, writes resume and the next attempt can succeed.
+- The Shortcuts tab holds the read-only keyboard shortcut reference in
+  English (Tabs / Navigation / Page / Zoom), mirroring the table below.
 
-Every dropdown row keeps its geometry on hover, so the controls never shift.
+Every control sits centered in its row — the dropdown fields, the zoom pill
+and the switches share one right edge — every dropdown row keeps its geometry
+on hover, so the controls never shift.
 Esc closes an open dropdown first, and the dialog on the next press.
 
 ## History
 
 Clock icon at the bottom of the tab rail: the internal `about:history`
-page, rendered in a tab like a document — a searchable list of pages that
-actually loaded, newest first, with each row's age and a remove X (the
-row's accessible name carries the URL too). The
-button (and `Ctrl+H` / `Cmd+Y`) opens it in a NEW tab right after the
+page, rendered in a tab like a document. A capsule search field (magnifier
+and clear X) filters by URL and title; the visits below are grouped into
+rolling date sections — Today / Yesterday / Previous 7 days / Previous 30
+days / Older — each row showing its favicon (the shared session cache; a
+globe for web pages and a file page for local ones while it resolves or
+when there is none), its title and relative age, and a remove X (the row's
+accessible name carries the URL too). The header prints the total and the
+active retention window, and the footer repeats the count ("N of M pages"
+while filtering) next to the two-click delete-all.
+The button (and `Ctrl+H` / `Cmd+Y`) opens it in a NEW tab right after the
 current one (which is never replaced); clicking a row then navigates that
 same history tab to the visit, so Back returns to the list.
 
@@ -378,8 +388,9 @@ styled error page instead of a raw log:
 
 ## Right-click menu
 
-Minimal: Copy (the drag selection when there is one, else the whole page)
-and Select all; over a link it adds Open link in new tab at the top.
+Minimal: Copy (the drag selection when there is one, else the whole page),
+Select all and Find in page (which opens the find bar, same as `Ctrl/Cmd+F`,
+below a separator); over a link it adds Open link in new tab at the top.
 `Cmd/Ctrl+click` on a link opens it in a background tab directly (an
 in-page `#anchor` becomes its absolute URL plus the fragment). All
 body text is natively selectable (drag + Cmd/Ctrl+C) with readable selection
@@ -394,20 +405,55 @@ one), `Enter` activates the focused one and `Esc` closes it.
 
 ## Keyboard shortcuts
 
+The global shortcuts; field/menu/grid keys live in their sections above.
+The Preferences Shortcuts tab carries them in English as a
+curated quick reference, leaving out the bare `Esc` rows and the keyboard
+reorders.
+
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl/Cmd+T` | New tab |
 | `Ctrl/Cmd+W` | Close tab |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+L` | Focus address field (selects the URL) |
-| `Esc` | Stop loading (reverts the field when editing it) |
-| `Ctrl/Cmd+A` | Select all (page text) |
-| `Ctrl/Cmd+C` | Copy (selection, or all while selected) |
+| `Esc` | Stop loading (topmost overlay first: find bar, menu, popups, editor; else revert the field / stop) |
+| `Ctrl/Cmd+F` | Find in page (document pages only) |
+| `Enter` / `Shift+Enter` (field focused) · `F3` / `Shift+F3` (anywhere) | Next / previous find match |
+| `Ctrl/Cmd+A` | Select all (page text; when no text field is focused) |
+| `Ctrl/Cmd+C` | Copy (selection, or all while that highlight is active) |
 | `Ctrl/Cmd+1..9` | Select tab |
 | `Alt+Up` / `Alt+Down` | Move the focused tab one slot (reorder the rail) |
-| `Ctrl/Cmd` `+` / `=` | Zoom in |
+| `Ctrl/Cmd` `+`/`=` | Zoom in |
 | `Ctrl/Cmd+-` | Zoom out |
 | `Ctrl/Cmd+0` | Reset zoom to 100% |
-| `Ctrl+H` / `Cmd+Y` | History (new tab) |
+| `Ctrl+H` on Windows/Linux, `Cmd+Y` on macOS | History (new tab after the current one; no-op if it already shows it) |
 | `Ctrl/Cmd+D` | Bookmark the current page (toggle) |
 | `Ctrl/Cmd+,` | Preferences window |
+
+## Find in page
+
+`Ctrl/Cmd+F` (or the right-click menu's "Find in page" row) opens a floating
+bar over a document page (a loaded document
+or the embedded licenses page; Home, history, loading and error views have
+nothing to search). It is built from the app's own chrome kit: an
+omnibox-style capsule (soft chrome fill, magnifier glyph, frameless field
+that focuses with the accent ring), the `n/m` count in a fixed muted slot
+and circular icon buttons for previous/next/close, identical in hover
+fill, glyph animation and tooltips to the toolbar's (a lighter shadow than
+the menu popups, since the bar stays on screen). Matching is a
+case-insensitive substring over the rendered
+text — prose, headings, list items, quotes, tables and fenced code bodies —
+with every match washed amber and the current one in a stronger tone (code
+blocks wash matching rows uniformly and scroll the current row into view).
+Searching never changes the layout — not even by a pixel: the matches ride
+on the very text the unsearched render lays out, with the wash painted
+behind it (a color emoji inside a matched paragraph keeps its color, with
+the wash behind it).
+`Enter` steps forward (`Shift+Enter` back; `F3` / `Shift+F3` work without
+the field focused) and the sheet scrolls the current match into view —
+down or up — retrying until it is on screen, unless the reader scrolls
+meanwhile (`Esc` closes the bar, which then keeps the query for reopening:
+`Ctrl/Cmd+F` focuses the field with that query SELECTED, so typing replaces
+it).
+The bar is an overlay (never shifts the document) and closes on navigation
+or tab switch with the rest of the overlay state.
