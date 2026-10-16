@@ -5,7 +5,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.4] - 2026-10-16
 
 ### Added
 
@@ -199,6 +199,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Find bar count is centered again: `No matches` sat ~6px left, touching
+  the capsule, because the query field's inner scope left the parent cursor
+  at the field's right edge instead of the capsule's; the bar re-advances
+  past the whole capsule like the omnibox, so `n/m` and `No matches` share
+  the same centered slot.
+  (`src/viewer/overlays/find.rs`, `src/viewer/overlays/tests.rs`.)
+- Omnibox and history search hover is coherent now: the capsule keeps its
+  hover wash whether the pointer is on the padding or on the text itself
+  (the field sits on top of the capsule and used to switch the wash off),
+  and the whole capsule shows the text cursor — buttons on top (security
+  indicator, clear/bookmark) keep their pointer cursor. Hovering never
+  selects the address; a clean click still selects all, a drag selects from
+  the press point. (`src/ui/omnibox/mod.rs`, `src/ui/history_page/mod.rs`.)
 - Supply chain: `rustls` 0.23.45 → 0.23.46 (fixes RUSTSEC-2026-0348 /
   RUSTSEC-2026-0349, low-severity TLS issues) plus its transitive `getrandom`
   0.4.3 → 0.3.4 pin (via the `tempfile` chain). `cargo audit` + `cargo deny`

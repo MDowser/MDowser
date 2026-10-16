@@ -787,3 +787,66 @@ fn find_row_opens_the_find_bar() {
         "the bar takes the keyboard on its next frame"
     );
 }
+
+#[test]
+fn find_no_matches_is_centered_in_its_slot() {
+    use egui::epaint::Shape;
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    tab.state = TabState::Loaded {
+        fetched: fetched_for("https://ex.com/a/"),
+    };
+    tab.find.show(tab.doc_generation);
+    tab.find.query = "zzz-no-hit".to_string();
+    tab.find.total = 0;
+    tab.find.current = 0;
+    // Two passes: the first popup frame is an invisible sizing pass.
+    let input = egui::RawInput {
+        screen_rect: Some(screen()),
+        ..Default::default()
+    };
+    let mut first = ctx.run_ui(input.clone(), |root| {
+        super::find::show_find_bar(root, &mut tab);
+    });
+    first.textures_delta.clear();
+    let mut out = ctx.run_ui(input, |root| {
+        super::find::show_find_bar(root, &mut tab);
+    });
+    // Capsule pill (256x34) and the "No matches" ink.
+    let capsule = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Rect(r) if (r.rect.height() - 34.0).abs() < 0.5 && r.rect.width() > 200.0 => {
+                Some(r.rect)
+            }
+            _ => None,
+        })
+        .next()
+        .expect("capsule pill painted");
+    let (pos, size) = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            Shape::Text(t) if t.galley.text() == "No matches" => Some((t.pos, t.galley.size())),
+            _ => None,
+        })
+        .next()
+        .expect("No matches painted");
+    out.textures_delta.clear();
+    // The field's inner scope used to leave the parent cursor at the field's
+    // right edge (`capsule.max.x - CAPSULE_PAD`), pulling the count slot 6px
+    // left into the capsule. The slot must start after a full item spacing.
+    let slot_min_x = capsule.max.x + crate::ui::theme::spacing::XS;
+    let slot_center_x = slot_min_x + 72.0 * 0.5;
+    let text_center_x = pos.x + size.x * 0.5;
+    assert!(
+        pos.x >= slot_min_x - 0.5,
+        "No matches overlaps the capsule: ink at {pos:?} vs slot starting at {slot_min_x}"
+    );
+    assert!(
+        (text_center_x - slot_center_x).abs() < 1.0,
+        "No matches not centered: center at {text_center_x:.2} vs slot center {slot_center_x:.2}"
+    );
+}

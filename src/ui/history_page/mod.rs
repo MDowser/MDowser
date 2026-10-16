@@ -228,6 +228,10 @@ pub fn show_history_page(
             let cap_w = ui.available_width().max(80.0);
             let (cap_rect, cap_resp) =
                 ui.allocate_exact_size(egui::vec2(cap_w, SEARCH_H), egui::Sense::click());
+            // Same contract as the omnibox: the whole capsule is the field,
+            // so the padding shows the text cursor too. The clear button on
+            // top keeps its own `PointingHand`.
+            let cap_resp = cap_resp.on_hover_cursor(egui::CursorIcon::Text);
             // Painted after the field below (fresh focus state, same frame).
             let bg_idx = ui.painter().add(egui::Shape::Noop);
             let icon_rect = egui::Rect::from_center_size(

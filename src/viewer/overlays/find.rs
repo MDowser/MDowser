@@ -183,6 +183,12 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                                 egui::StrokeKind::Inside,
                             )),
                         );
+                        // The inner `scope_builder` (field layout) advanced the parent
+                        // cursor to the field rect's right edge (`cap_rect.max.x -
+                        // CAPSULE_PAD`), which would pull the count slot into the
+                        // capsule. Re-advance past the whole capsule, like the
+                        // omnibox does.
+                        ui.advance_cursor_after_rect(cap_rect);
                         // Count: muted small text in a fixed slot, so the
                         // buttons never move while the digits change. The
                         // accessible name spells the same fact out ("Match 3

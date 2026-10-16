@@ -30,7 +30,7 @@
 # `rpmbuild` has network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.5.3}
+Version:        %{?ver}%{!?ver:0.5.4}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 
@@ -107,6 +107,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Fri Oct 16 2026 MDowser <noreply@mdowser.invalid> - 0.5.4-1
+- Find in page, tabbed Preferences, history refresh, hardening passes and UI fixes (see CHANGELOG.md 0.5.4).
 * Thu Oct 15 2026 MDowser <noreply@mdowser.invalid> - 0.5.3-1
 - Windows arm64 release build, tab-rail reorder, maintained omnibox list sync, and a security/UI hardening pass (see CHANGELOG.md 0.5.3).
 * Thu Oct 15 2026 MDowser <noreply@mdowser.invalid> - 0.5.2-1

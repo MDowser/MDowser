@@ -196,6 +196,11 @@ pub(crate) fn show_omnibox(
     // tab order — it draws no focus ring of its own, so a focusable capsule
     // was a silent, invisible stop before the field.
     let (rect, pill) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::CLICK);
+    // The whole capsule behaves as the field: text cursor over the padding
+    // too, so the border no longer shows a pointer while the text shows the
+    // I-beam. Buttons on top (indicator, clear/bookmark) keep their own
+    // `PointingHand` by interacting later.
+    let pill = pill.on_hover_cursor(egui::CursorIcon::Text);
     // Focus read BEFORE the field exists: a pointer press grants focus
     // INSIDE the `TextEdit`'s own code, so this value is one frame stale on
     // the click frame. It is used only to RESERVE the right slot (below),
@@ -397,9 +402,13 @@ pub(crate) fn show_omnibox(
     // grants focus inside the `TextEdit`'s own code, so the pre-field read
     // above was a frame behind (the ring/fill used to appear one frame late).
     let focused_now = field.has_focus() || ui.memory(|m| m.has_focus(id));
+    // The field sits ON TOP of the capsule widget, so its own hover must
+    // light the capsule too: `pill.hovered()` alone went dark as soon as the
+    // pointer moved from the padding onto the text.
+    let hovered = pill.hovered() || field.hovered();
     let fill = if focused_now {
         s.input_bg
-    } else if pill.hovered() {
+    } else if hovered {
         s.omnibox_hover
     } else {
         s.omnibox_bg
