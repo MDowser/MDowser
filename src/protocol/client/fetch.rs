@@ -91,7 +91,11 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
     let normalized = crate::markdown::document::normalize_body(&body);
     // Event-stream bomb guard: an over-complex document fails this route
     // with a bounded line instead of building a several-hundred-MB vector.
-    let events = crate::markdown::document::parse_events(&normalized)?;
+    // The line names the attempt like every other route error (the same
+    // body used to push five identical, context-free lines through the
+    // candidate cascade).
+    let events = crate::markdown::document::parse_events(&normalized)
+        .map_err(|e| format!("access to {error_url}: {e}"))?;
     // Copy text is derived here too: off the UI thread, once per document,
     // from the SAME owned events the viewer renders (no second parse).
     let plain_text = crate::markdown::document::plain_text_from_events(&events);

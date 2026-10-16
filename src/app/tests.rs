@@ -610,6 +610,63 @@ fn stored_window_geometry_falls_back_to_centering_without_its_monitor() {
     );
 }
 
+/// Esc ownership: when another surface claims the key (a focused address
+/// field, the inline tile editor, a floating window, the page-info card or a
+/// popup), the find bar must NOT close on the same press — one Esc used to
+/// close the bar AND act on the surface behind it.
+#[test]
+fn find_bar_leaves_esc_to_the_surface_that_owns_it() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(vec![loaded_tab(1, "https://ex.com/a/", Some("A"))], 0);
+    let escape = || eframe::egui::Event::Key {
+        key: eframe::egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: eframe::egui::Modifiers::NONE,
+    };
+    let cmd_key = eframe::egui::Event::Key {
+        key: eframe::egui::Key::F,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: eframe::egui::Modifiers::COMMAND,
+    };
+    let frame = |ctx: &eframe::egui::Context,
+                 app: &mut super::MdowserApp,
+                 events: Vec<eframe::egui::Event>| {
+        let input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(900.0, 700.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |root| {
+            app.handle_shortcuts(ctx);
+            let active = app.active;
+            crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
+        });
+        out.textures_delta.clear();
+    };
+    frame(&ctx, &mut app, vec![cmd_key]);
+    frame(&ctx, &mut app, vec![]);
+    assert!(app.tabs[0].find.open, "Ctrl/Cmd+F opened the bar");
+    // The address field owned the keyboard last frame: the bar must leave
+    // Esc alone (and so must Stop).
+    app.tabs[0].address_focused = true;
+    frame(&ctx, &mut app, vec![escape()]);
+    assert!(
+        app.tabs[0].find.open,
+        "a focused address field keeps Esc; the bar stays open"
+    );
+    // With nothing claiming the key, the next press closes the bar.
+    frame(&ctx, &mut app, vec![escape()]);
+    assert!(!app.tabs[0].find.open, "Esc closed the bar");
+}
+
 /// `Ctrl/Cmd+F` on a loaded page opens the find bar, and the bar's next
 /// frame gives the query field the keyboard with the previous query
 /// SELECTED (typing replaces it). Esc closes; the query survives for the

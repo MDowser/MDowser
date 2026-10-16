@@ -215,9 +215,11 @@ pub(crate) fn show_omnibox(
     let bg_idx = ui.painter().add(egui::Shape::Noop);
 
     // Left indicator: padlock (secure HTTPS), page (local file) or globe on
-    // Home.
+    // Home. The box is the shared chrome icon box (`theme::ICON_BOX`), not a
+    // local 26.0: the indicator is the same visual family as every chrome
+    // icon button and must not drift from them.
     let pad = 7.0;
-    let indicator_box = 26.0;
+    let indicator_box = theme::ICON_BOX;
     let indicator_rect = egui::Rect::from_center_size(
         egui::pos2(rect.min.x + pad + indicator_box * 0.5, rect.center().y),
         egui::vec2(indicator_box, indicator_box),

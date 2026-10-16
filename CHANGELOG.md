@@ -143,13 +143,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per call from the walk context via `RenderCtx::img_ctx`) instead of
   four `too_many_arguments` allows; the history clock and page-count rule
   are single-sourced (`util::now_secs`, shared count caption).
-  (`src/viewer/image/`, `src/viewer/markdown/`, `src/viewer/inline/`,
+  (`src/viewer/image.rs`, `src/viewer/markdown/`, `src/viewer/inline/`,
   `src/ui/history_page/`, `src/ui/preferences/`, `src/ui/icons/`.)
 - Docs/build sync: `docs/BUILDING.md` states the real `-SkipDist` meaning
   (still builds; setup-only needs `-SkipBuild` too), `make help` lists
   `help`, `docs/ARCHITECTURE.md` drops the removed `scheme_for`, and
   `docs/SECURITY.md` covers the local echo helper. (`docs/`,
   `Makefile`.)
+- Standardization/hardening pass: the display sanitizer bounds its echo at
+  the first ASCII whitespace (a second pasted line can never ride inside the
+  address) and keeps a `host:port`-shaped token only when it parses as a
+  credential-free URL; `strip_credentials_for_log` returns a `Cow` (clean
+  lines allocate nothing per repaint; the local read-error echoes build only
+  on failure and the `file:` prefix check is allocation-free); the
+  scheme-syntax predicate is single-sourced in `util`; a hostile
+  `Content-Type` parameter list no longer materializes a `Vec` (lazy
+  iterator); a rejected event-bomb line names the attempt URL like every
+  other route error; and `logical_base` never collapses a directory whose
+  spelling ends in `/` (`/docs.md/` keeps its base and the requested path is
+  tried first, instead of the display URL and every relative link resolving
+  under `/docs/`). `rewrite` resolves IP-literal `host:port` links
+  (`127.0.0.1:8080/x`, `[::1]:8080/x`) as `https://` exactly like the
+  omnibox, and an allowed-but-unparseable scheme spelling (`https://`,
+  `file://`) goes inert instead of joining into a bogus relative link.
+  (`src/util.rs`, `src/protocol/`, `docs/`.)
+- Graphics/rendering pass: in-page find scrolls the document to a match
+  inside a code card or a table cell (the nested horizontal `ScrollArea`
+  consumed the request; the outer sheet re-issues it) and marks the current
+  row in a fenced block with the stronger wash; `Esc` is one surface per
+  press (a focused field, the page-info card, a popup/menu or a floating
+  window keeps it away from the find bar); the bookmark grid keeps its
+  documented `tile_w + GRID_GAP` stride (the title scope used to end 4px
+  short, shrinking the gap to 6px and drifting a row left of the capsule
+  above), with the drag-over drop target read geometrically like the tab
+  rail; the history page rows keep their full `ROW_H` stride (52px rows
+  painted at 46px overlapped by 6px and left a blank scroll tail) and its
+  header subtitle is memoized; the omnibox indicator uses `theme::ICON_BOX`;
+  the Home section's top air and the history page gaps move onto the spacing
+  scale; list bullets hug the text column in every item shape (one mixed
+  list used to show two bullet columns); and a closed tab drops the document
+  scroll state of every URL it visited (`ui::remember_scroll` keeps the
+  whole list now). (`src/viewer/`, `src/ui/`, `docs/`.)
+- Build/dist pass: `check-dist.sh --require` turns a missing inspector (no
+  python3) into a failure and is wired into `build-dist.sh` and CI (the
+  Fedora RPM job installs python3); `mk_deb` verifies the `.deb` was
+  actually written; single-group `build-dist.sh` modes ADD to `dist/`
+  instead of wiping it (only `--all`/`--host-only` rebuild from scratch);
+  Linux/Windows staging failures warn instead of aborting the multi-OS run;
+  the RPM source tar and the Flatpak manifest also exclude `.env*`/`.aider*`,
+  and the Flatpak build remaps its sandbox paths like every other artifact;
+  `lib.sh` guards `HOME` under `set -u`, `deps.sh` refreshes apt lists once
+  per run, `windows.ps1` finds per-user/custom Git Bash installs, and the
+  Makefile quotes the resolved cargo path. (`scripts/`, `Makefile`,
+  `windows.ps1`, `packaging/`, `.github/workflows/release.yml`, `docs/`.)
 
 ### Fixed
 
@@ -187,6 +233,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`src/ui/error_view.rs`.)
 - Code Copy buttons announce `Copy <lang> code` (not N identical `Copy`s)
   with a hover tooltip. (`src/viewer/code/`.)
+- The history page's armed "Delete history" note no longer promises to
+  delete the shared `store.key` (it deletes the visits; the key stays for
+  bookmarks/settings/session), matching Preferences and `docs/SECURITY.md`.
+  (`src/ui/history_page/mod.rs`.)
+- The macOS `.app.zip` no longer carries AppleDouble `._*` sidecars (the
+  build and the ad-hoc signing plant `com.apple.provenance` xattrs on every
+  file): the staged bundle is swept before packing and `ditto` runs with
+  `--norsrc --noqtn --noextattr`, so the extracted bundle verifies with
+  `codesign --verify` and ships no builder metadata. `check-dist.sh` now
+  FAILS on AppleDouble members in any archive, so a packer that forgets the
+  sweep can never pass the gate. (`scripts/build-dist.sh`,
+  `scripts/check-dist.sh`.)
 
 ## [0.5.3] - 2026-10-15
 

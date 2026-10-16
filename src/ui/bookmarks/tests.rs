@@ -8,7 +8,7 @@
 
 use super::{
     grid_geometry, show_bookmarks, ACTION_GAP, ACTION_INSET, ACTION_SIZE, FAVICON, FIELD_PAD,
-    ICON_SIZE, ICON_TOP, TILE_H, TITLE_BOTTOM_GUARD, TITLE_SIZE, TITLE_TOP,
+    GRID_GAP, ICON_SIZE, ICON_TOP, TILE_H, TITLE_BOTTOM_GUARD, TITLE_SIZE, TITLE_TOP,
 };
 use crate::bookmarks::BookmarkStore;
 use crate::browser::tab::{Tab, TabState};
@@ -956,6 +956,32 @@ fn dragging_across_rows_reorders_the_grid() {
     assert!(
         !matches!(tab.state, TabState::Loading { .. }),
         "a drag must never open the page"
+    );
+}
+
+/// Each tile owns exactly `tile_w + GRID_GAP` horizontally: the inset title
+/// scope used to end 4px short of the tile's right edge, so the column gap
+/// silently shrank to 6px and a full row drifted left of the capsule above
+/// it (the grid is documented to line up with the address bar).
+#[test]
+fn tiles_keep_the_grid_gap() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    let mut store = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    store.toggle("file:///tmp/one.md", Some("One"));
+    store.toggle("file:///tmp/two.md", Some("Two"));
+
+    let _ = render(&ctx, base_input(), &mut tab, &mut store, &mut favicons);
+    let shapes = render(&ctx, base_input(), &mut tab, &mut store, &mut favicons);
+    let one = text_pos(&shapes, "One").expect("first tile painted");
+    let two = text_pos(&shapes, "Two").expect("second tile painted");
+    let (_, tile_w) = grid_geometry(SECTION_W);
+    let stride = (two.x - one.x).abs();
+    assert!(
+        (stride - (tile_w + GRID_GAP)).abs() < 0.5,
+        "tile stride must be tile_w + GRID_GAP ({tile_w} + {GRID_GAP}), got {stride}"
     );
 }
 

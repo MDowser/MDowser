@@ -651,8 +651,11 @@ Key contracts:
   retain unbounded strings past every other cap;
   sources the base may not follow (e.g. `file:` from a remote page) stay as
   inert alt text; a `host:port` spelling the omnibox accepts
-  (`localhost:3000`, `example.com:8080/x`) resolves as `https://` too, while
-  blocked schemes and userinfo forms stay inert; raw HTML is never
+  (`localhost:3000`, `example.com:8080/x`, IP literals such as
+  `127.0.0.1:8080/x` and `[::1]:8080/x`) resolves as `https://` too, while
+  blocked schemes, userinfo forms and an ALLOWED scheme whose spelling did
+  not parse (`https://`, `file://`) stay inert — never a bogus relative join
+  under the base; raw HTML is never
   interpreted.
   In-document anchors: `markdown::anchors` collects heading slugs (lowercase,
   punctuation dropped, spaces to hyphens), explicit `{#id}` heading ids and
@@ -940,9 +943,12 @@ Key contracts:
   (`ui::forget_tab`, the single registry for every per-tab egui-memory
   key: omnibox caches + field edit states, history filter/cache/clear +
   search-field state, the Home/bookmarks/history-page scroll offsets, the
+  document reading sheet's per-(tab, URL) offsets, the
   error-view scroll offset, and the Home rename/drag drafts). Scroll
   offsets are registered through `ui::remember_scroll` with the REAL id
-  their `ScrollArea` returned: a `ScrollArea` derives its persistent id
+  their `ScrollArea` returned (one surface can record several ids per tab —
+  the document sheet keeps one per visited URL — and the close path removes
+  them all): a `ScrollArea` derives its persistent id
   from the parent `Ui` (`make_persistent_id`), so the old
   `Id::new((salt, tab_id))` removals never matched and every closed tab
   leaked one scroll state per surface.
@@ -1093,25 +1099,37 @@ Key contracts:
   line, enough to push a borderline word to the next row). A fragment holding
   color emoji never takes the glyph split (a galley cannot draw a texture):
   it keeps the emoji COLOR path with the wash painted behind the textures,
-  highlighted whole. The CURRENT match's painted rect is recorded on the
+  highlighted whole. Fenced blocks use the stronger CURRENT wash on the row
+  that owns the current ordinal too (it is found once per frame by counting
+  occurrences line by line, early-exiting past the target). The CURRENT
+  match's painted rect is recorded on the
   frame's cursor (the union of its row bands, `range_row_rects`) and
   its `scroll_to_rect` request is RETRIED until that
   rect shows up in the sheet's clip rect: egui's `ScrollArea` DROPS a scroll
   target on any frame that also sees scroll input (the wheel's smoothing
   tail keeps one alive for a few frames), so consuming the request on the
-  first frame lost it. New wheel/drag input cancels the retry for good (the
+  first frame lost it. A match inside a code card or a table cell sits under
+  a NESTED horizontal `ScrollArea`, which consumes the frame's target and
+  applies only its own axis: the retry re-issues the request from the outer
+  sheet, whose `ScrollArea` ends after the walk, so the document scrolls to
+  such a row too. New wheel/drag input cancels the retry for good (the
   user's scroll wins). The bar's own focus request is deferred past the
   first frame too: an `Area`'s first frame is an invisible sizing pass with
   a DISABLED `Ui`, where a `TextEdit` cannot take (and would surrender)
-  focus.
+  focus. `Esc` closes the bar only when no other surface owns the press:
+  `app::shortcuts` records a focused field, the page-info card, an open
+  popup/menu or a floating window in `FindState::esc_elsewhere` before the
+  viewer draws, so one press never closes the bar AND acts on the surface
+  behind it.
 - Cancellation: every fetch checks the flag per candidate and, during the
   body, races each chunk wait (`futures_util::select`) against it, so a
   superseded navigation drops in ~20ms even mid-stall (not after the 15s
   `CHUNK_TIMEOUT_SECS`).
 - Shared anti-abuse bounds live in `config/` (`MAX_SETTINGS_BYTES`, the
-  code/table render-cache byte budgets, the font-asset gzip bound, the
-  structural/MDX `MAX_*_SCAN_LINES` budgets, `LOCAL_READ_CHUNK_BYTES` and
-  the store repair-lock timeouts); display helpers in `util.rs`. The
+  code/table render-cache byte budgets, the font-asset gzip bound and
+  `LOCAL_READ_CHUNK_BYTES`); the structural/MDX scan-line budgets live
+  beside their passes in `markdown::document`, the store repair-lock
+  timeouts in `store::crypto`, and the display helpers in `util.rs`. The
   `image::ImgCtx` parameter bundle (the five inputs shared by all four
   image entry points, built per call from the walk context) lives beside
   its owner in `viewer::image`.

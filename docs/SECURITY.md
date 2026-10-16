@@ -73,7 +73,7 @@ attack surface:
   color-emoji raster jobs at 4 (`MAX_CONCURRENT_EMOJI`); autolinks at
   20 000 per document, anchors at 20 000, link joins bounded
   (8192 joins / depth 2048), route candidates at 5, render nesting at depth
-  48 with code highlighting capped at 4000 lines / 400 KiB; the code/table
+  48 with code highlighting capped at 4000 lines / 400 000 bytes (≈391 KiB); the code/table
   render caches at 32 MiB / 16 MiB and the embedded-font gzip expansion at
   64 MiB (all `config::MAX_*`, so one module owns every bound).
 - Single-flight per tab: a new navigation cancels the previous fetch
@@ -347,7 +347,12 @@ attack surface:
   second colon before the `@`) is scheme syntax too and is rejected, with
   its userinfo removed by the same sanitizer, instead of being read as a
   userinfo host for `https://host`, while the plain `user:pass@host` and
-  `user:pass@host:8080` forms keep working with credentials stripped. Local
+  `user:pass@host:8080` forms keep working with credentials stripped. The
+  display echo is bounded at the first ASCII-whitespace character (one
+  address token: text pasted on a second line can never ride along) and a
+  host-port-shaped token (`nas:5000/x@y`) is only kept verbatim when it
+  parses as a credential-free URL, so a password-shaped `name:digits/path@…`
+  input is stripped instead. Local
   ("bad path") messages echo the rejected input through the same bounded,
   credential-free helper, and the post-parse local read errors echo the
   `file:` URL through it as well (`protocol::local::echo_url`): the parser
@@ -417,14 +422,18 @@ attack surface:
 Release binaries and packages must not carry the builder's identity. Rust
 embeds the source path of every panic location — dependency sources included
 (`$HOME/.cargo/registry/src/...`) — so `make`/`scripts/build-dist.sh`,
-`windows.ps1` and the RPM spec's `%build` remap those prefixes at compile time
+`windows.ps1`, the RPM spec's `%build` and the Flatpak manifest
+(`/run/build/mdowser[/cargo]`) remap those prefixes at compile time
 (`--remap-path-prefix`); the `.zip` writer drops the Info-ZIP Unix uid/gid
 extra field; and the tar staging sweeps extended attributes / passes
 `--no-xattrs`, so a macOS build does not embed its `com.apple.provenance` blob
 in Linux packages. The RPM spec pins `%_buildhost` and
 `%defattr(-, root, root, -)`. `scripts/check-dist.sh` (`make check-dist`, also
 enforced by `make dist` and `make validate`) fails the build if any `dist/`
-artifact still carries the builder's paths, hostname, uid/gid or xattrs. See
+artifact still carries the builder's paths, hostname, uid/gid, xattrs or an
+AppleDouble `._*`/`__MACOSX/` member —
+`make dist` and CI pass `--require`, which turns a missing inspector (no
+python3) into a hard failure instead of a silent SKIP. See
 `BUILDING.md` ("Build-artifact privacy").
 
 Release builds themselves run in CI (`.github/workflows/release.yml`) on

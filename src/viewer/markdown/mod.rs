@@ -387,6 +387,16 @@ pub(crate) fn show_markdown_with_find(
                 });
                 if visible || user_scrolled {
                     find.scroll_to_current = false;
+                } else if let Some(rect) = render.current_rect {
+                    // A match inside a table or a code card is claimed by the
+                    // nested HORIZONTAL scroll area first: egui's
+                    // `ScrollArea::end` consumes the frame's scroll target and
+                    // applies only its own axes, so the vertical half was
+                    // silently discarded and Next Match appeared to do
+                    // nothing for such matches. Re-issuing from the outer
+                    // sheet (its `ScrollArea` ends after this walk) makes the
+                    // document itself follow the row.
+                    ui.scroll_to_rect(rect, Some(egui::Align::Center));
                 }
             }
         }

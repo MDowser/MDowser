@@ -6,7 +6,11 @@
 
 # check-dist.sh: privacy gate for the packaged artifacts in dist/.
 #
-# Usage: ./scripts/check-dist.sh [dist-dir]   (= `make check-dist`)
+# Usage: ./scripts/check-dist.sh [--require] [dist-dir]   (= `make check-dist`)
+#
+#   --require  fail (exit 2) when the inspector cannot run (no python3 or no
+#              dist/) instead of skipping: `scripts/build-dist.sh` and CI use
+#              it, where a silent SKIP would report a leaking build as ready.
 #
 # A release artifact must not carry the BUILDER's identity. Two known
 # channels, both checked here:
@@ -21,20 +25,33 @@
 # The build host's own nodename is checked too (RPM's `BUILDHOST` tag).
 #
 # Exit status: 0 when dist/ is absent/empty (nothing to check), or when every
-# artifact is clean; 1 when any leak is found. `make validate` and
-# `scripts/build-dist.sh` both call this (the latter before writing
-# SHA256SUMS.txt, so a leaking build is never reported as ready).
+# artifact is clean; 1 when any leak is found; 2 when `--require` was passed
+# and the check could not run at all.
 set -u
+
+REQUIRE=0
+if [ "${1:-}" = "--require" ]; then
+    REQUIRE=1
+    shift
+fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="${1:-$ROOT/dist}"
 
 if [ ! -d "$DIST" ]; then
+    if [ "$REQUIRE" -eq 1 ]; then
+        echo "ERROR: no $DIST to check (--require)" >&2
+        exit 2
+    fi
     echo "SKIP: no $DIST (build it with make dist first)"
     exit 0
 fi
 
 if ! command -v python3 >/dev/null 2>&1; then
+    if [ "$REQUIRE" -eq 1 ]; then
+        echo "ERROR: python3 not found (needed to inspect the archives)" >&2
+        exit 2
+    fi
     echo "SKIP: python3 not found (needed to inspect the archives)"
     exit 0
 fi
@@ -92,6 +109,13 @@ def scan_tar(label, tf):
                 f"{label}: {member.name} owner uid/gid={member.uid}/{member.gid} "
                 f"uname={member.uname!r} gname={member.gname!r}"
             )
+        # AppleDouble sidecars (`._name`, `__MACOSX/...`) are macOS metadata
+        # captured from the builder's xattrs (com.apple.provenance among
+        # them): never package content. A packer that forgot to sweep the
+        # staging tree ships them.
+        base = os.path.basename(member.name)
+        if member.name.startswith("__MACOSX/") or base.startswith("._"):
+            problems.append(f"{label}: AppleDouble entry {member.name!r}")
         for key in member.pax_headers:
             if "xattr" in key.lower():
                 problems.append(
@@ -106,7 +130,8 @@ def scan_tar(label, tf):
 def scan_zip(label, path):
     with zipfile.ZipFile(path) as archive:
         for info in archive.infolist():
-            if info.filename.startswith("__MACOSX/"):
+            base = os.path.basename(info.filename)
+            if info.filename.startswith("__MACOSX/") or base.startswith("._"):
                 problems.append(f"{label}: AppleDouble entry {info.filename!r}")
             pos = 0
             while pos + 4 <= len(info.extra):

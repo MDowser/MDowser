@@ -44,6 +44,9 @@ use url::Url;
 /// - `"/love.md"` -> `"/love"`.
 /// - `"/love/index.md"` -> `"/love"`.
 /// - `"/love/README.md"` (any capitalization) -> `"/love"`.
+/// - A path ENDING in `/` names a directory and never collapses: the
+///   directory `/docs.md/` keeps its file-like name as base, so relative
+///   links and the display URL never resolve under the wrong parent.
 /// - Rest -> path without trailing `/`.
 pub(crate) fn logical_base(path: &str) -> String {
     // Exact root.
@@ -54,6 +57,14 @@ pub(crate) fn logical_base(path: &str) -> String {
     let mut p = path.trim_end_matches('/').to_string();
     if p.is_empty() {
         return String::new();
+    }
+    // A trailing slash marks a DIRECTORY: the file-suffix collapse below
+    // must not run (`/docs.md/` is a directory named `docs.md`; collapsing
+    // it to `/docs` made both the display URL and every relative link of a
+    // page landed there resolve under the wrong base, and the requested
+    // path itself was never tried).
+    if path.ends_with('/') {
+        return p;
     }
     // File suffixes collapsing to the base.
     // Order: longest first so `/index.markdown` is not confused with `.md`.
@@ -416,6 +427,40 @@ mod tests {
         assert_eq!(logical_base("/a/.md"), "/a/.md");
         assert_eq!(logical_base("/a/.markdown"), "/a/.markdown");
         assert_eq!(logical_base("/.markdown"), "/.markdown");
+        // A path ENDING in `/` names a directory: file suffixes never
+        // collapse it (`/docs.md/` is not `/docs`).
+        assert_eq!(logical_base("/docs.md/"), "/docs.md");
+        assert_eq!(logical_base("/docs/index.md/"), "/docs/index.md");
+        assert_eq!(logical_base("/docs.markdown//"), "/docs.markdown");
+    }
+
+    /// A page landed on a directory whose name ends in `.md` keeps that
+    /// directory as its base: the requested path is tried first and the
+    /// display keeps the directory.
+    #[test]
+    fn md_named_directories_keep_their_base() {
+        let input = u("https://ex.com/docs.md/");
+        let c = candidates_for(&input);
+        let paths: Vec<_> = c.iter().map(|x| x.path().to_string()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "/docs.md",
+                "/docs.md/",
+                "/docs.md.md",
+                "/docs.md/index.md",
+                "/docs.md/README.md",
+            ]
+        );
+        assert_eq!(
+            normalized_display(&input).as_str(),
+            "https://ex.com/docs.md/"
+        );
+        // The file spelling still collapses to the directory view.
+        assert_eq!(
+            normalized_display(&u("https://ex.com/docs.md")).as_str(),
+            "https://ex.com/docs/"
+        );
     }
 
     #[test]

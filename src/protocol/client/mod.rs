@@ -331,7 +331,7 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
             if is_blocked_scheme(pre) {
                 // Never echo userinfo credentials into the error view.
                 return Err(BrowserError::NotHttps(
-                    crate::util::strip_credentials_for_log(trimmed),
+                    crate::util::strip_credentials_for_log(trimmed).into_owned(),
                 ));
             }
             // `<scheme>://…` (or `scheme:\\…`) is DEFINITIVELY a scheme, never
@@ -382,7 +382,7 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
             if authority_sep {
                 // Any other `<scheme>://` form is blocked before networking.
                 return Err(BrowserError::NotHttps(
-                    crate::util::strip_credentials_for_log(trimmed),
+                    crate::util::strip_credentials_for_log(trimmed).into_owned(),
                 ));
             }
             // `scheme:user:pass@host` (a SECOND colon before the `@`): the
@@ -402,7 +402,7 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
                 && is_scheme_syntax(pre)
             {
                 return Err(BrowserError::NotHttps(
-                    crate::util::strip_credentials_for_log(trimmed),
+                    crate::util::strip_credentials_for_log(trimmed).into_owned(),
                 ));
             }
             // Host with port (`example.com:8080`, `localhost:3000`, `user:pass@host`)
@@ -418,7 +418,7 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
                     // Any other `scheme:` (`http`, `mailto`, `data`, ...)
                     // is blocked before touching the network.
                     return Err(BrowserError::NotHttps(
-                        crate::util::strip_credentials_for_log(trimmed),
+                        crate::util::strip_credentials_for_log(trimmed).into_owned(),
                     ));
                 }
             }
@@ -488,13 +488,10 @@ pub fn parse_navigable(input: &str) -> Result<Url, BrowserError> {
 /// (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`).
 /// - Keeps `example.com:8080` (host with port) from looking like a scheme.
 /// - `.` is allowed by the syntax, but hosts are already filtered by `.` here.
+/// - The predicate itself lives in `util` (`is_scheme_syntax`): the log
+///   credential stripper uses the SAME rule, so the two can never drift.
 fn is_scheme_syntax(s: &str) -> bool {
-    let mut chars = s.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() => (),
-        _ => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
+    crate::util::is_scheme_syntax(s)
 }
 
 /// Sanitizes arbitrary pasted input for DISPLAY after `parse_https`
@@ -512,24 +509,28 @@ fn is_scheme_syntax(s: &str) -> bool {
 /// - A bare `user@host` (no `:` in the userinfo) carries no secret.
 pub(crate) fn sanitize_for_display(input: &str) -> String {
     let stripped = crate::util::strip_credentials_for_log(input);
-    // One address token inside an error line is whitespace-bounded, and the
-    // LAST `@` inside it marks the userinfo. The bound is whitespace only
-    // (never `/`, `?` or `#`): a pasted password may itself contain any of
-    // those (`user:pa/ss@host`), and the old authority cut hid the `@`
+    // One address token inside an error line is ASCII-whitespace-bounded,
+    // and the LAST `@` inside it marks the userinfo. The bound is whitespace
+    // only (never `/`, `?` or `#`): a pasted password may itself contain any
+    // of those (`user:pa/ss@host`), and the old authority cut hid the `@`
     // beyond them, echoing the password into the address bar, the error
-    // view and "Copy log".
-    let token_end = stripped.find([' ', '\t']).unwrap_or(stripped.len());
+    // view and "Copy log". The bound MUST cover every character the shared
+    // stripper treats as a separator: a bare space/tab set let text from a
+    // second pasted line ride inside the "token".
+    let token_end = stripped
+        .find(|c: char| c.is_ascii_whitespace())
+        .unwrap_or(stripped.len());
     let Some(at) = stripped[..token_end].rfind('@') else {
         // The shared sanitizer already removed the userinfo. One display
         // nuance survives only when IT did the stripping for a blocked
         // non-hierarchical scheme (`mailto:user:pass@b.com` became
         // `mailto:b.com`): show just the domain. Recovered from the raw
         // input, where the scheme is still visible.
-        return blocked_scheme_password_domain(input).unwrap_or(stripped);
+        return blocked_scheme_password_domain(input).unwrap_or_else(|| stripped.into_owned());
     };
     let pre = &stripped[..at];
     let Some(colon) = pre.find(':') else {
-        return stripped;
+        return stripped.into_owned();
     };
     let after = &pre[colon + 1..];
     // `scheme://…` / `scheme:/…` with no other colon before the `@`: the
@@ -537,14 +538,27 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
     // is path/query data (`https://host/a@b`) — keep the token. A colon
     // after the separators is credential-shaped and falls through.
     if (after.starts_with('/') || after.starts_with('\\')) && !after.contains(':') {
-        return stripped;
+        return stripped.into_owned();
     }
     // `host:port/…@…` (`nas:5000/x@y`): digits followed by a path separator
     // right after the colon read as a port, not as a password — keep the
-    // token readable. Every other shape falls through to the strip below.
+    // token readable. The SHAPE alone is not proof (a password like
+    // `2024/secret` produces the same shape), so the token must also parse
+    // as a URL before it is echoed verbatim; the ambiguity with a genuine
+    // `host:port/path@…` URL is inherent and accepted (that spelling is
+    // navigable when well-formed). Every other shape falls through to the
+    // strip below.
     let digits = after.bytes().take_while(u8::is_ascii_digit).count();
     if (1..=5).contains(&digits) && matches!(after.as_bytes().get(digits), Some(b'/' | b'\\')) {
-        return stripped;
+        let credential_free =
+            Url::parse(&format!("https://{}", &stripped[..token_end])).is_ok_and(|probe| {
+                probe.host_str().is_some()
+                    && probe.username().is_empty()
+                    && probe.password().is_none()
+            });
+        if credential_free {
+            return stripped.into_owned();
+        }
     }
     let scheme = pre[..colon].trim();
     if BLOCKED_SCHEMES
@@ -556,19 +570,25 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
         // domain, exactly like the hierarchical spellings above.
         let has_userinfo_password = after.contains(':');
         return if has_userinfo_password {
-            stripped[at + 1..].to_string()
+            stripped[at + 1..token_end].to_string()
         } else {
-            stripped
+            stripped.into_owned()
         };
     }
-    stripped[at + 1..].to_string()
+    // Everything after the token (a second log line, a suffix note) is
+    // dropped with the credentials: the display echo is the address only.
+    stripped[at + 1..token_end].to_string()
 }
 
 /// Domain-only display for a blocked non-hierarchical scheme carrying a
 /// pasted password (`mailto:user:pass@b.com` → `b.com`); `None` for every
 /// other spelling, where the shared sanitizer's output is already correct.
 fn blocked_scheme_password_domain(input: &str) -> Option<String> {
-    let authority_end = input.find(['/', '?', '#', ' ']).unwrap_or(input.len());
+    // Same whitespace bound as [`sanitize_for_display`]: the authority ends
+    // at the first separator the URL shape could not contain unencoded.
+    let authority_end = input
+        .find(|c: char| c.is_ascii_whitespace() || matches!(c, '/' | '?' | '#'))
+        .unwrap_or(input.len());
     let at = input[..authority_end].rfind('@')?;
     let pre = &input[..at];
     let colon = pre.find(':')?;
@@ -581,7 +601,7 @@ fn blocked_scheme_password_domain(input: &str) -> Option<String> {
     }
     pre[colon + 1..]
         .contains(':')
-        .then(|| input[at + 1..].to_string())
+        .then(|| input[at + 1..authority_end].to_string())
 }
 
 mod fetch;

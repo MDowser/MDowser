@@ -157,6 +157,9 @@ pub(crate) fn forget_tab(ctx: &egui::Context, tab_id: usize) {
     });
     // Error-page scroll offset (`viewer::show_content`'s Failed branch).
     forget_scroll_state(ctx, ERROR_SCROLL_ID, tab_id);
+    // Document scroll offsets: one state per visited URL, all recorded by
+    // `viewer::show_content` through `remember_scroll` and dropped here.
+    forget_scroll_state(ctx, DOC_SCROLL_ID, tab_id);
 }
 
 /// Salts of the per-tab `ScrollArea`s whose state `forget_tab` drops.
@@ -164,6 +167,10 @@ pub(crate) const HOME_SCROLL_ID: &str = "home-scroll";
 pub(crate) const BOOKMARKS_SCROLL_ID: &str = "home-bookmarks-scroll";
 pub(crate) const HISTORY_SCROLL_ID: &str = "history-page-scroll";
 pub(crate) const ERROR_SCROLL_ID: &str = "error-scroll";
+/// Document reading sheet (`viewer::show_content`): one state per visited
+/// URL, registered through [`remember_scroll`] so a closed tab drops them
+/// all (it used to accumulate for the whole process).
+pub(crate) const DOC_SCROLL_ID: &str = "doc-scroll";
 
 /// The real egui id of a per-tab `ScrollArea`, recorded by [`remember_scroll`]
 /// under a key of our own.
@@ -178,24 +185,38 @@ fn scroll_id_key(id_salt: &'static str, tab_id: usize) -> egui::Id {
 /// matches it (the old `forget_tab` removed five keys that did not exist and
 /// leaked one scroll state per closed tab). The recorded id is what
 /// [`forget_scroll_state`] removes.
+///
+/// One surface can park SEVERAL states per tab (the document scroll keeps
+/// one per visited URL, so Back/Forward and refresh return to the reading
+/// position): the registry holds the list, deduplicated by real id, and the
+/// close path removes them all.
 pub(crate) fn remember_scroll(
     ctx: &egui::Context,
     id_salt: &'static str,
     tab_id: usize,
     real: egui::Id,
 ) {
-    ctx.data_mut(|d| d.insert_temp(scroll_id_key(id_salt, tab_id), real));
+    ctx.data_mut(|d| {
+        let key = scroll_id_key(id_salt, tab_id);
+        let mut ids = d.get_temp::<Vec<egui::Id>>(key).unwrap_or_default();
+        if !ids.contains(&real) {
+            ids.push(real);
+        }
+        d.insert_temp(key, ids);
+    });
 }
 
-/// Drops the persisted state of one per-tab `ScrollArea` recorded by
+/// Drops the persisted state of every per-tab `ScrollArea` recorded by
 /// [`remember_scroll`]. A no-op when the surface was never shown.
 pub(crate) fn forget_scroll_state(ctx: &egui::Context, id_salt: &'static str, tab_id: usize) {
     let key = scroll_id_key(id_salt, tab_id);
-    let recorded = ctx.data_mut(|d| d.get_temp::<egui::Id>(key));
-    if let Some(real) = recorded {
+    let recorded = ctx.data_mut(|d| d.get_temp::<Vec<egui::Id>>(key));
+    if let Some(ids) = recorded {
         ctx.data_mut(|d| {
-            d.remove::<egui::Id>(key);
-            d.remove::<egui::scroll_area::State>(real);
+            d.remove::<Vec<egui::Id>>(key);
+            for real in ids {
+                d.remove::<egui::scroll_area::State>(real);
+            }
         });
     }
 }

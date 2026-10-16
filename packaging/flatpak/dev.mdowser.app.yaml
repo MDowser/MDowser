@@ -58,6 +58,13 @@ build-options:
   env:
     CARGO_HOME: /run/build/mdowser/cargo
     CARGO_NET_OFFLINE: 'true'
+    # Build-artifact privacy (docs/SECURITY.md "Build artifacts"): Rust bakes
+    # the source path of every panic location / `file!()` into the binary,
+    # and inside the sandbox those are absolute /run/build/mdowser[/cargo]
+    # paths. Remap them like scripts/lib.sh does for every other artifact
+    # (0x1f separates flags in the encoded form; cargo paths last, matching
+    # lib.sh's order).
+    CARGO_ENCODED_RUSTFLAGS: "--remap-path-prefix=/run/build/mdowser=/build\x1f--remap-path-prefix=/run/build/mdowser/cargo=/cargo"
 
 modules:
   - name: mdowser
@@ -105,6 +112,8 @@ modules:
           - .claude
           - .codex
           - .cursor
+          - .env
+          - .aider
       # Generated (see the header): vendored cargo dependencies. Without it
       # the offline `cargo build` above cannot resolve a single crate.
       - cargo-sources.json

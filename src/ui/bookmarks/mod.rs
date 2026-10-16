@@ -178,7 +178,9 @@ pub fn show_bookmarks(
     let mut grid_scroll_id: Option<egui::Id> = None;
 
     let s = theme::scheme_ref(ui);
-    ui.add_space(26.0);
+    // Top air on the spacing scale (24px = XL + M): the old bare 26.0 was
+    // the one distance on the Home page that did not come from a token.
+    ui.add_space(theme::spacing::XL + theme::spacing::M);
     // One fixed-width, centered block for the whole section: the Home
     // column centers a KNOWN-size child, so the header, the grid and the
     // empty hint line up with the address capsule above (a bare `scope`

@@ -57,8 +57,9 @@ pub(crate) fn is_local_host(url: &Url) -> bool {
 /// - an explicit relative path (`./notes.md`, `../notes.md`),
 /// - a Windows drive path (`C:\notes.md`, `C:/notes.md`).
 pub(crate) fn parse_input(input: &str) -> Option<Result<Url, BrowserError>> {
-    let lower = input.to_ascii_lowercase();
-    if lower.starts_with("file:") {
+    // Allocation-free prefix test: the old whole-string lowercase made a
+    // 8 KiB copy on every parse, even for plain URLs.
+    if crate::util::starts_with_ignore_ascii_case(input, "file:") {
         return Some(parse_file_url(input));
     }
     if looks_like_path(input) {
@@ -193,16 +194,20 @@ fn echo_url(url: &Url) -> String {
 }
 
 /// Local path of a `file` URL, rejecting remote hosts.
+///
+/// The error echo is built INSIDE each failure arm: a successful read used
+/// to allocate two full sanitized copies of the URL per document (and per
+/// image) purely for messages that are never shown.
 pub(crate) fn local_path(url: &Url) -> Result<PathBuf, String> {
-    let echo = echo_url(url);
     if !is_local_host(url) {
         let host = url.host_str().unwrap_or_default();
         return Err(format!(
-            "access to {echo}: remote file host '{host}' is not supported"
+            "access to {}: remote file host '{host}' is not supported",
+            echo_url(url)
         ));
     }
     url.to_file_path()
-        .map_err(|_| format!("access to {echo} is not a local path"))
+        .map_err(|_| format!("access to {} is not a local path", echo_url(url)))
 }
 
 /// Candidate `(url, path)` pairs for a file URL, in resolution order.
@@ -293,55 +298,57 @@ fn read_bytes_at(
     cancel: &AtomicBool,
 ) -> Result<Vec<u8>, String> {
     use std::io::Read as _;
-    let echo = echo_url(url);
+    // Lazy echo: built only inside a failure arm (a successful read pays
+    // nothing for messages that are never shown).
+    let echo = || echo_url(url);
     if cancel.load(Ordering::Relaxed) {
-        return Err(format!("access to {echo} cancelled"));
+        return Err(format!("access to {} cancelled", echo()));
     }
     let meta = match std::fs::metadata(path) {
         Ok(m) => m,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Err(format!("access to {echo} does not exist (404)"));
+            return Err(format!("access to {} does not exist (404)", echo()));
         }
-        Err(e) => return Err(format!("access to {echo}: {e}")),
+        Err(e) => return Err(format!("access to {}: {e}", echo())),
     };
     if meta.is_dir() {
-        return Err(format!("access to {echo} is a directory"));
+        return Err(format!("access to {} is a directory", echo()));
     }
     // Only regular files are readable: a FIFO with no writer blocks `open`
     // forever (no timeout can interrupt it) and would permanently consume a
     // global fetch slot; sockets/devices have no business being a document.
     // `metadata` follows symlinks, so links to regular files still pass.
     if !meta.is_file() {
-        return Err(format!("access to {echo} is not a regular file"));
+        return Err(format!("access to {} is not a regular file", echo()));
     }
     // Early cutoff on the metadata length (cheap anti-abuse, no read).
     if meta.len() > cap as u64 {
-        return Err(format!("access to {echo} exceeds {cap} bytes"));
+        return Err(format!("access to {} exceeds {cap} bytes", echo()));
     }
-    let mut file = open_read_no_block(path).map_err(|e| format!("access to {echo}: {e}"))?;
+    let mut file = open_read_no_block(path).map_err(|e| format!("access to {}: {e}", echo()))?;
     // Re-check the OPENED handle's type: if the path was swapped between
     // `metadata` and `open`, the opened handle is what we actually read, and
     // `O_NONBLOCK` kept the open itself from blocking on a FIFO.
     match file.metadata() {
         Ok(m) if m.is_file() => {}
-        Ok(_) => return Err(format!("access to {echo} is not a regular file")),
-        Err(e) => return Err(format!("access to {echo}: {e}")),
+        Ok(_) => return Err(format!("access to {} is not a regular file", echo())),
+        Err(e) => return Err(format!("access to {}: {e}", echo())),
     }
     let mut buf: Vec<u8> = Vec::with_capacity((meta.len() as usize).min(cap));
     let mut chunk = [0u8; READ_CHUNK_BYTES];
     loop {
         if cancel.load(Ordering::Relaxed) {
-            return Err(format!("access to {echo} cancelled"));
+            return Err(format!("access to {} cancelled", echo()));
         }
         let n = file
             .read(&mut chunk)
-            .map_err(|e| format!("access to {echo} error reading file: {e}"))?;
+            .map_err(|e| format!("access to {} error reading file: {e}", echo()))?;
         if n == 0 {
             break;
         }
         // Running cap: the metadata check above can race a growing file.
         if buf.len().saturating_add(n) > cap {
-            return Err(format!("access to {echo} exceeds {cap} bytes"));
+            return Err(format!("access to {} exceeds {cap} bytes", echo()));
         }
         buf.extend_from_slice(&chunk[..n]);
     }

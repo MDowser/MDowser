@@ -28,30 +28,62 @@
 /// Splits a header on `;`, keeping double-quoted values whole
 /// (`boundary="a;b"` stays one parameter).
 ///
+/// Lazy and borrowing: a hostile header with thousands of `;` parameters
+/// never materializes a `Vec` (the header value reaches this gate
+/// untruncated, bounded only by the transport's own header limit), and
+/// callers that need just the MIME type stop at the first item.
+///
 /// Pure ASCII scan on byte indices: `"`, `\` and `;` are single-byte, so
 /// every slice is on a char boundary (never panics on UTF-8 values).
-fn split_params(raw: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    let mut start = 0usize;
-    let mut in_quotes = false;
-    let mut escaped = false;
-    for (i, b) in raw.bytes().enumerate() {
-        if escaped {
-            escaped = false;
-            continue;
+struct SplitParams<'a> {
+    raw: &'a str,
+    start: usize,
+    done: bool,
+}
+
+impl<'a> Iterator for SplitParams<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<&'a str> {
+        if self.done {
+            return None;
         }
-        match b {
-            b'\\' if in_quotes => escaped = true,
-            b'"' => in_quotes = !in_quotes,
-            b';' if !in_quotes => {
-                out.push(&raw[start..i]);
-                start = i + 1;
+        // The state at a segment start is always "not in quotes": a split
+        // only happens on a `;` outside quotes.
+        let mut in_quotes = false;
+        let mut escaped = false;
+        let bytes = self.raw.as_bytes();
+        let mut i = self.start;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if escaped {
+                escaped = false;
+                i += 1;
+                continue;
             }
-            _ => {}
+            match b {
+                b'\\' if in_quotes => escaped = true,
+                b'"' => in_quotes = !in_quotes,
+                b';' if !in_quotes => {
+                    let part = &self.raw[self.start..i];
+                    self.start = i + 1;
+                    return Some(part);
+                }
+                _ => {}
+            }
+            i += 1;
         }
+        self.done = true;
+        Some(&self.raw[self.start..])
     }
-    out.push(&raw[start..]);
-    out
+}
+
+fn split_params(raw: &str) -> SplitParams<'_> {
+    SplitParams {
+        raw,
+        start: 0,
+        done: false,
+    }
 }
 
 /// Is this `Content-Type` value a valid markdown type?
@@ -73,7 +105,7 @@ pub fn is_markdown_content_type(value: Option<&str>) -> bool {
     };
 
     // Split on `;` (quote-aware): first part = type, rest = parameters.
-    let mut parts = split_params(raw).into_iter();
+    let mut parts = split_params(raw);
 
     // MIME type: lowercase + trim. Must be a markdown-identifying type.
     let mime = parts.next().unwrap_or("").trim().to_ascii_lowercase();
@@ -128,7 +160,6 @@ pub fn is_image_content_type(value: Option<&str>) -> bool {
         return false;
     };
     let mime = split_params(raw)
-        .into_iter()
         .next()
         .unwrap_or("")
         .trim()
@@ -144,7 +175,7 @@ pub fn is_image_content_type(value: Option<&str>) -> bool {
 /// fallback container (anything else present, like `text/html`, is rejected
 /// before the body is read).
 pub fn is_octet_stream(value: &str) -> bool {
-    let mime = split_params(value).into_iter().next().unwrap_or("").trim();
+    let mime = split_params(value).next().unwrap_or("").trim();
     mime.eq_ignore_ascii_case("application/octet-stream")
         || mime.eq_ignore_ascii_case("binary/octet-stream")
 }
@@ -272,5 +303,26 @@ mod tests {
         assert!(is_markdown_content_type(Some(
             "text/markdown; charset=\"'utf-8'\""
         )));
+    }
+
+    #[test]
+    fn tolerates_a_parameter_bomb_without_collecting_it() {
+        // Lazy splitting: a hostile header with thousands of parameters is
+        // scanned once (never collected into a `Vec`) and the verdict is the
+        // same as for the short header.
+        let mut ct = String::from("text/markdown; charset=utf-8");
+        let mut bad = String::from("text/markdown");
+        for i in 0..20_000 {
+            ct.push_str(&format!("; p{i}=v"));
+            bad.push_str(&format!("; p{i}=v"));
+        }
+        bad.push_str("; charset=iso-8859-1");
+        assert!(is_markdown_content_type(Some(&ct)));
+        assert!(!is_markdown_content_type(Some(&bad)));
+        // The image/octet gates stop at the first item.
+        let img = format!("image/png;{ct}");
+        assert!(is_image_content_type(Some(&img)));
+        let octet = format!("application/octet-stream;{ct}");
+        assert!(is_octet_stream(&octet));
     }
 }

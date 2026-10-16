@@ -79,7 +79,7 @@ jobs:
           ls dist/*.tar.gz dist/*.deb
           mv /tmp/keep/* dist/
           rm -f dist/SHA256SUMS.txt
-          ./scripts/check-dist.sh dist
+          ./scripts/check-dist.sh --require dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -221,7 +221,7 @@ jobs:
       - name: Build dependencies (spec BuildRequires)
         run: |
           dnf -y install rpm-build nasm gcc gcc-c++ make patch curl \
-              desktop-file-utils appstream tar gzip which
+              desktop-file-utils appstream tar gzip which python3
       - name: Rust 1.98 via rustup (dnf rust/cargo only satisfy BuildRequires)
         run: |
           dnf -y install cargo rust
@@ -334,7 +334,7 @@ jobs:
         run: |
           set -eu
           rm -f dist/SHA256SUMS.txt
-          ./scripts/check-dist.sh dist
+          ./scripts/check-dist.sh --require dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
       - name: Publish the release
         env:

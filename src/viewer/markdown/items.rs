@@ -279,7 +279,20 @@ pub(super) fn begin_item_block(ui: &mut egui::Ui, ctx: &mut RenderCtx) -> Option
                 egui::vec2(align, theme::BODY_LINE_HEIGHT),
                 egui::Sense::hover(),
             );
-            paint_item_marker(ui, &text, size, bullet, note, selected, rect, None);
+            // Same hug-the-text x as the inline first-line path
+            // (`blocks::render_wrapped_lines`): a mixed list whose items
+            // start with different block kinds used to show TWO bullet
+            // columns, one centered in the gutter and one hugging the text.
+            paint_item_marker(
+                ui,
+                &text,
+                size,
+                bullet,
+                note,
+                selected,
+                rect,
+                Some(rect.right() - BULLET_TEXT_GAP),
+            );
             it.align = align;
         }
         it.marker_rendered = true;

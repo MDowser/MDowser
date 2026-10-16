@@ -92,7 +92,8 @@ step "AppStream metadata"
 if have appstreamcli; then
     # `appstreamcli validate` returns non-zero for WARNINGS too, so inspect its
     # own summary: only a non-zero "errors" count is a failure (the RPM %check
-    # uses the lenient `appstream-util validate-relax` for the same reason).
+    # runs the same `appstreamcli validate --no-net` and tolerates warnings
+    # with `|| :` for the same reason).
     TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/mdowser-appstream.XXXXXX" 2>/dev/null)" || TMP_OUT=""
     if [ -z "$TMP_OUT" ]; then
         if appstreamcli validate --no-net "$METAINFO"; then
@@ -119,9 +120,9 @@ if have appstreamcli; then
     fi
     unset TMP_OUT
 elif have appstream-util; then
-    # Legacy validator (the RPM %check uses it). It flags the committed
-    # `<icon type="stock">` line ("stock icon is not valid") — a false
-    # positive the current appstreamcli accepts; only THAT complaint is
+    # Legacy validator fallback (when appstreamcli is not installed). It flags
+    # the committed `<icon type="stock">` line ("stock icon is not valid") — a
+    # false positive that the current appstreamcli accepts; only THAT complaint is
     # downgraded to a note, any other finding still fails. The filter is
     # fail-closed on plain phrases (never the localized problem bullet): a
     # line the whitelist does not recognize stays a FAIL.
@@ -197,13 +198,21 @@ fi
 # --- dist artifacts (privacy) ------------------------------------------------
 # A built dist/ must not carry the builder's absolute paths or build-host
 # metadata; the check is best-effort only in that dist/ need not exist yet.
+# When the inspector itself cannot run (no python3), the result is a SKIP
+# with its reason, never a green `ok`.
 step "dist artifacts (privacy)"
 if [ -d "$ROOT/dist" ] && [ -n "$(ls -A "$ROOT/dist" 2>/dev/null)" ]; then
-    if "$ROOT/scripts/check-dist.sh" "$ROOT/dist"; then
-        ok "check-dist (no builder paths / build-host metadata)"
-    else
+    _cd_out="$("$ROOT/scripts/check-dist.sh" "$ROOT/dist" 2>&1)"
+    _cd_status=$?
+    printf '%s\n' "$_cd_out"
+    if [ "$_cd_status" -ne 0 ]; then
         bad "check-dist found build-host information in dist/"
+    elif printf '%s\n' "$_cd_out" | grep -q '^SKIP'; then
+        skip "dist artifacts (privacy)" "the inspector could not run (see above)"
+    else
+        ok "check-dist (no builder paths / build-host metadata)"
     fi
+    unset _cd_out _cd_status
 else
     skip "dist artifacts (privacy)" "no dist/ yet (run make dist)"
 fi

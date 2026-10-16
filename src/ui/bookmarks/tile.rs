@@ -169,9 +169,14 @@ pub(super) fn bookmark_tile(
         drag_action = Some(TileAction::DragStart);
     } else if response.drag_stopped() {
         drag_action = Some(TileAction::DragStop);
-    } else if drag_active && !dragging && response.contains_pointer()
-    // `contains_pointer` is geometric, so it works under the captured
-    // pointer where `hovered` is false.
+    } else if drag_active
+        && !dragging
+        // Geometric read of THIS frame's rect, not `response.contains_pointer()`:
+        // that snapshot is computed from the previous frame's widget rects, and
+        // a live reorder moves the tiles, so the lagged hit test kept targeting
+        // the slot a tile no longer occupied (the tab rail rejects the same API
+        // for the same reason; see `ui/tabs/rows.rs`).
+        && ui.ctx().rect_contains_pointer(ui.layer_id(), rect)
     {
         drag_action = Some(TileAction::DragOver);
     }
@@ -271,6 +276,10 @@ pub(super) fn bookmark_tile(
             focus,
         );
         if field.lost_focus() {
+            // The field's own allocation left the caller's cursor inside the
+            // tile: re-own the full slot before reporting (see the grid-gap
+            // note below).
+            ui.advance_cursor_after_rect(rect);
             return TileAction::Finish {
                 commit: !ui.input(|i| i.key_pressed(egui::Key::Escape)),
             };
@@ -332,6 +341,12 @@ pub(super) fn bookmark_tile(
             },
         );
     }
+    // The title scope (and the inline field) advanced the parent cursor to
+    // the INSET title box, 4px short of the tile's right edge: each following
+    // tile then started at `tile.right - 4 + gap`, so the grid's column gap
+    // shrank by 4px and the row visibly drifted left of the capsule above.
+    // Re-own the whole slot so a tile costs exactly `tile_w + GRID_GAP`.
+    ui.advance_cursor_after_rect(rect);
 
     // Hover/focus actions: pencil (rename; the save check while the field is
     // open) and X (remove) at the top-right. Hidden during a drag, so they

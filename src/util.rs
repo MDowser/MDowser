@@ -212,7 +212,10 @@ pub(crate) fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 /// - Works token by token (whitespace-delimited) and copies every other
 ///   byte untouched; all slice indices are ASCII delimiter boundaries, so
 ///   slicing never panics on UTF-8.
-pub fn strip_credentials_for_log(line: &str) -> String {
+/// - Returns `Cow::Borrowed` when no token carries credentials (the common
+///   display path: the error view reprocesses every line per repaint), so
+///   the credential pass itself never allocates a `String` per line.
+pub fn strip_credentials_for_log(line: &str) -> std::borrow::Cow<'_, str> {
     let mut out: Option<String> = None;
     let mut last = 0usize;
     let mut i = 0usize;
@@ -237,16 +240,20 @@ pub fn strip_credentials_for_log(line: &str) -> String {
     match out {
         Some(mut buf) => {
             buf.push_str(&line[last..]);
-            buf
+            std::borrow::Cow::Owned(buf)
         }
-        None => line.to_string(),
+        None => std::borrow::Cow::Borrowed(line),
     }
 }
 
 /// Removes the userinfo from one whitespace-delimited token when the token
 /// contains an authority position. `None` when there is nothing to strip.
-fn strip_token_credentials(token: &str) -> Option<String> {
-    let mut current = token.to_string();
+///
+/// The clean result is copied only when a token actually changes, so a line
+/// whose tokens all lack credentials allocates nothing (see
+/// [`strip_credentials_for_log`]).
+fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
+    let mut current = std::borrow::Cow::Borrowed(token);
     let mut changed = false;
     // 1) `scheme://[more slashes]userinfo@authority` (`http:///u:p@h`),
     //    left to right: an error line can embed a redirect URL whose PATH
@@ -260,7 +267,7 @@ fn strip_token_credentials(token: &str) -> Option<String> {
             auth_start += 1;
         }
         if let Some(clean) = strip_userinfo_at(&current, auth_start) {
-            current = clean;
+            current = std::borrow::Cow::Owned(clean);
             changed = true;
         }
         // Always advance past the authority separator (whether rewritten or
@@ -275,7 +282,7 @@ fn strip_token_credentials(token: &str) -> Option<String> {
             .take_while(|b| **b == b'/' || **b == b'\\')
             .count();
         if let Some(clean) = strip_userinfo_at(&current, run) {
-            current = clean;
+            current = std::borrow::Cow::Owned(clean);
             changed = true;
         }
     } else if let Some(colon) = current.find(':') {
@@ -285,7 +292,7 @@ fn strip_token_credentials(token: &str) -> Option<String> {
         //    syntax: both must lose the pasted password before display. A
         //    second colon before the `@` marks userinfo (`user:pass`); a
         //    single colon keeps `host:port` untouched.
-        if is_scheme_token(&current[..colon]) {
+        if is_scheme_syntax(&current[..colon]) {
             let auth_start = colon
                 + 1
                 + bytes[colon + 1..]
@@ -301,7 +308,7 @@ fn strip_token_credentials(token: &str) -> Option<String> {
                 .is_some_and(|at| current[auth_start..auth_start + at].contains(':'));
             if run > 0 || has_userinfo_password {
                 if let Some(clean) = strip_userinfo_at(&current, auth_start) {
-                    current = clean;
+                    current = std::borrow::Cow::Owned(clean);
                     changed = true;
                 }
             }
@@ -324,7 +331,11 @@ fn strip_userinfo_at(token: &str, auth_start: usize) -> Option<String> {
 }
 
 /// URI-scheme syntax (`ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`).
-fn is_scheme_token(s: &str) -> bool {
+///
+/// The single predicate for "is this pre-colon token a scheme, not a
+/// host:port": `protocol::client::parse_https` (blocked-scheme detection)
+/// and this module's credential stripper must never drift apart.
+pub(crate) fn is_scheme_syntax(s: &str) -> bool {
     let mut chars = s.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => (),
@@ -341,6 +352,7 @@ fn is_scheme_token(s: &str) -> bool {
 /// sanitizer runs.
 pub(crate) fn safe_input_echo(input: &str) -> String {
     strip_credentials_for_log(&truncate_chars(input, crate::config::MAX_LOG_LINE_CHARS))
+        .into_owned()
 }
 
 /// `$HOME` (or `$USERPROFILE`), when set and ABSOLUTE.
@@ -361,9 +373,10 @@ pub(crate) fn home_dir() -> Option<std::path::PathBuf> {
 /// `https` URL or a local `file:` URL without a remote host, within the
 /// input cap.
 ///
-/// Shared by the encrypted `history` and `bookmarks` stores (record/add and
-/// deserialization alike), so a hand-edited (or corrupted) store cannot
-/// smuggle other schemes back into the UI.
+/// Reached by the encrypted `history` and `bookmarks` stores through
+/// [`normalize_stored_url`] (record/add and deserialization alike), so a
+/// hand-edited (or corrupted) store cannot smuggle other schemes back into
+/// the UI.
 pub(crate) fn is_recordable_url(url: &str) -> bool {
     if url.len() > crate::config::MAX_URL_BYTES {
         return false;

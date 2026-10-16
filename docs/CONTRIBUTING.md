@@ -23,8 +23,9 @@ then run `make sync-sites` here. Every URL is validated the way the browser
 resolves it (candidate cascade + markdown `Content-Type` gate, see
 `scripts/sync-builtin-sites.sh`): the passing entries are imported and a
 failing one is dropped and reported at the end with the counts.
-`make check-sites` re-validates without downloading or writing. A manual
-maintainer step on purpose: no CI runs it.
+`make check-sites` re-validates without re-downloading the upstream list or
+writing the asset (each URL is still probed over the network, the same way
+the browser resolves it). A manual maintainer step on purpose: no CI runs it.
 
 ## Standards
 

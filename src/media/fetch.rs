@@ -55,7 +55,7 @@ pub(crate) async fn fetch_binary(
     // UI as tooltips (`media::cache` -> `viewer::image`).
     let raw = client::get_bytes(&client, url, accept, max_bytes, timeout, &gate, cancel)
         .await
-        .map_err(|e| crate::util::strip_credentials_for_log(&e))?;
+        .map_err(|e| crate::util::strip_credentials_for_log(&e).into_owned())?;
     Ok(raw.bytes)
 }
 

@@ -51,6 +51,10 @@ skip() { printf '  SKIP  %s (%s)\n' "$1" "$2"; }
 # --- package manager ---------------------------------------------------------
 PM=""
 PM_SUDO=""
+# One `apt-get update` per run (guarded lazily on first use): a container or
+# fresh image with an empty /var/lib/apt/lists fails EVERY install, and each
+# failure silently degrades to a SKIP.
+APT_UPDATED=0
 if have brew; then
     PM="brew"
 elif have apt-get; then
@@ -97,7 +101,13 @@ ensure_pkg() {
         brew) brew install "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "brew install $_ep_pkg failed"; return 0; } ;;
         # shellcheck disable=SC2086: `$PM_SUDO` is empty (root) or `sudo`;
         # splitting is intended.
-        apt) $PM_SUDO apt-get install -y "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "apt-get install $_ep_pkg failed"; return 0; } ;;
+        apt)
+            if [ "$APT_UPDATED" -eq 0 ]; then
+                $PM_SUDO apt-get update >/dev/null 2>&1 || true
+                APT_UPDATED=1
+            fi
+            $PM_SUDO apt-get install -y "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "apt-get install $_ep_pkg failed"; return 0; }
+            ;;
         # shellcheck disable=SC2086: see above.
         dnf) $PM_SUDO dnf install -y "$_ep_pkg" >/dev/null 2>&1 || { skip "$_ep_cmd" "dnf install $_ep_pkg failed"; return 0; } ;;
         # shellcheck disable=SC2086: see above.
@@ -241,8 +251,8 @@ group_cross() {
         return 0
     fi
     # zig as the Linux linker (with cargo-zigbuild) and mingw-w64 for Windows.
-    ensure_pkg zig zig "" "" "" 'Linux cross linker for `make dist --linux`'
-    ensure_pkg x86_64-w64-mingw32-gcc mingw-w64 "" "" "" 'Windows cross linker for `make dist --windows`'
+    ensure_pkg zig zig "" "" "" 'Linux cross linker for `make dist-linux`'
+    ensure_pkg x86_64-w64-mingw32-gcc mingw-w64 "" "" "" 'Windows cross linker for `make dist-windows`'
     ensure_cargo_zigbuild
     ensure_rustup_targets
 }
@@ -251,7 +261,7 @@ group_packaging() {
     step "packaging + validation tools"
     ensure_pkg desktop-file-validate desktop-file-utils desktop-file-utils desktop-file-utils desktop-file-utils 'desktop entry check (`make validate`)'
     ensure_pkg appstreamcli appstream appstream appstream appstream 'AppStream metadata check (`make validate`)'
-    ensure_pkg appstream-util appstream-glib appstream-util libappstream-glib appstream-glib 'AppStream check, RPM %check'
+    ensure_pkg appstream-util appstream-glib appstream-util libappstream-glib appstream-glib 'AppStream check (legacy fallback for `make validate`)'
     ensure_pkg rpmspec rpm rpm rpm-build "" 'RPM spec check (`make validate`, `make dist-rpm`)'
     # Flatpak (Linux only): the tool; the freedesktop runtimes are installed
     # best-effort by `scripts/build-flatpak.sh` at build time.

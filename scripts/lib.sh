@@ -37,11 +37,14 @@ ensure_toolchain_path() {
         # shellcheck disable=SC1091
         . "$HOME/.cargo/env"
     fi
-    # 2. Standard location.
-    case ":$PATH:" in
-        *":$HOME/.cargo/bin:"*) ;;
-        *) export PATH="$HOME/.cargo/bin:$PATH" ;;
-    esac
+    # 2. Standard location (`HOME` guarded like step 1: callers run under
+    #    `set -u`).
+    if [ -n "${HOME:-}" ]; then
+        case ":$PATH:" in
+            *":$HOME/.cargo/bin:"*) ;;
+            *) export PATH="$HOME/.cargo/bin:$PATH" ;;
+        esac
+    fi
     # 3. Ask rustup itself (covers layouts whose shims are elsewhere).
     if ! command -v cargo >/dev/null 2>&1 && command -v rustup >/dev/null 2>&1; then
         _RC="$(rustup which cargo 2>/dev/null)" || _RC=""
@@ -67,8 +70,9 @@ ensure_toolchain_path() {
         fi
         unset _BP
     fi
-    # 5. Direct toolchain glob, HOME-relative (no guessing the triple).
-    if ! command -v cargo >/dev/null 2>&1; then
+    # 5. Direct toolchain glob, HOME-relative (no guessing the triple);
+    #    `HOME` guarded like the steps above.
+    if ! command -v cargo >/dev/null 2>&1 && [ -n "${HOME:-}" ]; then
         for _TC in "$HOME"/.rustup/toolchains/*/bin/cargo; do
             if [ -x "$_TC" ]; then
                 export PATH="$(dirname "$_TC"):$PATH"

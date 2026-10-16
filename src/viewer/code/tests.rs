@@ -259,7 +259,7 @@ fn plain_lines_paint_at_their_absolute_rows() {
                 egui::vec2(760.0, 200.0 * 20.0),
             );
             root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
-                super::render_plain_lines(ui, &block, false, 100..110, 20.0, None);
+                super::render_plain_lines(ui, &block, false, 100..110, 20.0, None, None);
             });
         },
     );
@@ -311,12 +311,12 @@ fn plain_lines_keep_the_widest_row_width() {
                 egui::Rect::from_min_size(egui::pos2(70.0, 0.0), egui::vec2(760.0, 21.0 * 20.0));
             root.scope_builder(egui::UiBuilder::new().max_rect(content), |ui| {
                 // Only the short rows are visible first.
-                let before = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None);
+                let before = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None, None);
                 // The long row (the last one) becomes visible once...
-                let long = super::render_plain_lines(ui, &block, false, 20..21, 20.0, None);
+                let long = super::render_plain_lines(ui, &block, false, 20..21, 20.0, None, None);
                 assert!(long > before, "the long row widens the content");
                 // ...and scrolling it away keeps the width.
-                let after = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None);
+                let after = super::render_plain_lines(ui, &block, false, 0..10, 20.0, None, None);
                 assert_eq!(after, long, "the widest-row memory must be monotonic");
             });
         },
@@ -367,9 +367,12 @@ fn find_highlights_matching_code_rows() {
     out.textures_delta.clear();
     let fr = find.expect("find cursor");
     assert_eq!(fr.next_ordinal, 1, "one occurrence claimed for the block");
-    // The highlight background is a painted rect (one per matching row).
-    let bg = {
+    // The highlight background is a painted rect (one per matching row): the
+    // current match's row uses the STRONGER current wash, every other match
+    // the plain amber.
+    let (bg, current_bg) = {
         let mut bg = None;
+        let mut current_bg = None;
         let mut probe = ctx.run_ui(
             egui::RawInput {
                 screen_rect: Some(egui::Rect::from_min_size(
@@ -381,20 +384,32 @@ fn find_highlights_matching_code_rows() {
             |root| {
                 egui::CentralPanel::default().show(root, |ui| {
                     bg = Some(crate::ui::theme::find_match_bg(ui));
+                    current_bg = Some(crate::ui::theme::find_current_bg(ui));
                 });
             },
         );
         probe.textures_delta.clear();
-        bg.expect("scheme")
+        (bg.expect("scheme"), current_bg.expect("scheme"))
     };
     let prims = ctx.tessellate(out.shapes.clone(), 1.0);
     let mut rows = 0usize;
+    let mut current_rows = 0usize;
     for p in &prims {
         if let egui::epaint::Primitive::Mesh(mesh) = &p.primitive {
             if mesh.vertices.iter().any(|v| v.color == bg) {
                 rows += 1;
             }
+            if mesh.vertices.iter().any(|v| v.color == current_bg) {
+                current_rows += 1;
+            }
         }
     }
-    assert!(rows >= 1, "one painted row carries the find wash");
+    assert_eq!(
+        current_rows, 1,
+        "the current match's row carries the current wash"
+    );
+    assert!(
+        rows + current_rows >= 1,
+        "one painted row carries the find wash"
+    );
 }

@@ -42,6 +42,12 @@ pub struct FindState {
     /// `doc_generation` of the last render (stale totals are dropped when
     /// the visible document is replaced).
     pub generation: u64,
+    /// True when ANOTHER surface owns Escape this frame (a focused field,
+    /// the page-info card, an open menu/popup or a floating window): the bar
+    /// must not close on the same press that the other surface acts on.
+    /// Written by `app::shortcuts` before the viewer draws (the bar itself
+    /// owns the close so it stays self-contained for direct rendering).
+    pub esc_elsewhere: bool,
     /// Cached bar count label (`"3/12"`, `"No matches"`), rebuilt only when
     /// `(current, total, capped)` changes: the bar paints every frame while
     /// open, and the `format!` otherwise allocated per frame.
@@ -68,6 +74,7 @@ impl FindState {
         self.capped = false;
         self.request_focus = false;
         self.scroll_to_current = false;
+        self.esc_elsewhere = false;
         self.count_key = None;
     }
 
@@ -80,6 +87,7 @@ impl FindState {
         self.capped = false;
         self.request_focus = false;
         self.scroll_to_current = false;
+        self.esc_elsewhere = false;
         self.count_key = None;
     }
 

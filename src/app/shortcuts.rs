@@ -60,8 +60,8 @@ impl MdowserApp {
         // With the document context menu open, Esc belongs to the menu
         // (overlays closes it); never steal it for Stop.
         let menu_open = self.tabs.get(self.active).is_some_and(|t| t.context_open);
-        // With the find bar open, Esc belongs to it (overlays closes it);
-        // never steal it for Stop (same ownership rule as the menu).
+        // With the find bar open, Esc belongs to the bar's own ownership slot
+        // in the cascade below (it closes there, never stops the load).
         let find_open = self.tabs.get(self.active).is_some_and(|t| t.find.open);
         // egui clears keyboard focus on Esc BEFORE `App::ui` runs, so
         // `no_text_focus` is already true on that frame: ask the tab whether
@@ -78,9 +78,19 @@ impl MdowserApp {
         // (`ui::omnibox` closes it); Stop must not steal the key.
         let site_info_open = self.tabs.get(self.active).is_some_and(Tab::site_info_open);
         // Reset now: this frame's omniboxes (toolbar + home) OR it back in.
+        // The find bar (drawn later) reads `esc_elsewhere`: another surface
+        // owns the key this frame, so the bar leaves it alone and one Esc
+        // never closes the bar AND acts behind it.
+        let esc_elsewhere = address_focused
+            || tile_editing
+            || windows_open
+            || site_info_open
+            || menu_open
+            || popup_open;
         if let Some(tab) = self.tabs.get_mut(self.active) {
             tab.address_focused = false;
             tab.tile_editing = false;
+            tab.find.esc_elsewhere = esc_elsewhere;
         }
         let mut want_select_all = false;
         // In-page find is a document action (Loaded/Licenses only): read here,
@@ -126,13 +136,18 @@ impl MdowserApp {
                 want_find_next = i.consume_key(egui::Modifiers::NONE, egui::Key::F3);
                 want_find_prev = i.consume_key(egui::Modifiers::SHIFT, egui::Key::F3);
             }
-            if no_text_focus && !menu_open && !find_open && !address_focused && !tile_editing {
+            // Esc ownership cascade: exactly one surface acts per press. A
+            // focused text field keeps the key (handled above and by the
+            // omnibox); a popup consumes it; a floating window closes; the
+            // context menu and the find bar own it through their own
+            // handlers; anything else stops the load.
+            if no_text_focus && !menu_open && !address_focused && !tile_editing {
                 if windows_open {
                     if !popup_open {
                         want_close_windows =
                             i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                     }
-                } else if !site_info_open {
+                } else if !find_open && !site_info_open {
                     want_stop = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                 }
             }

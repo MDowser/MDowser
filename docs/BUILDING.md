@@ -167,6 +167,12 @@ every artifact carries: on macOS the universal `.app.zip`; on Linux
 `mdowser-<ver>-windows-<arch>.zip`. Plain `make` is the host binary in
 `target/release/mdowser` plus this.
 
+`dist/` semantics: the COMPLETE modes (`--all`, the default, and
+`--host-only`) rebuild `dist/` from scratch; a single-group flag
+(`--mac`, `--linux`, `--windows`, `--rpm`, `--flatpak`) ADDS its artifacts
+to whatever is already there, so a focused rerun never destroys the other
+platforms' output.
+
 `--all` generates all of the above plus (the version comes from `Cargo.toml`; shown here as `<ver>`):
 
 - macOS: `MDowser-<ver>-macos-universal.app.zip` — the ONLY macOS artifact
@@ -190,12 +196,15 @@ every artifact carries: on macOS the universal `.app.zip`; on Linux
   built natively (MSVC) on a Windows on ARM host; it is not cross-built, so
   only such a host — or CI, on a `windows-11-arm` runner — produces it.
 
-Every `.tar.gz`/`.zip` archive carries `README.md`, `THIRD_PARTY_NOTICES.md`
-and `LICENSE`; the macOS `.app` bundles the notices and license under
+Every Linux `.tar.gz` and Windows `.zip` archive carries `README.md`,
+`THIRD_PARTY_NOTICES.md` and `LICENSE`; the macOS `.app` (zipped as
+`...-macos-universal.app.zip`) bundles the notices and license under
 `Contents/Resources/` and the `.deb` under
 `/usr/share/doc/mdowser/` (the notices as `copyright`); a `SHA256SUMS.txt` is
-written next to the artifacts. Before the checksums, `scripts/check-dist.sh`
-enforces the build-artifact privacy rules below.
+written next to the artifacts. Before the checksums, `scripts/check-dist.sh
+--require` enforces the build-artifact privacy rules below — `--require`
+turns a missing inspector (no python3) into a hard failure, so a build can
+never be reported as ready unchecked.
 
 ### Native Windows
 
@@ -280,27 +289,34 @@ macOS, `/home/<user>/...` on Linux); `strip` cannot remove those strings
 `--remap-path-prefix=$HOME=/build` (plus `USERPROFILE`, in both slash
 styles, on Windows) and the Cargo home to `/cargo` before every
 DISTRIBUTABLE build: `make build`, `make dist` /
-`scripts/build-dist.sh`, `windows.ps1` and the RPM spec's `%build`. Debug
-builds keep their real paths so debuggers still resolve sources.
+`scripts/build-dist.sh`, `windows.ps1`, the RPM spec's `%build` and the
+Flatpak manifest (which remaps the sandbox paths
+`/run/build/mdowser[/cargo]` the same way). Debug builds keep their real
+paths so debuggers still resolve sources.
 
 The archives are cleaned too: `zip -X` drops the Info-ZIP Unix uid/gid extra
 field the macOS/Windows `.zip` would otherwise carry, and the staging trees
 are xattr-swept (`sweep_xattrs`) plus tarred with `--no-xattrs` where
 supported, so a macOS build does not embed its `com.apple.provenance` blob in
-the Linux `.tar.gz`/`.deb`. The RPM spec pins `%_buildhost` and
+the Linux `.tar.gz`/`.deb`. The macOS `.app` is swept right before packing
+too, and `ditto` runs with `--norsrc --noqtn --noextattr`, so no AppleDouble
+`._*` member enters the zip (the gate below fails one if it ever does). The
+RPM spec pins `%_buildhost` and
 `%defattr(-, root, root, -)` so the header and payload carry no host/user
 identity.
 
 `make check-dist` is the gate: it scans every file in `dist/` for the real
 `$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
 non-zero on any hit. `.tar.gz`, `.deb` and `.zip` are unpacked and their
-payload files inspected; the `.rpm`'s xz cpio payload and the ostree
-`.flatpak` bundle are byte-scanned only (their inner files are not
-extracted, so for those two the check is best-effort).
-`scripts/build-dist.sh` runs it before writing
+payload files inspected; AppleDouble `._*`/`__MACOSX/` members are a breach
+on their own (macOS metadata captured from the builder); the `.rpm`'s xz cpio
+payload and the ostree `.flatpak` bundle are byte-scanned only (their inner
+files are not extracted, so for those two the check is best-effort).
+`scripts/build-dist.sh` runs it with `--require` before writing
 `SHA256SUMS.txt`, so `make dist` fails instead of publishing a leaking build
-(the app's intentional example paths such as `/Users/you/notes.md` are not
-matched).
+— and a machine without the inspector (no python3) fails too, rather than
+skipping (the app's intentional example paths such as `/Users/you/notes.md`
+are not matched).
 
 ### Validating the packaging metadata
 

@@ -215,11 +215,10 @@ pub fn show_history_page(
                     .color(s.on_surface),
             ));
             let total = store.entries().len();
-            let retention = retention_caption(store.retention());
-            with_count_label(total, |count| {
-                ui.label(theme::weak(ui, &format!("{count} · {retention}")));
+            with_header_label(total, store.retention(), |subtitle| {
+                ui.label(theme::weak(ui, subtitle));
             });
-            ui.add_space(10.0);
+            ui.add_space(theme::spacing::M);
 
             // Search capsule (kept across frames in egui memory, per tab so
             // two open history tabs never share a query).
@@ -344,7 +343,7 @@ pub fn show_history_page(
                     egui::StrokeKind::Inside,
                 )),
             );
-            ui.add_space(10.0);
+            ui.add_space(theme::spacing::M);
             theme::rule(ui);
             ui.add_space(theme::spacing::S);
 
@@ -494,10 +493,11 @@ pub fn show_history_page(
                     }
                     ui.data_mut(|d| d.insert_temp(clear_id, confirm_until));
                     if confirm_until.is_some_and(|until| until > Instant::now()) {
-                        ui.label(theme::weak(
-                            ui,
-                            "Click again to delete every visit and the key.",
-                        ));
+                        // "Delete history" removes the visits, never the shared
+                        // `store.key` (bookmarks/settings/session need it):
+                        // the note must not promise a key deletion that does
+                        // not happen (Preferences says the same).
+                        ui.label(theme::weak(ui, "Click again to delete every visit."));
                         // Keep the armed label from going stale without input.
                         ui.ctx().request_repaint_after(Duration::from_millis(250));
                     }
@@ -683,6 +683,31 @@ pub(crate) fn with_count_label<R>(count: usize, f: impl FnOnce(&str) -> R) -> R 
             } else {
                 format!("{count} pages")
             };
+        }
+        f(&cached.1)
+    })
+}
+
+/// Header subtitle (`"12 · Keep 3 months"`), memoized on `(count,
+/// retention)`: the page repaints every frame while open, and the old
+/// inline `format!` allocated per frame (same contract as
+/// [`with_count_label`]).
+fn with_header_label<R>(count: usize, retention: Retention, f: impl FnOnce(&str) -> R) -> R {
+    use std::cell::RefCell;
+    thread_local! {
+        static LABEL: RefCell<((usize, Retention), String)> =
+            const { RefCell::new(((usize::MAX, Retention::Session), String::new())) };
+    }
+    LABEL.with(|cell| {
+        let mut cached = cell.borrow_mut();
+        let key = (count, retention);
+        if cached.0 != key {
+            cached.1 = format!(
+                "{} · {}",
+                with_count_label(count, str::to_string),
+                retention_caption(retention)
+            );
+            cached.0 = key;
         }
         f(&cached.1)
     })
@@ -988,6 +1013,7 @@ fn history_row(
         true,
     );
     if remove.clicked() {
+        ui.advance_cursor_after_rect(rect);
         return RowAction::Remove;
     }
     if response.clicked() {
@@ -997,8 +1023,10 @@ fn history_row(
             .interact_pointer_pos()
             .is_some_and(|pos| remove_rect.contains(pos))
         {
+            ui.advance_cursor_after_rect(rect);
             return RowAction::None;
         }
+        ui.advance_cursor_after_rect(rect);
         return RowAction::Open;
     }
     // Full title + URL on hover: both lines are truncated, and sighted
@@ -1007,6 +1035,12 @@ fn history_row(
         let t = visit.title.as_deref().unwrap_or(visit.url.as_str());
         format!("{t} — {}", strip_scheme_prefix(&visit.url))
     });
+    // The two inset text scopes leave the parent cursor at the URL line's
+    // bottom (46px into a 52px row): the next row then overlapped this one
+    // by 6px and the virtualized list reported 52px strides while painting
+    // 46px, so the page could scroll into a large empty tail. Re-own the
+    // whole row.
+    ui.advance_cursor_after_rect(rect);
     RowAction::None
 }
 

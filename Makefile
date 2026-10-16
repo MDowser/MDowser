@@ -20,8 +20,9 @@
 #                     collaboration repo (curl) + validate every URL the way
 #                     the browser resolves it; passing entries are imported,
 #                     failing ones are dropped and reported (manual step, no CI).
-# - `make check-sites` : validate one list file without downloading
-#                     (default assets/builtin_sites.txt).
+# - `make check-sites` : validate one list file without re-downloading the
+#                     upstream list or writing the asset (each URL is still
+#                     probed over the network; default assets/builtin_sites.txt).
 # All real work lives in scripts/build-test.sh and scripts/build-dist.sh.
 # Needs GNU make (macOS and Linux ship it; check with `make --version`).
 # The toolchain PATH is fixed up below so recipes never depend on it.
@@ -42,7 +43,11 @@ _RUSTUP_CARGO := $(if $(_WHICH_RUSTUP),$(shell $(_WHICH_RUSTUP) which cargo 2>/d
 _BREW := $(shell command -v brew 2>/dev/null)
 _BREW_PREFIX := $(if $(_BREW),$(shell $(_BREW) --prefix 2>/dev/null))
 _BREW_CARGO := $(if $(_BREW_PREFIX),$(_BREW_PREFIX)/opt/rustup/bin/cargo)
-CARGO = $(firstword $(wildcard $(_WHICH_CARGO) $(_RUSTUP_CARGO) $(HOME)/.cargo/bin/cargo $(HOME)/.rustup/toolchains/stable-*/bin/cargo $(HOME)/.rustup/toolchains/*/bin/cargo $(_BREW_CARGO)))
+# Prefer the live PATH lookup verbatim (it exists by definition, and `$(or)`
+# never word-splits, so a home directory containing spaces survives). The
+# wildcard fallbacks have to be single words: a spaced HOME still unsupported
+# THERE is reported by `make doctor`, never by a confusing "No such file".
+CARGO = $(or $(_WHICH_CARGO),$(firstword $(wildcard $(_RUSTUP_CARGO) $(HOME)/.cargo/bin/cargo $(HOME)/.rustup/toolchains/stable-*/bin/cargo $(HOME)/.rustup/toolchains/*/bin/cargo $(_BREW_CARGO))))
 # `doctor` must stay runnable exactly when cargo cannot be found (it is the
 # diagnosis path the error below points at), so the parse-time check skips
 # it: every other goal fails immediately with the hint.
@@ -80,11 +85,11 @@ endif
 all: deps build $(NATIVE_DIST)
 
 build:
-	. ./scripts/lib.sh && export_remap_rustflags && $(CARGO) build --locked --release
+	. ./scripts/lib.sh && export_remap_rustflags && "$(CARGO)" build --locked --release
 
 # Host debug binary.
 debug:
-	$(CARGO) build --locked
+	"$(CARGO)" build --locked
 
 # Verification pipeline (fmt + clippy + test + doc + debug).
 test:
@@ -144,19 +149,19 @@ deps:
 	./scripts/deps.sh $(DEPS)
 
 run:
-	$(CARGO) run --locked
+	"$(CARGO)" run --locked
 
 fmt:
-	$(CARGO) fmt --all
+	"$(CARGO)" fmt --all
 
 clippy:
-	$(CARGO) clippy --locked --workspace --all-targets -- -D warnings
+	"$(CARGO)" clippy --locked --workspace --all-targets -- -D warnings
 
 # Supply-chain audit (best-effort; run before releases).
 # Skips with a hint when the tools are not installed.
 audit:
-	@if command -v cargo-audit >/dev/null 2>&1; then $(CARGO) audit; else echo "SKIP: cargo-audit not installed (cargo install cargo-audit)"; fi
-	@if command -v cargo-deny >/dev/null 2>&1; then $(CARGO) deny check; else echo "SKIP: cargo-deny not installed (cargo install cargo-deny)"; fi
+	@if command -v cargo-audit >/dev/null 2>&1; then "$(CARGO)" audit; else echo "SKIP: cargo-audit not installed (cargo install cargo-audit)"; fi
+	@if command -v cargo-deny >/dev/null 2>&1; then "$(CARGO)" deny check; else echo "SKIP: cargo-deny not installed (cargo install cargo-deny)"; fi
 
 # Force-regenerate assets/icons/ (PNG ladder + .ico + .icns) from
 # assets/icon.svg. The build itself regenerates them whenever they are
@@ -164,7 +169,7 @@ audit:
 # removing them is the explicit way to force it.
 icons:
 	rm -rf assets/icons
-	$(CARGO) build --locked
+	"$(CARGO)" build --locked
 
 # Sync the curated omnibox list from the MDowser-Sites collaboration repo:
 # curl download + per-URL validation the way the browser resolves it. The
@@ -181,7 +186,7 @@ check-sites:
 	./scripts/sync-builtin-sites.sh --check-only "$(SITES_FILE)"
 
 clean:
-	$(CARGO) clean
+	"$(CARGO)" clean
 	rm -rf dist .flatpak-builder packaging/flatpak/.build-dir
 
 # Diagnose the toolchain as THIS Makefile sees it (for "No such file" cases).
@@ -192,7 +197,7 @@ doctor:
 	@echo "cargo:      $(CARGO)"
 	@echo "rustc:      $(or $(firstword $(wildcard $(dir $(CARGO))rustc)),MISSING)"
 	@echo "nasm:       $(or $(shell command -v nasm 2>/dev/null),MISSING - needed on x86/x86_64 for rav1d + aws-lc-sys)"
-	@$(CARGO) --version || echo "ERROR: cargo not found; install rustup (see README)"
+	@"$(CARGO)" --version || echo "ERROR: cargo not found; install rustup (see README)"
 
 help:
 	@echo "make [all|build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|help|doctor]"

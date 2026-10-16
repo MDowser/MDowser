@@ -416,7 +416,7 @@ reorders.
 | `Ctrl/Cmd+W` | Close tab |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+L` | Focus address field (selects the URL) |
-| `Esc` | Stop loading (topmost overlay first: find bar, menu, popups, editor; else revert the field / stop) |
+| `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the find bar, or Stop loading |
 | `Ctrl/Cmd+F` | Find in page (document pages only) |
 | `Enter` / `Shift+Enter` (field focused) · `F3` / `Shift+F3` (anywhere) | Next / previous find match |
 | `Ctrl/Cmd+A` | Select all (page text; when no text field is focused) |
@@ -443,8 +443,11 @@ fill, glyph animation and tooltips to the toolbar's (a lighter shadow than
 the menu popups, since the bar stays on screen). Matching is a
 case-insensitive substring over the rendered
 text — prose, headings, list items, quotes, tables and fenced code bodies —
-with every match washed amber and the current one in a stronger tone (code
-blocks wash matching rows uniformly and scroll the current row into view).
+with every match washed amber and the current one in a stronger tone, inside
+code blocks and table cells included (a code block washes its matching rows
+and marks the current row with the stronger wash), and the sheet
+scrolls the current row into view even when it sits inside a code card or a
+table's horizontal scroll area.
 Searching never changes the layout — not even by a pixel: the matches ride
 on the very text the unsearched render lays out, with the wash painted
 behind it (a color emoji inside a matched paragraph keeps its color, with
@@ -452,7 +455,9 @@ the wash behind it).
 `Enter` steps forward (`Shift+Enter` back; `F3` / `Shift+F3` work without
 the field focused) and the sheet scrolls the current match into view —
 down or up — retrying until it is on screen, unless the reader scrolls
-meanwhile (`Esc` closes the bar, which then keeps the query for reopening:
+meanwhile (`Esc` closes the bar — unless a focused field, the page-info
+card, a popup/menu or a floating window owns that press, so one `Esc` never
+acts on two surfaces — and the bar keeps the query for reopening:
 `Ctrl/Cmd+F` focuses the field with that query SELECTED, so typing replaces
 it).
 The bar is an overlay (never shifts the document) and closes on navigation

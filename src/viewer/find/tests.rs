@@ -79,6 +79,7 @@ fn find_state_reset_drops_query() {
         request_focus: false,
         scroll_to_current: false,
         generation: 7,
+        esc_elsewhere: false,
         count_label: String::new(),
         count_key: None,
     };

@@ -301,9 +301,20 @@ function Ensure-Python3Shim {
 function Get-GitBash {
     $cands = @(
         "C:\Program Files\Git\bin\bash.exe",
-        "${env:ProgramFiles}\Git\bin\bash.exe"
+        "${env:ProgramFiles}\Git\bin\bash.exe",
+        # Per-user installs (winget/Git-for-Windows "only for me") land here.
+        "${env:LOCALAPPDATA}\Programs\Git\bin\bash.exe"
     )
-    foreach ($c in $cands) { if (Test-Path $c) { return $c } }
+    # Derive from the resolved `git` when it is on PATH: covers a custom or
+    # portable prefix (D:\Git, a versioned dir) the fixed candidates miss.
+    $gitCmd = Get-Command git -ErrorAction SilentlyContinue
+    if ($gitCmd -and $gitCmd.Source) {
+        $gitDir = Split-Path $gitCmd.Source -Parent
+        $cands += (Join-Path (Split-Path $gitDir -Parent) "bin\bash.exe")
+        # `cmd\git.exe` -> `<root>\bin\bash.exe` (and the same from `bin\`).
+        $cands += (Join-Path $gitDir "bash.exe")
+    }
+    foreach ($c in $cands) { if ($c -and (Test-Path $c)) { return $c } }
     throw "Git Bash not found (winget install Git.Git first)"
 }
 

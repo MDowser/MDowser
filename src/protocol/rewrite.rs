@@ -76,6 +76,44 @@ fn has_credentials(u: &Url) -> bool {
     !u.username().is_empty() || u.password().is_some()
 }
 
+/// Resolves the omnibox's schemeless `host:port` spellings that `Url::parse`
+/// cannot read as a URL (`127.0.0.1:8080/x`, `[::1]:8080/x`): a URL scheme
+/// must start with a letter, so the parser rejects a digit or `[` there
+/// while `client::parse_https` accepts the same text as `https://…`.
+///
+/// `None` for every other shape (relative paths, blocked schemes, bare
+/// `word:digits` single labels) and whenever the resolved URL would carry
+/// credentials. The returned string is the exact form the omnibox would
+/// navigate to.
+fn schemeless_host_port(d: &str) -> Option<String> {
+    let slash = d.find('/').unwrap_or(d.len());
+    // The PORT colon: the last one before the path. `[::1]:8080/y` carries
+    // colons inside the brackets, so a first-colon split would misread it.
+    let colon = d[..slash].rfind(':')?;
+    let pre = d[..colon].trim();
+    // Same host-like rule as `parse_https` minus the alpha-only forms the
+    // parser branch above already handles: dotted names, IP literals and
+    // `localhost`. A single-label `word:digits` stays inert (a scheme).
+    let host_like = pre.contains('.') || pre.contains('[') || pre.eq_ignore_ascii_case("localhost");
+    if !host_like || crate::protocol::client::is_blocked_scheme(pre) {
+        return None;
+    }
+    // The tail must open with a NUMERIC port (`host:8080`), like the omnibox.
+    if !d[colon + 1..]
+        .trim_start()
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    let resolved = Url::parse(&format!("https://{d}")).ok()?;
+    (resolved.host_str().is_some()
+        && resolved.username().is_empty()
+        && resolved.password().is_none())
+    .then(|| resolved.to_string())
+}
+
 /// Absolutizes a Markdown link destination against `base`.
 ///
 /// - Returns the absolute URL as a `String`, ready to render/navigate.
@@ -107,10 +145,15 @@ pub fn absolutize(base: &Url, dest: &str) -> String {
     // 1) Already absolute? If it has a scheme (`https:`, `mailto:`, ...),
     //    keep it only when this base may follow it; otherwise signal ignore.
     if let Ok(u) = Url::parse(d) {
-        if allowed(u.scheme())
-            && !has_credentials(&u)
-            && (u.scheme() != "file" || (is_local_file(&u) && file_dest_is_absolute(d)))
-        {
+        // A `file:` destination is live only when it names this device,
+        // with an absolute spelling AND a real path (`file://` and
+        // `file:///` parse but would die at navigation time).
+        let local_file_ok = u.scheme() != "file"
+            || (is_local_file(&u)
+                && file_dest_is_absolute(d)
+                && !u.path().is_empty()
+                && u.path() != "/");
+        if allowed(u.scheme()) && !has_credentials(&u) && local_file_ok {
             return d.to_string();
         }
         // A `host:port` spelling (`localhost:3000`, `example.com:8080/x`) is
@@ -140,20 +183,39 @@ pub fn absolutize(base: &Url, dest: &str) -> String {
         }
         return String::new();
     }
+    // 1b) A `host:port` spelling the URL parser cannot even read as a URL:
+    //     IPv4/IPv6 literals (`127.0.0.1:8080/x`, `[::1]:8080/x`). A URL
+    //     scheme must start with a letter, so `Url::parse` rejects these
+    //     while the omnibox accepts them (`client::parse_https` treats a
+    //     pre-colon token containing `.` or `[` as a host). Without this,
+    //     the join below turned one into a relative path under the base.
+    if let Some(resolved) = schemeless_host_port(d) {
+        return resolved;
+    }
     // Extra guard for `xxx:...` before any `/` (scheme-like, no `//`).
     if let Some(colon) = d.find(':') {
         let slash = d.find('/').unwrap_or(d.len());
         if colon < slash {
             let pre = d[..colon].trim();
-            if !pre.is_empty()
+            let scheme_syntax = !pre.is_empty()
                 && pre.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
                 && pre
                     .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.')
-                && !pre.eq_ignore_ascii_case("https")
-                && !(base_is_file && pre.eq_ignore_ascii_case("file"))
-                && !pre.contains('.')
+                    .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.');
+            // An ALLOWED scheme spelling that failed to parse (`https://`,
+            // `https:`, `file:` from a local base) is unresolvable, never a
+            // relative path: the join below would turn it into
+            // `.../https://` and render a bogus link.
+            if scheme_syntax
+                && (pre.eq_ignore_ascii_case("https")
+                    || (base_is_file && pre.eq_ignore_ascii_case("file")))
             {
+                return String::new();
+            }
+            // Every other scheme-like token stays inert; a dot distinguishes
+            // a host:port spelling (`example.com:8080`), already resolved by
+            // the parser branch above when it parses.
+            if scheme_syntax && !pre.contains('.') {
                 return String::new();
             }
         }
@@ -451,6 +513,37 @@ mod tests {
         assert_eq!(absolutize(&base, "mailto:123"), "");
         // Userinfo spellings are not silently adopted.
         assert_eq!(absolutize(&base, "user:pass@example.com:8080"), "");
+        // IP-literal host:port spellings: `Url::parse` rejects a digit-led
+        // scheme, but the omnibox accepts these, so links must resolve the
+        // same way instead of silently becoming relative paths under the
+        // base.
+        assert_eq!(
+            absolutize(&base, "127.0.0.1:8080/x"),
+            "https://127.0.0.1:8080/x"
+        );
+        assert_eq!(absolutize(&base, "[::1]:8080/y"), "https://[::1]:8080/y");
+        // An allowed scheme spelled but unparseable (`https://`) is inert,
+        // never a bogus relative link.
+        assert_eq!(absolutize(&base, "https://"), "");
+        assert_eq!(absolutize(&base, "https:"), "");
+        assert_eq!(absolutize(&base, "http://"), "");
+    }
+
+    /// The same inert rule from a local base (`file:` joins onto the
+    /// filesystem root otherwise) and the relative-path control.
+    #[test]
+    fn malformed_allowed_schemes_are_inert() {
+        let remote = Url::parse("https://ex.com/love/").unwrap();
+        assert_eq!(absolutize(&remote, "https://"), "");
+        let local = Url::parse("file:///Users/me/docs/notes.md").unwrap();
+        assert_eq!(absolutize(&local, "file:"), "");
+        assert_eq!(absolutize(&local, "file://"), "");
+        assert_eq!(absolutize(&local, "https://"), "");
+        // A normal relative path still joins.
+        assert_eq!(
+            absolutize(&remote, "other.md"),
+            "https://ex.com/love/other.md"
+        );
     }
 
     /// A remote page can never name a local file (security contract).

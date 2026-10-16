@@ -545,7 +545,7 @@ fn render_doc(
     if reset_scroll {
         scroll = scroll.vertical_scroll_offset(0.0);
     }
-    scroll
+    let output = scroll
         .id_salt(("doc-scroll", scroll_salt))
         .auto_shrink([false, false])
         .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
@@ -583,6 +583,10 @@ fn render_doc(
                 });
             });
         });
+    // Register this (tab, document) scroll state so closing the tab drops
+    // it: egui keys the offset by (tab, URL) for Back/Forward and refresh,
+    // and nothing else knows the real id of each visited document.
+    crate::ui::remember_scroll(ui.ctx(), crate::ui::DOC_SCROLL_ID, tab_id, output.id);
     viewport
 }
 

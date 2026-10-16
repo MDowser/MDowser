@@ -369,9 +369,14 @@ fn render_plain_lines(
     visible: std::ops::Range<usize>,
     row_h: f32,
     find_query: Option<&str>,
+    find_current_row: Option<usize>,
 ) -> f32 {
     let mut widest = 0.0_f32;
     let find_bg = find_query.is_some().then(|| theme::find_match_bg(ui));
+    // The current match's row gets the stronger color (see `render_body`).
+    let find_current_bg = find_current_row
+        .is_some()
+        .then(|| theme::find_current_bg(ui));
     for (row, line) in block
         .body
         .split('\n')
@@ -405,6 +410,11 @@ fn render_plain_lines(
         let y = ui.max_rect().top() + row as f32 * row_h;
         if let (Some(query), Some(bg)) = (find_query, find_bg) {
             if crate::viewer::find::count_occurrences(line, query) > 0 {
+                let bg = if find_current_row == Some(row) {
+                    find_current_bg.unwrap_or(bg)
+                } else {
+                    bg
+                };
                 let rect = egui::Rect::from_min_size(
                     egui::pos2(ui.max_rect().left(), y),
                     egui::vec2(ui.max_rect().width().max(1.0), row_h),
@@ -649,33 +659,38 @@ fn render_body(
     };
     let row_h = row_h.max(1.0);
     let visible = code_viewport(ui, shown, row_h);
-    // Find scroll target (navigation frames only): the row holding the
-    // current match, so the outer document centers it instead of the
-    // block top. `find_start`/`find_n` are this block's claimed ordinals.
-    // The row rect is kept for the caller's visibility retry (recorded on
-    // the find cursor after the painting borrows end below).
+    // The row that owns the CURRENT match when this block claims it: its
+    // wash uses the stronger current color (every other match keeps the
+    // plain amber) and, on navigation frames, the row is scrolled into view.
+    // Found once per frame by counting occurrences line by line; the scan
+    // stops as soon as the target ordinal is passed. `find_start`/`find_n`
+    // are this block's claimed ordinals. The row rect is kept for the
+    // caller's visibility retry (recorded on the find cursor after the
+    // painting borrows end below).
+    let mut current_row: Option<usize> = None;
     let mut current_row_rect: Option<egui::Rect> = None;
-    if find_scroll && find_active {
-        if let (Some(query), Some(fr)) = (find_query, find.as_ref()) {
-            let current = fr.current;
-            if current >= find_start && current < find_start + find_n {
-                let mut ordinal = find_start;
-                for (idx, line) in block.body.split('\n').enumerate() {
-                    let n = crate::viewer::find::count_occurrences(line, query);
-                    if current >= ordinal && current < ordinal + n {
-                        let y = ui.max_rect().top() + idx as f32 * row_h;
-                        let rect = egui::Rect::from_min_size(
-                            egui::pos2(ui.max_rect().left(), y),
-                            egui::vec2(ui.max_rect().width().max(1.0), row_h),
-                        );
-                        current_row_rect = Some(rect);
+    if let (Some(query), Some(fr)) = (find_query, find.as_ref()) {
+        let current = fr.current;
+        if current >= find_start && current < find_start + find_n {
+            let mut ordinal = find_start;
+            for (idx, line) in block.body.split('\n').enumerate() {
+                let n = crate::viewer::find::count_occurrences(line, query);
+                if current < ordinal + n {
+                    current_row = Some(idx);
+                    let y = ui.max_rect().top() + idx as f32 * row_h;
+                    let rect = egui::Rect::from_min_size(
+                        egui::pos2(ui.max_rect().left(), y),
+                        egui::vec2(ui.max_rect().width().max(1.0), row_h),
+                    );
+                    current_row_rect = Some(rect);
+                    if find_scroll {
                         ui.scroll_to_rect(rect, Some(egui::Align::Center));
-                        break;
                     }
-                    ordinal += n;
-                    if ordinal > current {
-                        break;
-                    }
+                    break;
+                }
+                ordinal += n;
+                if ordinal > current {
+                    break;
                 }
             }
         }
@@ -684,8 +699,17 @@ fn render_body(
     // widened/heightened explicitly: without this the horizontal scroll area
     // sees a content width of zero and a long line could never be reached.
     let find_bg = find_active.then(|| theme::find_match_bg(ui));
+    let find_current_bg = find_active.then(|| theme::find_current_bg(ui));
     let content_w = if lines.is_none() {
-        render_plain_lines(ui, block, selected, visible.clone(), row_h, find_query)
+        render_plain_lines(
+            ui,
+            block,
+            selected,
+            visible.clone(),
+            row_h,
+            find_query,
+            current_row,
+        )
     } else {
         let cache = block.galleys.borrow();
         // The widest laid-out line covers every row, not just the visible
@@ -720,7 +744,12 @@ fn render_body(
                 .and_then(|it| it.next())
                 .unwrap_or(false);
             if matched {
-                if let Some(bg) = find_bg {
+                let bg = if current_row == Some(offset) {
+                    find_current_bg
+                } else {
+                    find_bg
+                };
+                if let Some(bg) = bg {
                     let rect = egui::Rect::from_min_size(
                         egui::pos2(ui.max_rect().left(), y),
                         egui::vec2(cache.max_w.max(1.0), row_h),

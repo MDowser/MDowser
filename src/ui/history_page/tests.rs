@@ -73,6 +73,38 @@ fn painted_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
         .collect()
 }
 
+/// Rows occupy the full `ROW_H` in the virtualized list: the two inset text
+/// scopes used to leave the parent cursor 6px short per row, so consecutive
+/// rows overlapped and the page could scroll ~6px per row past the last one
+/// into an empty tail.
+#[test]
+fn rows_keep_the_full_row_stride() {
+    use super::ROW_H;
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    let mut store = HistoryStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    store.record(&file_url("a"), Some("Alpha"));
+    store.record(&file_url("b"), Some("Beta"));
+
+    let _ = render_page(&ctx, vec![], &mut tab, &mut store, &mut favicons);
+    let shapes = render_page(&ctx, vec![], &mut tab, &mut store, &mut favicons);
+    let pos_of = |text: &str| {
+        shapes.iter().find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text() == text => Some(t.pos),
+            _ => None,
+        })
+    };
+    let a = pos_of("Alpha").expect("first row painted");
+    let b = pos_of("Beta").expect("second row painted");
+    let stride = (b.y - a.y).abs();
+    assert!(
+        (stride - ROW_H).abs() < 0.5,
+        "rows must sit ROW_H ({ROW_H}) apart, got {stride}"
+    );
+}
+
 /// The search capsule's painted pill: the only rect of the capsule's height
 /// wide enough to be the column (row washes are `ROW_H` tall).
 fn capsule_rect(shapes: &[egui::epaint::ClippedShape]) -> egui::Rect {

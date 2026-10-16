@@ -230,6 +230,19 @@ fn display_sanitizer_never_echoes_credentials() {
     );
     assert_eq!(sanitize_for_display("mailto:user:pa/ss@b.com"), "b.com");
     assert_eq!(sanitize_for_display("nas:5000/x@y"), "nas:5000/x@y");
+    // A host:port-shaped token the URL parser REJECTS (port out of range)
+    // is not echoed verbatim: the password inside it is stripped.
+    assert_eq!(
+        sanitize_for_display("alice:99999/secret@example.com"),
+        "example.com"
+    );
+    // The display echo stops at the token bound: text from a second pasted
+    // line never rides along with an @-bearing token.
+    assert_eq!(
+        sanitize_for_display("mailto:user:pass@b.com\nhello"),
+        "b.com"
+    );
+    assert_eq!(sanitize_for_display("a:b/c@d\nhello"), "d");
     // Path/query `@`s and host:port segments are not credentials: the
     // token stays readable.
     assert_eq!(sanitize_for_display("https://host/a@b"), "https://host/a@b");

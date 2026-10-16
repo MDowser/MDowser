@@ -42,9 +42,14 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
         return;
     }
     let ctx = root.ctx().clone();
-    // Esc closes the bar (shortcuts never steals it while open). Scroll also
-    // closes: the bar is an overlay over the document it searches.
-    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+    // Esc closes the bar unless ANOTHER surface owns the press this frame (a
+    // focused field, the page-info card, a popup/menu or a floating window);
+    // `app::shortcuts` records that in `tab.find.esc_elsewhere` before the
+    // viewer draws, so one press never closes the bar AND reverts the
+    // omnibox (or the inline tile field) behind it. The bar reads the key
+    // itself so direct rendering (tests, any future surface) keeps the
+    // close behavior.
+    if !tab.find.esc_elsewhere && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
         tab.find.close();
         return;
     }

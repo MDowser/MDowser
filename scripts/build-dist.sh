@@ -15,6 +15,11 @@
 #   ./scripts/build-dist.sh --rpm        # RPM built from source (needs rpmbuild, Linux host)
 #   ./scripts/build-dist.sh --flatpak    # Flatpak bundle (needs flatpak-builder)
 #
+# dist/ semantics: `--all` and `--host-only` rebuild dist/ from scratch;
+# a single-group flag (--mac, --linux, ...) ADDS its artifacts to whatever
+# is already there, so focused reruns never destroy the other platforms'
+# output. `make dist` stays the wide, from-scratch path.
+#
 # Variables:
 #   SKIP_SETUP=1  # skip installing toolchains/linkers (needy groups fail)
 #
@@ -112,8 +117,10 @@ trap stage_dirs EXIT
 
 # python3 packs the .deb (stdlib `ar` writer) and is the zip fallback.
 # Checked at each use (not up front): `--rpm`, `--flatpak`, `--mac` and
-# `--windows` never need it, and the Fedora RPM container installs no
-# python3 — the old global check aborted those modes before they started.
+# `--windows` never need it. The FINAL privacy gate (check-dist.sh --require)
+# does need it on every mode, including the Fedora RPM container — the CI job
+# installs python3 for exactly that reason (a silent SKIP there would report
+# an unchecked release as ready).
 need_python3() {
     if ! have python3; then
         echo "ERROR: $1 needs python3 (stdlib ar/zip writers); install it first" >&2
@@ -492,7 +499,17 @@ with open(out, 'wb') as w:
     w.write(member('debian-binary', 'debian-binary'))
     w.write(member('control.tar.gz', 'control.tar.gz'))
     w.write(member('data.tar.gz', 'data.tar.gz'))
-"
+" || {
+        # Called from an `if`/`||` list, where `set -e` does not fire: an
+        # unchecked writer failure used to report the platform as BUILT with
+        # no .deb on disk.
+        echo "ERROR: could not write the .deb $3" >&2
+        return 1
+    }
+    if [ ! -f "$3" ]; then
+        echo "ERROR: no .deb written at $3" >&2
+        return 1
+    fi
     # Sanity: a .deb holding an ~18MB binary cannot weigh kilobytes.
     if [ "$(wc -c < "$3")" -lt 1000000 ]; then
         echo "ERROR: suspiciously small .deb $3" >&2
@@ -609,13 +626,22 @@ do_mac() {
         return 0
     fi
     rm -f "$DIST/.universal-bin"
+    # Artifact hygiene: signing and the build plant `com.apple.provenance`
+    # xattrs on every file, and ditto/Info-ZIP would then add AppleDouble
+    # `._name` members (builder metadata, and they made the extracted bundle
+    # fail `codesign --verify`). Strip them from the staged bundle BEFORE
+    # packing — the ad-hoc signature does not seal xattrs (verified: it still
+    # passes `codesign --verify --deep --strict` after the sweep).
+    sweep_apple_double "$DIST/$APP_UI-$VER-macos-universal.app"
     # Guarded like the deb/zip steps: a failed packaging step skips the
     # artifact with a reason instead of aborting the whole `--all` run
     # (`set -e` would otherwise kill the script on a plain `return 1`).
     # `ditto` preserves the .app signature/resource metadata better than
-    # Info-ZIP, so it packs the macOS artifact when present.
+    # Info-ZIP, so it packs the macOS artifact when present; the metadata
+    # flags keep the AppleDouble sidecars out even if an xattr escapes the
+    # sweep.
     if have ditto; then
-        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip"); then
+        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip"); then
             BUILT="$BUILT mac-app-universal"
         else
             warn "mac-app-universal (zip failed)"
@@ -660,19 +686,25 @@ do_linux() {
         b="$(bin_of "$triple")"
         stage="$DIST/.linux-$arch"
         rm -rf "$stage"; mkdir -p "$stage"
-        cp "$b" "$stage/$APP_LC"
-        cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
-            "$ROOT/LICENSE" "$stage/"
-        sweep_apple_double "$stage"
-        (cd "$stage" && tar -czf "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
-            --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
-            "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE)
+        # Guarded: an unguarded `cp`/`tar` failure (full disk, a missing
+        # README) used to abort the WHOLE multi-OS run under `set -e` before
+        # the later groups and the summary.
+        if cp "$b" "$stage/$APP_LC" \
+            && cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
+                "$ROOT/LICENSE" "$stage/" \
+            && sweep_apple_double "$stage" \
+            && (cd "$stage" && tar -czf "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
+                --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
+                "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
+            # Best-effort packaging: a failed .deb keeps the .tar.gz and
+            # skips only this artifact (never aborts the multi-OS run).
+            mk_deb "$b" "$debarch" "$DIST/${APP_LC}_${VER}_${debarch}.deb" ||
+                warn "linux-$arch (.deb failed; .tar.gz kept)"
+            BUILT="$BUILT linux-$arch"
+        else
+            warn "linux-$arch (staging/tar.gz failed)"
+        fi
         rm -rf "$stage"
-        # Best-effort packaging: a failed .deb keeps the .tar.gz and skips
-        # only this artifact (never aborts the multi-OS run).
-        mk_deb "$b" "$debarch" "$DIST/${APP_LC}_${VER}_${debarch}.deb" ||
-            warn "linux-$arch (.deb failed; .tar.gz kept)"
-        BUILT="$BUILT linux-$arch"
     done
 }
 
@@ -703,7 +735,8 @@ do_rpm() {
     # default, rejects it and takes sed-style `-s`), so probe the
     # implementation instead of failing `--rpm` on a brew-rpmbuild host.
     # Excludes are the build output and the AI/editor scratch AGENTS.md
-    # keeps untracked.
+    # keeps untracked, plus the local-secret files `.gitignore` already
+    # treats as sensitive (`.env*`) and the Aider scratch dir.
     _pkg="$APP_LC-$VER"
     if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
         _tar_root="--transform=s,^\.,$_pkg,"
@@ -716,6 +749,7 @@ do_rpm() {
         --exclude='./target' --exclude='./dist' --exclude='./.git' \
         --exclude='./.opencode' --exclude='./.openchamber' \
         --exclude='./.claude' --exclude='./.codex' --exclude='./.cursor' \
+        --exclude='./.env*' --exclude='./.aider*' \
         --exclude='./packaging/flatpak/.build-dir' \
         --exclude='./.flatpak-builder' \
         --exclude='.DS_Store' \
@@ -811,17 +845,22 @@ do_windows() {
     try_strip "$(bin_of "$triple")"
     stage="$DIST/.win-x64"
     rm -rf "$stage"; mkdir -p "$stage"
-    cp "$(bin_of "$triple")" "$stage/$APP_LC.exe"
-    cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
-        "$ROOT/LICENSE" "$stage/"
-    sweep_apple_double "$stage"
-    # Content at the zip root (no staging prefix). A failed zip skips the
-    # group with a reason instead of aborting the run.
-    if zip_contents "$stage" "$DIST/$APP_LC-$VER-windows-x86_64.zip" \
-        "$APP_LC.exe" README.md THIRD_PARTY_NOTICES.md LICENSE; then
-        BUILT="$BUILT windows-x86_64"
+    # Guarded like the Linux staging: a failed copy must warn, not abort the
+    # multi-OS run before the summary.
+    if cp "$(bin_of "$triple")" "$stage/$APP_LC.exe" \
+        && cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
+            "$ROOT/LICENSE" "$stage/" \
+        && sweep_apple_double "$stage"; then
+        # Content at the zip root (no staging prefix). A failed zip skips the
+        # group with a reason instead of aborting the run.
+        if zip_contents "$stage" "$DIST/$APP_LC-$VER-windows-x86_64.zip" \
+            "$APP_LC.exe" README.md THIRD_PARTY_NOTICES.md LICENSE; then
+            BUILT="$BUILT windows-x86_64"
+        else
+            warn "windows-x86_64 (zip failed)"
+        fi
     else
-        warn "windows-x86_64 (zip failed)"
+        warn "windows-x86_64 (staging failed)"
     fi
     rm -rf "$stage"
 }
@@ -853,16 +892,10 @@ do_host() {
     _host_bin="$TARGETS/release/$APP_LC"
     [ -f "$_host_bin.exe" ] && _host_bin="$_host_bin.exe"
     try_strip "$_host_bin"
-    # Derive OS/arch labels from the host triple (fallback: uname).
+    # Derive OS/arch labels from the host triple (fallback: uname). macOS
+    # never reaches this point: the early return above handed it to `do_mac`.
     _host_os=""; _host_arch=""
     case "$_host_triple" in
-        *darwin*|*macos*)
-            _host_os="macos"
-            case "$_host_triple" in
-                aarch64*|arm64*) _host_arch="arm64" ;;
-                x86_64*) _host_arch="x86_64" ;;
-            esac
-            ;;
         *linux*)
             _host_os="linux"
             _host_arch="${_host_triple%%-*}"
@@ -952,7 +985,17 @@ do_host() {
 
 # --- main --------------------------------------------------------------------
 : "${DIST:?DIST must be set}"
-rm -rf "$DIST"
+mkdir -p "$DIST"
+# dist/ semantics: the COMPLETE modes rebuild it from scratch; a single-group
+# flag ADDS its artifacts to whatever is already there. The old unconditional
+# wipe destroyed the other platforms' packages on every focused rerun (CI had
+# to stash dist/ and re-merge it around `--host-only`), so `make dist-linux`
+# after `make dist-mac` now keeps both sets.
+case "$MODE" in
+    --all|--host-only)
+        rm -rf "$DIST"
+        ;;
+esac
 mkdir -p "$DIST"
 
 case "$MODE" in
@@ -981,7 +1024,9 @@ fi
 # Privacy gate: no artifact may carry the builder's absolute paths or
 # build-host metadata (uid/gid, xattrs). Fail BEFORE writing checksums so a
 # leaking build is never reported as ready (see scripts/check-dist.sh).
-if ! "$ROOT/scripts/check-dist.sh" "$DIST"; then
+# `--require`: a missing python3 is a FAILURE here (exit 2), never a silent
+# SKIP that would report an unchecked build as ready.
+if ! "$ROOT/scripts/check-dist.sh" --require "$DIST"; then
     echo "ERROR: dist/ artifacts leak build-host information (see above)" >&2
     exit 1
 fi
