@@ -34,6 +34,34 @@ fn unicode_case_folding_counts() {
     assert_eq!(count_occurrences("Straße STRASSE", "strasse"), 1);
 }
 
+/// Regression: a case folding that changes byte length before the match
+/// (`İ` lowercases to two bytes) shifts the ranges computed in the
+/// lowercased copy. `is_valid_slice` accepted them because they landed on
+/// char boundaries (`text[3..6]` = `"OO "`), so the precise-split painter
+/// washed the wrong characters; `ranges_resolve` must reject them and let
+/// the whole-fragment fallback paint instead.
+#[test]
+fn length_changing_foldings_do_not_resolve() {
+    let text = "İFOO BAR";
+    let (ranges, _) = find_ranges_capped(text, "foo");
+    assert_eq!(ranges.len(), 1);
+    assert!(
+        is_valid_slice(text, ranges[0].0, ranges[0].1),
+        "the shifted range still lands on char boundaries (the old check passed)"
+    );
+    assert!(
+        !ranges_resolve(text, &ranges, "foo"),
+        "a shifted range must not resolve to the real match"
+    );
+    // The exact offsets still resolve when the fold is length-preserving.
+    let text = "A FOO bar";
+    let (ranges, _) = find_ranges_capped(text, "foo");
+    assert!(ranges_resolve(text, &ranges, "foo"));
+    // ASCII ranges keep resolving through the fast path.
+    let (ranges, _) = find_ranges_capped("HELLO hello", "hello");
+    assert!(ranges_resolve("HELLO hello", &ranges, "hello"));
+}
+
 #[test]
 fn query_truncation_keeps_graphemes() {
     let long = "e\u{0301}".repeat(crate::config::MAX_FIND_QUERY_CHARS + 10);

@@ -75,7 +75,12 @@ jobs:
           SKIP_SETUP=1 ./scripts/build-dist.sh --windows
           ls dist/*.zip
           mkdir -p /tmp/keep && mv dist/* /tmp/keep/
-          SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
+          # NO_LOCAL_RPM: Ubuntu's rpm package provides `/usr/bin/rpmbuild`,
+          # so the default host path would also build an x86_64 RPM here —
+          # a duplicate next to the dedicated Fedora job's artifact (plus a
+          # second from-scratch LTO compile in this job). The RPM ships from
+          # the `rpm` job only.
+          NO_LOCAL_RPM=1 SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
           ls dist/*.tar.gz dist/*.deb
           mv /tmp/keep/* dist/
           rm -f dist/SHA256SUMS.txt
@@ -111,7 +116,11 @@ jobs:
       - name: Build Linux arm64
         run: |
           set -eu
-          SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
+          # NO_LOCAL_RPM like the x86_64 job: Ubuntu ships rpmbuild, and the
+          # aarch64 RPM is not a published artifact (the Fedora job builds
+          # the only RPM) — skip it to keep both the release and the job's
+          # 45-minute budget under control.
+          NO_LOCAL_RPM=1 SKIP_SETUP=1 ./scripts/build-dist.sh --host-only
           ls dist/*.tar.gz dist/*.deb
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

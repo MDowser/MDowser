@@ -166,7 +166,16 @@ fn parse_imf_fixdate(value: &str) -> Option<u64> {
         return None;
     }
     let (hh, mm, ss) = parse_time(time)?;
-    ymd_hms_to_unix(year, month, day, hh, mm, ss)
+    ymd_hms_to_unix(sane_year(year)?, month, day, hh, mm, ss)
+}
+
+/// Sane-year gate for parsed HTTP dates: server-controlled input must never
+/// reach the calendar math outside a representable range (an extreme `i32`
+/// from `Expires: ..., 06-Nov-2147483647 ...` would overflow the `i32` year
+/// adjustments under `overflow-checks`). Dates only ever feed freshness
+/// comparisons against `now`, so years far outside the HTTP era are dropped.
+fn sane_year(year: i32) -> Option<i32> {
+    (1900..=9999).contains(&year).then_some(year)
 }
 
 /// RFC 850: `Sunday, 06-Nov-94 08:49:37 GMT`.
@@ -179,7 +188,7 @@ fn parse_rfc850(value: &str) -> Option<u64> {
     let day: u32 = dparts.next()?.parse().ok()?;
     let month = month_number(dparts.next()?)?;
     let year2: i32 = dparts.next()?.parse().ok()?;
-    if dparts.next().is_some() {
+    if dparts.next().is_some() || !(0..=99).contains(&year2) {
         return None;
     }
     // Two-digit years: 00-49 map to 2000s, 50-99 to 1900s. Either way the
@@ -190,6 +199,7 @@ fn parse_rfc850(value: &str) -> Option<u64> {
     } else {
         1900 + year2
     };
+    sane_year(year)?;
     let (hh, mm, ss) = parse_time(time)?;
     ymd_hms_to_unix(year, month, day, hh, mm, ss)
 }
@@ -206,7 +216,7 @@ fn parse_asctime(value: &str) -> Option<u64> {
         return None;
     }
     let (hh, mm, ss) = parse_time(time)?;
-    ymd_hms_to_unix(year, month, day, hh, mm, ss)
+    ymd_hms_to_unix(sane_year(year)?, month, day, hh, mm, ss)
 }
 
 fn month_number(name: &str) -> Option<u32> {
@@ -244,7 +254,14 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
     if !(1..=12).contains(&month) || day == 0 || day > 31 {
         return None;
     }
-    let y = if month <= 2 { year - 1 } else { year } as i64;
+    // `i64` before the January/February adjustment: a caller-supplied year
+    // could otherwise make `year - 1` itself overflow (see `sane_year`,
+    // which every parser applies first; this stays defensive).
+    let y = if month <= 2 {
+        i64::from(year) - 1
+    } else {
+        i64::from(year)
+    };
     let era = y.div_euclid(400);
     let yoe = y.rem_euclid(400);
     let mp = (month as i64 + 9).rem_euclid(12);
@@ -275,8 +292,11 @@ pub(crate) struct Freshness {
 ///
 /// Precedence: `max-age` > `Expires` (+`Date`) > caller default TTL; the
 /// result is clamped to `now + MAX_CACHE_FRESHNESS_SECS` (absolute ceiling).
-/// An `Age` header (upstream seconds) is subtracted: a response that spent
-/// 50s in a CDN with `max-age=60` is fresh for 10s here, not 60.
+/// The response's age (RFC 9111 §4.2.3) is the larger of the `Age` header
+/// and the apparent age `now - Date`: a response that spent 50s in a CDN
+/// with `max-age=60` is fresh for 10s here, not 60, and one generated hours
+/// ago with a short `max-age` is already stale. A future `Date` (clock
+/// skew) contributes no age.
 pub(crate) fn freshness(headers: &CapturedHeaders, now: u64, default_ttl: u64) -> Freshness {
     let directives = parse_cache_control(headers.cache_control.as_deref());
     let age_secs = headers
@@ -285,7 +305,12 @@ pub(crate) fn freshness(headers: &CapturedHeaders, now: u64, default_ttl: u64) -
         .and_then(|a| a.trim().parse::<u64>().ok())
         .unwrap_or(0)
         .min(3600 * 24 * 365 * 10); // hostile `Age: 999...` must not underflow below
-    let base_age = now.saturating_sub(age_secs);
+    let apparent_age = headers
+        .date
+        .as_deref()
+        .and_then(parse_http_date)
+        .map_or(0, |date| now.saturating_sub(date));
+    let base_age = now.saturating_sub(age_secs.max(apparent_age));
     let lifetime: u64 = if let Some(max_age) = directives.max_age {
         max_age
     } else if let Some(expires) = headers.expires.as_deref().and_then(parse_http_date) {
@@ -475,6 +500,21 @@ mod tests {
         );
         assert_eq!(parse_http_date("garbage"), None);
         assert_eq!(parse_http_date("Sun, 99 Foo 1994 08:49:37 GMT"), None);
+        // Extreme years (hostile `Expires`) are rejected, never fed to the
+        // calendar math that would overflow `i32` under `overflow-checks`.
+        assert_eq!(parse_http_date("Sun, 06 Nov 2147483647 08:49:37 GMT"), None);
+        assert_eq!(
+            parse_http_date("Sun, 06 Nov -2147483648 08:49:37 GMT"),
+            None
+        );
+        assert_eq!(
+            parse_http_date("Sunday, 06-Nov-2147483647 08:49:37 GMT"),
+            None
+        );
+        assert_eq!(parse_http_date("Sunday, 06-Nov--1 08:49:37 GMT"), None);
+        assert_eq!(parse_http_date("Sun Nov  6 08:49:37 2147483647"), None);
+        // Out-of-era but representable years are still rejected.
+        assert_eq!(parse_http_date("Sun, 06 Nov 10000 08:49:37 GMT"), None);
     }
 
     #[test]
@@ -493,13 +533,31 @@ mod tests {
                 has_validator: false
             }
         );
-        // Expires without max-age, Date-based lifetime.
+        // Expires without max-age: lifetime is `Expires - Date` and the
+        // apparent age (`now - Date`) is subtracted, so the entry is fresh
+        // until `Expires` exactly — a long-past `Date` is already stale and
+        // can never be resurrected for a lifetime from now.
         let h = CapturedHeaders {
             expires: Some("Sun, 06 Nov 1994 09:49:37 GMT".into()),
             date: Some("Sun, 06 Nov 1994 08:49:37 GMT".into()),
             ..Default::default()
         };
-        assert_eq!(freshness(&h, now, 300).fresh_until, now + 3600);
+        assert_eq!(freshness(&h, now, 300).fresh_until, 784_111_777 + 3600);
+        // A recent Date counts as age for `max-age` too (RFC 9111 §4.2.3).
+        let h = CapturedHeaders {
+            cache_control: Some("max-age=3600".into()),
+            date: Some("Tue, 14 Nov 2023 22:12:30 GMT".into()), // now - 50
+            ..Default::default()
+        };
+        assert_eq!(freshness(&h, now, 300).fresh_until, now + 3600 - 50);
+        // The larger of `Age` and the apparent age wins.
+        let h = CapturedHeaders {
+            cache_control: Some("max-age=3600".into()),
+            age: Some("900".into()),
+            date: Some("Tue, 14 Nov 2023 22:12:30 GMT".into()),
+            ..Default::default()
+        };
+        assert_eq!(freshness(&h, now, 300).fresh_until, now + 3600 - 900);
         // Default TTL when silent.
         let h = CapturedHeaders::default();
         assert_eq!(freshness(&h, now, 300).fresh_until, now + 300);
@@ -586,13 +644,17 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(freshness(&h, now, 300).fresh_until, now + 300);
-        // A past `Expires` without `max-age` is already stale.
+        // A past `Expires` without `max-age` is already stale: its
+        // `fresh_until` lands on `Expires` itself (date + zero lifetime),
+        // decades before `now`.
         let h = CapturedHeaders {
             expires: Some("Sun, 06 Nov 1994 08:49:37 GMT".into()),
             date: Some("Sun, 06 Nov 1994 08:49:37 GMT".into()),
             ..Default::default()
         };
-        assert_eq!(freshness(&h, now, 300).fresh_until, now);
+        let past = freshness(&h, now, 300).fresh_until;
+        assert_eq!(past, 784_111_777);
+        assert!(past < now, "a past Expires can never be fresh");
         // A hostile `Age` saturates at the clamp instead of underflowing:
         // unparseable values are ignored entirely; huge but parseable ones
         // land at `now - clamp + lifetime`, i.e. simply stale.

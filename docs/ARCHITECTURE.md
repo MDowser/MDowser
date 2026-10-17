@@ -8,6 +8,11 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
            (`menu`, macOS only) + native window geometry (`window`:
            first-frame placement + persisted position/size/maximized) +
            OS/CLI open targets)
+  ├─ error (the unified `BrowserError` every module converts its failures
+  │          into: one message-shaped type for the error view and logs)
+  ├─ util (shared helpers: panic guard for background jobs, display caps
+  │         (`truncate_chars`), credential stripping for logs, stored-URL
+  │         normalization)
   ├─ assets (embedded Noto faces: color emoji, monochrome emoji, CJK,
   │          Latin + script set; the two largest ship Brotli-compressed
   │          and are decompressed once into process-lifetime
@@ -111,7 +116,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
           preferences (tabbed Preferences window: General/Data/Shortcuts,
           incl. the licenses link; `widgets` kit), history_page (internal about:history
-          page), error_view, `ui::forget_tab()` (single function registry
+          page), error_view, `row` (the shared painted-row recipe behind
+          menus/dropdowns/rows), `ui::forget_tab()` (single function registry
           for closed-tab egui-memory keys))
 ```
 

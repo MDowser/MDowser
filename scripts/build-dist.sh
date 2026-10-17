@@ -144,15 +144,18 @@ need_python3() {
 # $STRIP still wins when set. Never fatal: warns and keeps going.
 find_llvm_strip() {
     # Prints a working llvm-strip path, or nothing.
-    # Brew llvm is keg-only (not in PATH): probe its opt prefixes.
-    for _lp in \
-        "/opt/homebrew/opt/llvm@21/bin/llvm-strip" \
-        "/opt/homebrew/opt/llvm/bin/llvm-strip" \
-        "/usr/local/opt/llvm@21/bin/llvm-strip" \
-        "/usr/local/opt/llvm/bin/llvm-strip"; do
-        if [ -x "$_lp" ]; then printf '%s' "$_lp"; return 0; fi
+    # Brew llvm is keg-only (not in PATH): discover the brew prefix at
+    # runtime (never a hardcoded machine dir, same rule as lib.sh/Makefile)
+    # and accept ANY versioned keg (llvm@20/@21/@22...), then PATH, then
+    # the stock Homebrew locations for hosts without brew itself on PATH.
+    _bp=""
+    if have brew; then _bp="$(brew --prefix 2>/dev/null || true)"; fi
+    for _lp in ${_bp:+"$_bp"/opt/llvm*/bin/llvm-strip} \
+        /opt/homebrew/opt/llvm*/bin/llvm-strip \
+        /usr/local/opt/llvm*/bin/llvm-strip; do
+        if [ -x "$_lp" ]; then printf '%s' "$_lp"; unset _bp _lp; return 0; fi
     done
-    unset _lp
+    unset _bp _lp
     if have llvm-strip; then command -v llvm-strip; return 0; fi
     return 1
 }
@@ -357,6 +360,33 @@ EOF
     # .app still opens via System Settings > Privacy & Security > Open Anyway).
     codesign --verify --deep --strict "$app" 2>/dev/null || \
         printf '··· WARN: ad-hoc signature did not verify for %s\n' "$app"
+    # Called as `if ! mk_app`, where `set -e` is OFF for the whole function
+    # body and the status is that of the LAST command: an unchecked failed
+    # write (heredoc, disk full) used to report BUILT with no bundle to
+    # publish. Prove the bundle here instead of inheriting a status.
+    [ -f "$app/Contents/Info.plist" ] || {
+        echo "ERROR: mk_app left no Info.plist in $app" >&2
+        return 1
+    }
+    [ -f "$app/Contents/MacOS/$APP_UI" ] || {
+        echo "ERROR: mk_app left no executable in $app" >&2
+        return 1
+    }
+    [ -f "$app/Contents/Resources/icon.icns" ] || {
+        echo "ERROR: mk_app left no icon in $app" >&2
+        return 1
+    }
+    [ -f "$app/Contents/Resources/LICENSE" ] &&
+        [ -f "$app/Contents/Resources/THIRD_PARTY_NOTICES.md" ] || {
+        echo "ERROR: mk_app left no license files in $app" >&2
+        return 1
+    }
+    if have plutil; then
+        plutil -lint "$app/Contents/Info.plist" >/dev/null || {
+            echo "ERROR: mk_app wrote an invalid Info.plist in $app" >&2
+            return 1
+        }
+    fi
 }
 
 # --- minimal .deb with no external dependencies --------------------------------
@@ -479,6 +509,19 @@ EOF
     tar -tzf "$stage/data.tar.gz" \
         | grep -qx "usr/share/icons/hicolor/scalable/apps/$APP_LC.svg" || {
         echo "ERROR: data.tar.gz misses the scalable icon for $3" >&2
+        return 1
+    }
+    # License compliance: the MPL and the notices must be in the payload.
+    # (Called from `||`, where `set -e` is OFF: a failed `cp` above must not
+    # ride to a BUILT report on an unchecked status.)
+    tar -tzf "$stage/data.tar.gz" \
+        | grep -qx "usr/share/doc/$APP_LC/LICENSE" || {
+        echo "ERROR: data.tar.gz misses the license for $3" >&2
+        return 1
+    }
+    tar -tzf "$stage/data.tar.gz" \
+        | grep -qx "usr/share/doc/$APP_LC/copyright" || {
+        echo "ERROR: data.tar.gz misses the notices for $3" >&2
         return 1
     }
     if ! tar -tzf "$stage/data.tar.gz" \
@@ -688,16 +731,19 @@ do_linux() {
         arch="${triple%%-*}"
         [ "$arch" = "x86_64" ] && debarch="amd64" || debarch="arm64"
         b="$(bin_of "$triple")"
-        stage="$DIST/.linux-$arch"
-        rm -rf "$stage"; mkdir -p "$stage"
+        # Local (never global) stage variable: `mk_deb` owns the global
+        # `stage` name below, and sharing it left THIS directory behind after
+        # the `.deb` step already re-pointed and removed its own.
+        _linux_stage="$DIST/.linux-$arch"
+        rm -rf "$_linux_stage"; mkdir -p "$_linux_stage"
         # Guarded: an unguarded `cp`/`tar` failure (full disk, a missing
         # README) used to abort the WHOLE multi-OS run under `set -e` before
         # the later groups and the summary.
-        if cp "$b" "$stage/$APP_LC" \
+        if cp "$b" "$_linux_stage/$APP_LC" \
             && cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
-                "$ROOT/LICENSE" "$stage/" \
-            && sweep_apple_double "$stage" \
-            && (cd "$stage" && tar -czf "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
+                "$ROOT/LICENSE" "$_linux_stage/" \
+            && sweep_apple_double "$_linux_stage" \
+            && (cd "$_linux_stage" && tar -czf "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
                 --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
                 "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
             # Best-effort packaging: a failed .deb keeps the .tar.gz and
@@ -708,7 +754,8 @@ do_linux() {
         else
             warn "linux-$arch (staging/tar.gz failed)"
         fi
-        rm -rf "$stage"
+        rm -rf "$_linux_stage"
+        unset _linux_stage
     done
 }
 
@@ -755,6 +802,7 @@ do_rpm() {
         --exclude='./.claude' --exclude='./.codex' --exclude='./.cursor' \
         --exclude='./.env*' --exclude='./.aider*' \
         --exclude='./packaging/flatpak/.build-dir' \
+        --exclude='./packaging/flatpak/cargo-sources.json' \
         --exclude='./.flatpak-builder' \
         --exclude='.DS_Store' \
         --exclude='./._*' --exclude='*/._*' \
@@ -975,8 +1023,11 @@ do_host() {
             unset _hdeb
             # An RPM only when the host can actually build one (Fedora/RHEL/
             # openSUSE); skipped silently elsewhere so `make` on Debian/Arch
-            # stays quiet.
-            if have rpmbuild; then
+            # stays quiet. `NO_LOCAL_RPM=1` opts out (the release workflow
+            # sets it on its Linux jobs: Ubuntu's rpmbuild would otherwise
+            # ship a second x86_64 RPM next to the Fedora job's, and the
+            # from-scratch compile must not race the job timeout).
+            if [ "${NO_LOCAL_RPM:-0}" != "1" ] && have rpmbuild; then
                 do_rpm
             fi
             # Flatpak too (best-effort): one bundle for every distribution.
@@ -1025,15 +1076,37 @@ if [ -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" ]; then
     rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
 fi
 
+# Single-group modes ADD to dist/: after a version bump, an earlier run's
+# artifacts can sit next to the new ones and end up in the checksums (and in
+# a manual `gh release upload dist/*`). Warn, never delete (the file may be
+# a deliberate rerun target).
+for _stale in "$DIST"/*; do
+    [ -f "$_stale" ] || continue
+    _stale_name="$(basename "$_stale")"
+    case "$_stale_name" in
+        SHA256SUMS.txt|.*) ;;
+        *"$VER"*) ;;
+        *) echo "WARN: dist/$_stale_name does not carry version $VER (left by an earlier run; remove it before publishing)" ;;
+    esac
+done
+unset _stale _stale_name
+
 # Privacy gate: no artifact may carry the builder's absolute paths or
 # build-host metadata (uid/gid, xattrs). Fail BEFORE writing checksums so a
 # leaking build is never reported as ready (see scripts/check-dist.sh).
 # `--require`: a missing python3 is a FAILURE here (exit 2), never a silent
 # SKIP that would report an unchecked build as ready.
-if ! "$ROOT/scripts/check-dist.sh" --require "$DIST"; then
-    echo "ERROR: dist/ artifacts leak build-host information (see above)" >&2
+"$ROOT/scripts/check-dist.sh" --require "$DIST" || {
+    _gate=$?
+    if [ "$_gate" = "2" ]; then
+        echo "ERROR: the dist privacy gate could not run (see above)" >&2
+    else
+        echo "ERROR: dist/ artifacts leak build-host information (see above)" >&2
+    fi
+    unset _gate
     exit 1
-fi
+}
+unset _gate
 
 # Checksums of FINAL files only (no dirs, no dotfiles, no self-inclusion).
 # Space-safe: no `xargs` splitting (filenames with spaces stay intact).

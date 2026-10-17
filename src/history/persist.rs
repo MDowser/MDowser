@@ -104,6 +104,11 @@ impl HistoryStore {
         self.key = Some(key);
         let Some(plain) = decrypt(&key, FILE_MAGIC, FILE_VERSION, &bytes) else {
             self.preserve_unreadable_blob(&bytes);
+            // The store loads empty; without this note the user would see a
+            // blank History with no explanation (the doc contract surfaces
+            // unreadable stores through `save_error`).
+            self.save_error =
+                Some("history file could not be read; a backup copy was kept".to_string());
             return;
         };
         self.entries = deserialize(&plain);

@@ -207,16 +207,19 @@ impl FaviconStore {
             .collect()
     }
 
+    /// Refreshes a stored probe in place after a 304. Returns the byte delta
+    /// for the global accounting (`None` = no such entry): the validator
+    /// fields are replaced, so the record's size (and the class total) can
+    /// change without any body write.
     pub(crate) fn refresh(
         &mut self,
         key: &str,
         fresh_until: u64,
         headers: &CapturedHeaders,
-    ) -> bool {
+    ) -> Option<i64> {
         let now = now_secs();
-        let Some(record) = self.map.get_mut(key) else {
-            return false;
-        };
+        let record = self.map.get_mut(key)?;
+        let old = record_size(record);
         record.stored_at = now;
         record.fresh_until = fresh_until;
         if let Some(etag) = headers.etag.as_deref() {
@@ -228,8 +231,10 @@ impl FaviconStore {
         if let Some(ct) = headers.content_type.as_deref() {
             record.content_type = ct.to_string();
         }
+        let new = record_size(record);
+        self.bytes = self.bytes.saturating_add(new).saturating_sub(old);
         self.file_dirty = true;
-        true
+        Some(new as i64 - old as i64)
     }
 }
 

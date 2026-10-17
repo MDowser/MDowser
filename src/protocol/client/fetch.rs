@@ -485,11 +485,19 @@ fn rebuild_cached(record: &DocRecord, error_url: &Url) -> Option<Fetched> {
 /// and serves the stored body; 200 replaces it (same store path as the
 /// cascade); anything else falls back to the full cascade (`None`), whose
 /// failure surfaces as the error (stale is never served).
+///
+/// The conditional GET is real network work with the same whole-body buffer
+/// as any fetch (a hostile origin can answer a validator with 200 + the full
+/// cap), so it takes the SAME global slot as a full fetch: without one, many
+/// stale hits could bypass the documented concurrency bound. A busy or
+/// cancelled slot drops to the full cascade, which re-acquires and reports
+/// the same error shape.
 fn revalidate_cached(
     start: &Url,
     record: DocRecord,
     cancel: &Arc<AtomicBool>,
 ) -> Option<Result<Fetched, BrowserError>> {
+    let _slot = acquire_slot(cancel)?;
     let fetched_url: Url = record.fetched_url.parse().ok()?;
     if fetched_url.scheme() != "https" {
         return None;

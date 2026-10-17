@@ -30,7 +30,9 @@
 # `rpmbuild` has network access).
 
 Name:           mdowser
-Version:        %{?ver}%{!?ver:0.5.4}
+# `ver` is REQUIRED (see the header): a stale hardcoded fallback silently
+# mislabeled manual builds, so refuse instead.
+Version:        %{?ver}%{!?ver:%{error:ver is not defined; pass --define "ver <version>" (make dist-rpm does)}}
 Release:        1%{?dist}
 Summary:        Browser for text/markdown (CommonMark) over HTTPS and local files
 

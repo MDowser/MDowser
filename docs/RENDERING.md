@@ -112,11 +112,13 @@ STRUCTURE and never evaluates it:
 
 - Bare URLs linkify like markdown links: `www.celticos.com` and bare domains
   (`celticos.com`, `scholar-sidekick.com`, `agentready.md`) get `https://`
-  inserted, `https://example.com/docs` stays as written, a `host:port`
-  spelling the omnibox accepts (`localhost:3000`, `example.com:8080/x`)
-  resolves as `https://` too, and local `file:`
+  inserted, `https://example.com/docs` stays as written, a bare domain with a
+  port (`example.com:8080/x`) resolves as `https://` too, and local `file:`
   URLs (`file:///Users/me/notes.md`, `file://localhost/…`) linkify as
-  local files. No other scheme does: `http:`, `mailto:`, `ftp:` and `data:`
+  local files. (The single-label `host:port` sugar resolves link
+  DESTINATIONS such as `[notes](localhost:3000)`; in prose a candidate needs
+  a dotted domain, so `localhost:3000` there stays text.) No other scheme
+  does: `http:`, `mailto:`, `ftp:` and `data:`
   stay plain text (the browser only navigates https and local files).
   Recognition starts at a delimiter boundary (a run glued to a link's closing
   `)` or a code span does not qualify) and leaves trailing punctuation

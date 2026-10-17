@@ -59,7 +59,9 @@ what "restore tabs on startup" remembers.
 ## Favicons
 
 Favicons are probed per origin (`/favicon.ico`, then `/favicon.png`, then
-`/favicon.svg`) and cached for the session (`src/media/favicon.rs`); origins
+`/favicon.svg`) and served from the encrypted disk cache on repeat visits
+(probes persist across launches; `src/media/favicon.rs` holds the session
+per-origin textures); origins
 without one fall back to a home/globe icon.
 
 ## Home

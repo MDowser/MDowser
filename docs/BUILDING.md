@@ -125,8 +125,10 @@ rendering; the runtime decompresses
 each face once (CJK synchronously at startup, color emoji on the background
 `media::emoji::prewarm` thread `App::new` spawns, so no first emoji ever
 parses the face mid-frame). The result
-is cached with a hash stamp, so only the first build of a profile pays the
-~90 s encoder pass (quality 10). Build scripts run optimized
+is cached with a hash stamp, so only the first build of a profile and
+target triple pays the ~90 s encoder pass (quality 10; `OUT_DIR` is keyed
+by both, so a full multi-target `make dist` pays it once per target).
+Build scripts run optimized
 (`[profile.*.build-override] opt-level = 3` in `Cargo.toml`) precisely for
 this: at the default `opt-level = 0` the encoder would take minutes. The
 same tables set `strip = "none"` to opt out of cargo's automatic debuginfo
@@ -316,7 +318,13 @@ files are not extracted, so for those two the check is best-effort).
 `SHA256SUMS.txt`, so `make dist` fails instead of publishing a leaking build
 — and a machine without the inspector (no python3) fails too, rather than
 skipping (the app's intentional example paths such as `/Users/you/notes.md`
-are not matched).
+are not matched); the two failures are reported separately (a gate that
+cannot run says so, instead of being blamed as a leak). The release
+workflow's `publish` job re-runs the gate over the merged artifact set from
+Linux, where the scan is needle-based on ITS `$HOME`/hostname: a macOS-only
+`/Users/runner` or Windows-only `C:\Users\…` leak is caught by each job's
+own gate (which runs inside `build-dist.sh` on the right OS), not by the
+merged one.
 
 ### Validating the packaging metadata
 
@@ -386,7 +394,11 @@ guarantees are the same as `make dist`: the publishing job re-runs
 Artifact names are identical to `make dist`, so a CI release is the same
 set a local build produces, plus the Windows arm64 `.zip` (native MSVC on a
 Windows on ARM runner; it is not cross-built, so only CI — or a Windows on
-ARM host running `--host-only` — produces it). The Release is titled with
+ARM host running `--host-only` — produces it). The two Ubuntu Linux jobs
+run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
+`rpmbuild`, and without the opt-out each job would also attach its own
+`.rpm` (a duplicate x86_64 package and an undocumented aarch64 one); the
+published RPM is always the Fedora job's. The Release is titled with
 the tag and its body
 is a fixed text (CHANGELOG link, per-platform first-run and install notes,
 assets pointer and the use-at-your-own-risk disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as

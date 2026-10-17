@@ -32,7 +32,7 @@ ensure_toolchain_path() {
     done
     unset _bd
     # 1. Standard rustup env file when present (`HOME` guarded: callers like
-    #    `check-dist` run under `set -u`, where an unset `HOME` aborts).
+    #    `deps.sh` run under `set -u`, where an unset `HOME` aborts).
     if [ -n "${HOME:-}" ] && [ -f "$HOME/.cargo/env" ]; then
         # shellcheck disable=SC1091
         . "$HOME/.cargo/env"

@@ -33,11 +33,13 @@ where the load landed (`ex.com/hola` found at `ex.com/hola/` shows
 `ex.com/hola/`).
 
 Repeat visits consult the encrypted HTTP cache first: a fresh record is
-served without the network, a stale one revalidates with
-`If-None-Match`/`If-Modified-Since`, and Refresh forces that revalidation
-(or a full cascade when the response carried no validator). A failed
-revalidation falls back to the normal route cascade; a stale body is never
-served as if it were current.
+served without the network, and a stale one with validators revalidates
+with `If-None-Match`/`If-Modified-Since` (a 304 refreshes the stored
+record). Refresh bypasses the cache record entirely and re-fetches through
+the normal route cascade with `Cache-Control: no-cache`; it never sends the
+stored validators, so a fresh copy always comes from the network. Either
+way a failed revalidation falls back to the normal route cascade, and a
+stale body is never served as if it were current.
 
 ## Autocomplete
 

@@ -283,6 +283,25 @@ pub fn contains_match(text: &str, needle_lower: &str) -> bool {
     text.to_lowercase().contains(needle_lower)
 }
 
+/// True when every range in `ranges` really selects `needle_lower` in
+/// `text` (case-insensitively) on character boundaries.
+///
+/// [`find_ranges_capped`] computes offsets in a LOWERCASED copy, and exotic
+/// foldings change byte length (`İ` folds to two bytes), so offsets that
+/// happen to land on boundaries can still cover the wrong characters. The
+/// precise-split painters must bail to the whole-fragment fallback when the
+/// ranges do not line up; the ASCII fast path (both sides ASCII) cannot
+/// shift, so it only needs the boundary check.
+pub fn ranges_resolve(text: &str, ranges: &[(usize, usize)], needle_lower: &str) -> bool {
+    // ASCII cannot shift under case folding: the boundary check is exact.
+    if text.is_ascii() && needle_lower.is_ascii() {
+        return ranges.iter().all(|(s, e)| is_valid_slice(text, *s, *e));
+    }
+    ranges
+        .iter()
+        .all(|(s, e)| is_valid_slice(text, *s, *e) && text[*s..*e].to_lowercase() == needle_lower)
+}
+
 /// True when `(start, end)` slices `text` on `char` boundaries.
 pub fn is_valid_slice(text: &str, start: usize, end: usize) -> bool {
     text.len() >= end && text.is_char_boundary(start) && text.is_char_boundary(end)

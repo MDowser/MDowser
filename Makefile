@@ -49,9 +49,13 @@ _BREW_CARGO := $(if $(_BREW_PREFIX),$(_BREW_PREFIX)/opt/rustup/bin/cargo)
 # THERE is reported by `make doctor`, never by a confusing "No such file".
 CARGO = $(or $(_WHICH_CARGO),$(firstword $(wildcard $(_RUSTUP_CARGO) $(HOME)/.cargo/bin/cargo $(HOME)/.rustup/toolchains/stable-*/bin/cargo $(HOME)/.rustup/toolchains/*/bin/cargo $(_BREW_CARGO))))
 # `doctor` must stay runnable exactly when cargo cannot be found (it is the
-# diagnosis path the error below points at), so the parse-time check skips
-# it: every other goal fails immediately with the hint.
-ifneq ($(MAKECMDGOALS),doctor)
+# diagnosis path the error below points at), and `install`/`help` never run
+# cargo either (`install` only copies runtime files; the RPM %install calls
+# it in build environments that no longer need the toolchain). Every other
+# goal fails immediately with the hint.
+_CARGO_FREE_GOALS := doctor install help
+_NEEDS_CARGO := $(if $(MAKECMDGOALS),$(filter-out $(_CARGO_FREE_GOALS),$(MAKECMDGOALS)),needs-cargo)
+ifneq ($(_NEEDS_CARGO),)
 ifeq ($(CARGO),)
 $(error cargo not found (PATH lookup + rustup + ~/.cargo + brew all failed); install rustup, see README or run make doctor)
 endif

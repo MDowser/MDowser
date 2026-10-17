@@ -313,6 +313,12 @@ impl ImageStore {
         let path = self.file_path(&stem);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
+            // Runtime re-check (defense in depth): a shard directory swapped
+            // for a symlink between open and this write must not redirect the
+            // body outside the cache directory.
+            if !super::docs::is_real_dir(parent) {
+                return None;
+            }
         }
         if crate::settings::atomic_write(
             path.parent().unwrap_or(&self.dir),

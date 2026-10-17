@@ -328,8 +328,11 @@ if (-not $isAdmin -and -not $NoElevate) {
     # Self-elevate: BuildTools, machine-wide winget packages and the
     # python3 shim under Program Files need admin. Relaunch this script
     # with the same switches through the UAC prompt, then stop here.
+    # `-File` takes ONE argument: PowerShell 5.1 joins the array with
+    # spaces without quoting, so a checkout under `C:\Users\me\My Projects\`
+    # would be split and the elevated run would fail before doing anything.
     $selfArgs = @("-NoProfile", "-NonInteractive", "-ExecutionPolicy",
-        "Bypass", "-File", $PSCommandPath)
+        "Bypass", "-File", "`"$PSCommandPath`"")
     foreach ($sw in @("Test", "Validate", "SkipBuild", "SkipDist",
         "SkipSetup")) {
         if ((Get-Variable $sw -ValueOnly)) { $selfArgs += "-$sw" }

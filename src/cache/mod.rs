@@ -88,10 +88,21 @@ struct Inner {
     favicons: FaviconStore,
     /// Global FIFO: sequence -> (class, key). The oldest entry evicts first.
     order: BTreeMap<u64, (Class, String)>,
-    /// Reverse map for O(1) re-insert/drop of the old sequence.
-    seq_of: HashMap<(Class, String), u64>,
+    /// Reverse map for O(1) re-insert/drop of the old sequence, carrying the
+    /// entry's metadata estimate (key + stored URL + row framing) so the
+    /// global budget covers index memory too (see `meta_bytes`).
+    seq_of: HashMap<(Class, String), (u64, u64)>,
     next_seq: u64,
     total_bytes: u64,
+    /// Live estimate of the in-memory index rows (keys + `fetched_url`s +
+    /// framing) of documents and images. Bounded by construction: without
+    /// it, a hostile session could hold tens of thousands of long URLs'
+    /// worth of index metadata that the 512 MiB body budget never sees, and
+    /// the flush would serialize that whole index while holding the lock.
+    /// Replaced exactly on drop/re-store, so it tracks inserts, refreshes,
+    /// clears and FIFO eviction. (Favicons charge their metadata through the
+    /// record size: their single file carries bodies, not index rows.)
+    meta_bytes: u64,
     /// Mutation generation (flush clears dirty flags only when it flushed
     /// the latest generation: a racing store is never silently dropped).
     generation: u64,
@@ -109,10 +120,9 @@ struct Inner {
     /// can never recreate the wiped directory. Synchronous reads still serve.
     stopped: bool,
     /// On-disk bytes of the two persisted index files (`docs-index.bin` +
-    /// `img-index.bin`). The global 512 MiB budget covers bodies AND
-    /// indexes: without this, full indexes could add ~50 MiB past the cap.
-    /// Initialized by file size at load, updated after every index flush
-    /// (conservative between flushes: eviction only ever shrinks them).
+    /// `img-index.bin`), re-measured after every successful flush. Feeds the
+    /// Preferences stats; the BUDGET uses `meta_bytes` (the live estimate),
+    /// so entries added since the last flush are never invisible to it.
     index_bytes: u64,
 }
 
@@ -176,6 +186,7 @@ impl CacheManager {
                 seq_of: HashMap::new(),
                 next_seq: 1,
                 total_bytes: 0,
+                meta_bytes: 0,
                 generation: 0,
                 flushed_generation: 0,
                 last_flush: Instant::now(),
@@ -208,13 +219,13 @@ impl CacheManager {
         let Some(key) = key else {
             return Self::disabled();
         };
-        let mut docs = DocsStore::open(cache_dir.clone(), Some(key));
-        let mut images = ImageStore::open(cache_dir.clone(), Some(key));
+        let docs = DocsStore::open(cache_dir.clone(), Some(key));
+        let images = ImageStore::open(cache_dir.clone(), Some(key));
         let favicons = FaviconStore::open(cache_dir.clone(), Some(key));
         // Rebuild the global FIFO from the persisted sequences (documents +
         // images carry theirs; favicons are ordered by stored time).
         let mut order: BTreeMap<u64, (Class, String)> = BTreeMap::new();
-        let mut seq_of: HashMap<(Class, String), u64> = HashMap::new();
+        let mut seq_of: HashMap<(Class, String), (u64, u64)> = HashMap::new();
         let mut next_seq = 1u64;
         for (seq, k) in docs.ordered_keys() {
             next_seq = next_seq.max(seq.saturating_add(1));
@@ -228,7 +239,7 @@ impl CacheManager {
                 seq
             };
             order.insert(seq, (Class::Docs, k.clone()));
-            seq_of.insert((Class::Docs, k), seq);
+            seq_of.insert((Class::Docs, k.clone()), (seq, open_meta_estimate(&k)));
         }
         for (seq, k) in images.ordered_keys() {
             next_seq = next_seq.max(seq.saturating_add(1));
@@ -242,24 +253,27 @@ impl CacheManager {
                 seq
             };
             order.insert(seq, (Class::Images, k.clone()));
-            seq_of.insert((Class::Images, k), seq);
+            seq_of.insert((Class::Images, k.clone()), (seq, open_meta_estimate(&k)));
         }
         // Favicons persist `stored_at` only: assign fresh sequences oldest
-        // first so FIFO order survives restarts.
+        // first so FIFO order survives restarts. Their metadata rides in the
+        // record size already (see `meta_bytes`), so the estimate is 0.
         let mut fav: Vec<(u64, String, u64)> = favicons.ordered_keys();
         fav.sort();
         for (_, k, _) in fav {
             let seq = next_seq;
             next_seq = next_seq.saturating_add(1);
             order.insert(seq, (Class::Favicons, k.clone()));
-            seq_of.insert((Class::Favicons, k), seq);
+            seq_of.insert((Class::Favicons, k), (seq, 0));
         }
-        docs.index_dirty = false;
-        images.index_dirty = false;
+        // `index_dirty` is NOT reset here: the stores' open-time sweeps set
+        // it when they pruned entries the files no longer match, and that
+        // pruned index must reach the disk (the first debounced tick does).
         let total_bytes = docs
             .byte_total()
             .saturating_add(images.byte_total())
             .saturating_add(favicons.byte_total());
+        let meta_bytes: u64 = seq_of.values().map(|(_, meta)| *meta).sum();
         // Index files on disk count against the same budget from the first
         // byte (measured before the directory moves into the store).
         let index_bytes = file_len(&cache_dir.join("docs-index.bin"))
@@ -274,6 +288,7 @@ impl CacheManager {
                 seq_of,
                 next_seq,
                 total_bytes,
+                meta_bytes,
                 generation: 0,
                 flushed_generation: 0,
                 last_flush: Instant::now(),
@@ -306,6 +321,9 @@ impl CacheManager {
             return;
         }
         let key = record.key.clone();
+        // Index row this entry will occupy (key + stored URL + framing); the
+        // manager charges it so index memory counts against the budget.
+        let meta = meta_estimate(&record.key, &record.fetched_url);
         let seq = inner.next_seq();
         // `drop_seq` only on success: a failed write must leave the previous
         // order membership (and its bytes) untouched.
@@ -314,7 +332,7 @@ impl CacheManager {
             for old in evicted {
                 inner.drop_seq(Class::Docs, &old);
             }
-            inner.account(Class::Docs, key, seq, Some(delta));
+            inner.account(Class::Docs, key, seq, meta, Some(delta));
             inner.evict_while_over();
         }
     }
@@ -347,10 +365,11 @@ impl CacheManager {
             return;
         }
         let key = record.key.clone();
+        let meta = meta_estimate(&record.key, &record.fetched_url);
         let seq = inner.next_seq();
         if let Some(delta) = inner.images.insert(record, seq) {
             inner.drop_seq(Class::Images, &key);
-            inner.account(Class::Images, key, seq, Some(delta));
+            inner.account(Class::Images, key, seq, meta, Some(delta));
             inner.evict_while_over();
         }
     }
@@ -381,9 +400,11 @@ impl CacheManager {
         }
         let key = record.key.clone();
         let seq = inner.next_seq();
+        // Favicon metadata is charged through the record size (`favicons.bin`
+        // carries the bodies), so the index-row estimate is 0.
         if let Some(delta) = inner.favicons.insert(record, seq) {
             inner.drop_seq(Class::Favicons, &key);
-            inner.account(Class::Favicons, key, seq, Some(delta));
+            inner.account(Class::Favicons, key, seq, 0, Some(delta));
             inner.evict_while_over();
         }
     }
@@ -393,7 +414,8 @@ impl CacheManager {
         if inner.dir.is_none() || inner.stopped {
             return;
         }
-        if inner.favicons.refresh(key, fresh_until, headers) {
+        if let Some(delta) = inner.favicons.refresh(key, fresh_until, headers) {
+            inner.adjust_bytes(delta);
             inner.touched();
         }
     }
@@ -444,15 +466,14 @@ impl CacheManager {
 
     /// Drops one poisoned document record (stored body that no longer
     /// parses, or an origin that turned to `no-store` on revalidation).
+    /// The FIFO sequence drops even when the store reports zero freed
+    /// bytes: a zero-size index row must not leave a phantom in `order`.
     pub(crate) fn clear_docs_for_key(&self, key: &str) {
         let mut inner = self.lock();
         if inner.dir.is_none() || inner.stopped {
             return;
         }
         let freed = inner.docs.remove(key);
-        if freed == 0 {
-            return;
-        }
         inner.total_bytes = inner.total_bytes.saturating_sub(freed);
         inner.drop_seq(Class::Docs, key);
         inner.flush_epoch = inner.flush_epoch.wrapping_add(1);
@@ -466,9 +487,6 @@ impl CacheManager {
             return;
         }
         let freed = inner.images.remove(key);
-        if freed == 0 {
-            return;
-        }
         inner.total_bytes = inner.total_bytes.saturating_sub(freed);
         inner.drop_seq(Class::Images, key);
         inner.flush_epoch = inner.flush_epoch.wrapping_add(1);
@@ -482,9 +500,6 @@ impl CacheManager {
             return;
         }
         let freed = inner.favicons.remove(key);
-        if freed == 0 {
-            return;
-        }
         inner.total_bytes = inner.total_bytes.saturating_sub(freed);
         inner.drop_seq(Class::Favicons, key);
         inner.flush_epoch = inner.flush_epoch.wrapping_add(1);
@@ -652,16 +667,18 @@ impl CacheManager {
         // `generation` past what was serialized and needs another flush.
         // Index sizes are re-measured from what landed (bodies shrank only
         // via eviction, which already updated `total_bytes`).
+        //
+        // `last_flush` moves on BOTH paths: a failed flush (read-only data
+        // dir, full disk) must retry at the next debounce, not on every
+        // frame — `tick` consults it before spawning another flusher.
+        inner.last_flush = Instant::now();
         if ok && inner.generation == pending.generation {
             inner.docs.index_dirty = false;
             inner.images.index_dirty = false;
             inner.favicons.file_dirty = false;
             inner.flushed_generation = pending.generation;
-            inner.last_flush = Instant::now();
             inner.index_bytes = file_len(&pending.dir.join("docs-index.bin"))
                 .saturating_add(file_len(&pending.dir.join("img-index.bin")));
-        } else if ok {
-            inner.last_flush = Instant::now();
         }
     }
 }
@@ -674,14 +691,24 @@ impl Inner {
     }
 
     fn drop_seq(&mut self, class: Class, key: &str) {
-        if let Some(seq) = self.seq_of.remove(&(class, key.to_string())) {
+        if let Some((seq, meta)) = self.seq_of.remove(&(class, key.to_string())) {
             self.order.remove(&seq);
+            self.meta_bytes = self.meta_bytes.saturating_sub(meta);
         }
     }
 
     fn drop_class(&mut self, class: Class) {
-        self.seq_of.retain(|(c, _), _| *c != class);
+        let mut freed = 0u64;
+        self.seq_of.retain(|(c, _), (_, meta)| {
+            if *c == class {
+                freed = freed.saturating_add(*meta);
+                false
+            } else {
+                true
+            }
+        });
         self.order.retain(|_, (c, _)| *c != class);
+        self.meta_bytes = self.meta_bytes.saturating_sub(freed);
     }
 
     fn touched(&mut self) {
@@ -697,7 +724,7 @@ impl Inner {
         }
     }
 
-    fn account(&mut self, class: Class, key: String, seq: u64, stored: Option<i64>) {
+    fn account(&mut self, class: Class, key: String, seq: u64, meta: u64, stored: Option<i64>) {
         // `None` = the write failed (no key, oversize, IO): nothing to track.
         let Some(delta) = stored else {
             return;
@@ -705,9 +732,14 @@ impl Inner {
         self.touched();
         self.adjust_bytes(delta);
         // The new sequence replaces the old one (a re-store goes to the back
-        // of the FIFO, like any fresh write).
-        self.order.insert(seq, (class, key.clone()));
-        self.seq_of.insert((class, key), seq);
+        // of the FIFO, like any fresh write); the metadata estimate follows
+        // the entry exactly (keys are per-class unique).
+        if let Some((old_seq, old_meta)) = self.seq_of.insert((class, key.clone()), (seq, meta)) {
+            self.order.remove(&old_seq);
+            self.meta_bytes = self.meta_bytes.saturating_sub(old_meta);
+        }
+        self.meta_bytes = self.meta_bytes.saturating_add(meta);
+        self.order.insert(seq, (class, key));
     }
 
     fn total_entries(&self) -> usize {
@@ -734,7 +766,12 @@ impl Inner {
     }
 
     fn global_over(&self) -> bool {
-        self.total_bytes.saturating_add(self.index_bytes) > crate::config::MAX_CACHE_BYTES as u64
+        // Bodies + the live index-metadata estimate: `index_bytes` (measured
+        // at flush time) is display-only — using it here left entries added
+        // since the last flush invisible to the budget, so a hostile
+        // URL-heavy session could hold an unbounded index until the next
+        // flush measured it and one eviction pass drained the whole FIFO.
+        self.total_bytes.saturating_add(self.meta_bytes) > crate::config::MAX_CACHE_BYTES as u64
             || self.total_entries() > crate::config::MAX_CACHE_ENTRIES
     }
 
@@ -757,7 +794,9 @@ impl Inner {
                 break;
             };
             self.order.remove(&seq);
-            self.seq_of.remove(&(class, key.clone()));
+            if let Some((_, meta)) = self.seq_of.remove(&(class, key.clone())) {
+                self.meta_bytes = self.meta_bytes.saturating_sub(meta);
+            }
             let freed = match class {
                 Class::Docs => self.docs.remove(&key),
                 Class::Images => self.images.remove(&key),
@@ -817,6 +856,22 @@ fn file_len(path: &PathBuf) -> u64 {
         .filter(|m| m.is_file())
         .map(|m| m.len())
         .unwrap_or(0)
+}
+
+/// Metadata estimate for one docs/images index row: the key, the stored
+/// `fetched_url` and the row framing. Charged into the global budget so
+/// index memory is bounded exactly like bodies (see `Inner::meta_bytes`).
+fn meta_estimate(key: &str, fetched_url: &str) -> u64 {
+    (key.len() as u64)
+        .saturating_add(fetched_url.len() as u64)
+        .saturating_add(64)
+}
+
+/// Conservative estimate for an entry loaded from a persisted index (the
+/// stored `fetched_url` is not passed around here; it is bounded by
+/// `MAX_URL_BYTES` and is close to the key's own length in practice).
+fn open_meta_estimate(key: &str) -> u64 {
+    (key.len() as u64).saturating_mul(2).saturating_add(160)
 }
 
 /// Pure victim selection for FIFO eviction (testable without 512 MiB of
@@ -1016,6 +1071,31 @@ mod tests {
         let total_after_images = mgr.lock().total_bytes;
         assert_eq!(total_after_images, docs_after + images_after);
         let _ = std::fs::remove_dir_all(tmp("refresh"));
+    }
+
+    /// Regression (index-metadata budget): every stored entry charges its
+    /// index row into the budget, and every drop (clear, poison removal,
+    /// FIFO eviction) releases it exactly. Before this, index metadata was
+    /// only counted after a flush, so a URL-heavy session could grow an
+    /// unbounded in-memory index whose serialization held the lock.
+    #[test]
+    fn index_metadata_is_charged_and_released() {
+        let dir = tmp("meta").join("cache");
+        let mgr = manager_in(dir);
+        assert_eq!(mgr.lock().meta_bytes, 0);
+        mgr.doc_store(doc("https://ex.com/love", "ex.com", 8));
+        let one = mgr.lock().meta_bytes;
+        assert!(one > 0, "a stored document charges its index row");
+        mgr.doc_store(doc("https://ex.com/other", "ex.com", 8));
+        assert!(mgr.lock().meta_bytes > one);
+        mgr.clear_docs();
+        assert_eq!(mgr.lock().meta_bytes, 0);
+        // A poisoned-record drop releases the entry's share too.
+        mgr.image_store(img("https://ex.com/a.png", 128));
+        assert!(mgr.lock().meta_bytes > 0);
+        mgr.clear_images_for_key("https://ex.com/a.png");
+        assert_eq!(mgr.lock().meta_bytes, 0);
+        let _ = std::fs::remove_dir_all(tmp("meta"));
     }
 
     #[test]

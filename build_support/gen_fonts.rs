@@ -39,7 +39,9 @@ pub const INPUTS: [(&str, &str); 2] = [
 
 /// Brotli quality: q10 costs ~90 s for both faces and saves ~1.8 MB over
 /// q9; q11 would take ~2.5 minutes for ~0.6 MB more. The result is cached
-/// in `OUT_DIR` (stamp), so the one-time cost is paid once per profile.
+/// in `OUT_DIR` (stamp), so the one-time cost is paid once per profile AND
+/// target triple (`OUT_DIR` is keyed by both: a `make dist` over five
+/// targets pays it once per target).
 const QUALITY: i32 = 10;
 /// Brotli window (`lgwin`): 22 = 4 MiB, the encoder default; measured
 /// smaller on both faces than the maximum 16 MiB window at this quality.

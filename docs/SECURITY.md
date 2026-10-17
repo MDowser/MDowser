@@ -45,8 +45,8 @@ attack surface:
   dropped and the next route candidate is tried. Response headers beyond
   `Content-Type` are ignored except `Content-Length` (read only as an early
   anti-abuse cutoff) and the cache set (`Cache-Control`, `Expires`, `ETag`,
-  `Last-Modified`, `Date`, `Age`, `Vary`), which the encrypted disk cache
-  honors; `GET` works with any static server.
+  `Last-Modified`, `Date`, `Age`, `Vary`, `Pragma: no-cache`), which the
+  encrypted disk cache honors; `GET` works with any static server.
 - Bodies are capped at 10 MiB with chunked reads + 15s per-chunk stall
   timeout; frontmatter YAML is capped at 64 KiB and YAML aliases are never
   expanded (unknown fields skip with `IgnoredAny`); documents are capped at
@@ -352,10 +352,15 @@ attack surface:
   A policy-header set that exceeds the bounded capture (too many repeated
   values, or one value too long) is never stored: a partial view could hide
   `no-store`/`Vary: *`.
-  Freshness is HTTP: `max-age` / `Expires` (+`Date`/`Age`), `no-store`
+  Freshness is HTTP: `max-age` / `Expires` (+`Date`/`Age`: the response's
+  age is the larger of the `Age` header and the apparent age `now - Date`),
+  `no-store`
   (never persisted, and evicts an older record for the same URL),
-  `no-cache` (always revalidated), `must-revalidate`, `immutable` inside the
-  absolute 1-year ceiling, `ETag`/`Last-Modified` revalidation (304 refreshes
+  `no-cache` (always revalidated), `must-revalidate` (trivially honored:
+  a stale entry is never served) and `immutable` (accepted with no
+  distinct effect, because a fresh entry is never revalidated unless
+  Refresh asks), all inside the
+  absolute 1-year ceiling; `ETag`/`Last-Modified` revalidation (304 refreshes
   the entry, 200 replaces it); `Vary: *` (or over anything but
   `Accept`/`Accept-Encoding`) is never stored, `Refresh` forces a
   revalidation, and an expired entry that cannot be revalidated fails

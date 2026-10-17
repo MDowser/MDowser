@@ -246,8 +246,10 @@ pub(crate) async fn get_bytes(
 
     // Early cutoff on the declared `Content-Length` (anti-abuse, no download).
     // Not a cache: just avoids fetching giant bodies we would reject anyway.
-    // With transparent decompression this is the COMPRESSED length, a lower
-    // bound; the running cap below still bounds the real body.
+    // Only IDENTITY responses carry a length here: with transparent
+    // decompression the body decoder reports no size hint, so compressed
+    // responses skip the cutoff and rely on the running cap below (which
+    // enforces the real bound on the DECOMPRESSED stream).
     let content_len_hint = resp.content_length();
     if let Some(len) = content_len_hint {
         if len > options.max_bytes as u64 {

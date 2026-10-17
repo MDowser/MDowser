@@ -280,10 +280,7 @@ fn render_plain_split(
     if ranges.is_empty() {
         return false;
     }
-    if ranges
-        .iter()
-        .any(|(s, e)| !crate::viewer::find::is_valid_slice(text, *s, *e))
-    {
+    if !crate::viewer::find::ranges_resolve(text, &ranges, &fr.query_lower) {
         return false;
     }
     // Color emoji: the caller's emoji path paints the textures (with the

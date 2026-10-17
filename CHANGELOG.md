@@ -33,6 +33,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when revalidation metadata changes a stored record's size.
 - Preferences/Data cache rows share the same fixed-geometry two-click
   pattern as the other destructive actions, with live per-class sizes.
+- Cache freshness now counts the response's apparent age (`now - Date`)
+  alongside `Age` when computing `max-age` lifetime (RFC 9111 §4.2.3), so a
+  response generated long ago (a replayed CDN copy, a stale upstream cache)
+  can no longer be treated as fresh for its full lifetime from arrival; a
+  future `Date` contributes no age.
+- Docs synced with the code: `RENDERING.md` no longer claims a prose
+  `localhost:3000` linkifies (the single-label `host:port` sugar applies to
+  link destinations; prose needs a dotted domain), `INTERFACE.md` states
+  that favicon probes persist in the encrypted disk cache across launches,
+  `NAVIGATION.md` describes Refresh as a cache-bypassing re-fetch
+  (`Cache-Control: no-cache`) that never sends the stored validators (the
+  conditional path belongs to a stale hit during normal navigation),
+  `SECURITY.md` lists `Pragma: no-cache` in the captured cache set and
+  states plainly that `must-revalidate` is honored trivially (stale is
+  never served) and `immutable` has no distinct effect, and
+  `ARCHITECTURE.md`'s module map gained the missing `error` and `util`
+  top-level modules and `ui/row`.
+- The Windows build path (`windows.ps1`) quotes the script path when it
+  relaunches itself elevated, so a checkout under a directory with spaces
+  (`C:\Users\me\My Projects\…`) elevates correctly.
+- `make install` and `make help` no longer require a resolvable cargo (the
+  RPM `%install` stage of a build environment that no longer has the
+  toolchain keeps working); every other goal still fails fast with the
+  install hint.
+- `docs/BUILDING.md` and `gen_fonts.rs` state that the font-compression
+  cache is keyed per profile AND target triple, so a full multi-target
+  `make dist` pays the ~90 s encoder pass once per target.
 
 ### Fixed
 
@@ -55,6 +82,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   adopting the class default TTL.
 - Corrupt cache index entries and crash-leftover `.clear.*` directories are
   swept at startup; cache indexes/paths no longer accept malformed stems.
+- A hostile `Expires`/`Date`/`Last-Modified` with an extreme year (`i32`
+  bounds) no longer panics the cache's date math under `overflow-checks`:
+  parsed years are held to 1900–9999 and the calendar math runs in `i64`.
+- Cache byte accounting after a host-cap eviction is exact: the evicted
+  entries' index-charged bytes are removed from the global total (before,
+  every over-cap insert left phantom bytes that early-evicted unrelated
+  entries and drifted `CacheStats`). A zero-size index row can no longer
+  leave a phantom in the FIFO after a poisoned-record drop.
+- A failed cache-index flush now waits out the debounce before retrying;
+  it used to leave `last_flush` untouched and respawn a flusher every
+  frame (re-encrypting all three indexes while holding the manager lock).
+- A favicon revalidated by 304 updates its byte accounting like images do
+  (the replaced validator fields change the record's size).
+- A conditional revalidation of a stale cache record takes the same global
+  fetch slot as any other request: many stale hits can no longer bypass
+  the documented concurrency bound (each buffering up to a whole body on a
+  200).
+- In-page find washes and the current-match scroll target land on the
+  right characters when a case folding changes byte length before the
+  match (`İ` folds to two bytes): a range that merely lands on char
+  boundaries now fails the folding check and falls back to the
+  whole-fragment highlight instead of washing the wrong slice.
+- An unreadable `history.bin`/`bookmarks.bin` (missing or regenerated key,
+  corruption, tampering) now says so where the data would appear (the
+  Preferences caption; the Home grid) instead of showing a silent empty
+  store, matching what the module docs already promised; the `.bak` copy
+  is still kept for recovery.
+- The RPM spec refuses to build without `--define "ver <version>"` instead
+  of silently labeling the package with a stale hardcoded version, and the
+  RPM source tarball excludes the Flatpak `cargo-sources.json` build
+  product like the Flatpak manifest does.
+- `scripts/build-dist.sh` proves `mk_app`/`mk_deb` outputs before
+  reporting them BUILT (a failed heredoc/copy inside an `if`/`||` context,
+  where `set -e` is inert, used to ride to a success report); its
+  `find_llvm_strip` discovers the brew prefix at runtime and accepts any
+  versioned `llvm@N` keg; the Linux staging path no longer shares the
+  global `stage` variable with `mk_deb`; a privacy gate that could not run
+  (missing python3) is reported as such instead of as a leak; and
+  single-group runs warn about leftover artifacts from another version.
+- The release workflow sets `NO_LOCAL_RPM=1` on the two Ubuntu jobs:
+  Ubuntu provides `rpmbuild`, so each host build also attached its own
+  RPM (a second x86_64 package plus an undocumented aarch64 one) and paid
+  a from-scratch LTO compile against the job timeout; the published RPM is
+  the Fedora job's only.
 
 ### Security
 
@@ -71,6 +142,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cached from a partial view that could hide `no-store`/`Vary: *`.
 - The cache directory is tightened to owner-only permissions like the rest
   of the data directory.
+- The 512 MiB cache budget now covers index metadata as it is created: a
+  live per-entry estimate (key + stored URL + row framing) is charged on
+  every store and released on every drop/eviction, instead of measuring
+  the on-disk index only after a flush. A hostile URL-heavy session can no
+  longer hold an unbounded in-memory index (and a multi-hundred-MB
+  serialization while holding the manager lock) that the body budget
+  never sees, and `evict_while_over` can no longer be unable to satisfy
+  the budget until the next flush.
+- A cache shard directory swapped for a symlink after startup fails
+  closed: the document/image body writers re-verify the shard is a real
+  directory immediately before `atomic_write` instead of writing through
+  it (defense in depth under the same-user assumption).
 
 ## [0.5.4] - 2026-10-16
 

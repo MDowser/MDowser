@@ -357,8 +357,10 @@ impl DocsStore {
     }
 
     /// Inserts or replaces a record (writes the host file synchronously;
-    /// the caller runs on a background job thread). Returns the byte delta
-    /// plus the keys the host cap evicted (`None` = not stored): the manager
+    /// the caller runs on a background job thread). Returns the NET byte
+    /// delta for the global accounting — the new size minus the replaced
+    /// size minus every byte this insert evicted from the host file — plus
+    /// the keys the host cap evicted (`None` = not stored): the manager
     /// drops evicted keys from the global FIFO too, so the order never holds
     /// phantoms. Over-cap hosts evict their own oldest first.
     pub(crate) fn insert(&mut self, record: DocRecord, seq: u64) -> Option<(i64, Vec<String>)> {
@@ -381,32 +383,26 @@ impl DocsStore {
         // removals apply only AFTER the rewritten file lands: a failed
         // write below must leave the previous file + index consistent.
         entries.sort_by_key(|r| r.stored_at);
-        let mut evicted: Vec<String> = Vec::new();
-        let mut host_bytes: u64 = entries.iter().map(|r| serialized_doc_len(r) as u64).sum();
-        while host_bytes > config::MAX_CACHE_DOMAIN_BYTES as u64 && entries.len() > 1 {
-            if let Some(old) = entries.first() {
-                let old_key = old.key.clone();
-                // Only evict entries of THIS host file (same stem by
-                // construction); anything else is a poisoned record, dropped
-                // from the rewritten file but left for the sweep.
-                let ours = self
-                    .index
-                    .get(&old_key)
-                    .is_some_and(|e| e.host_stem == stem);
-                host_bytes = host_bytes.saturating_sub(serialized_doc_len(old) as u64);
-                entries.remove(0);
-                if ours {
-                    evicted.push(old_key);
-                }
-            } else {
-                break;
-            }
-        }
+        // Oldest-first while the host file is over its own cap. Index
+        // removals apply only AFTER the rewritten file lands: a failed
+        // write below must leave the previous file + index consistent.
+        let (evicted, evicted_index_bytes) = evict_over_host_cap(
+            &mut entries,
+            &self.index,
+            &stem,
+            config::MAX_CACHE_DOMAIN_BYTES as u64,
+        );
         let blob = serialize_host_file(&entries);
         let encrypted = encrypt(&key_bytes, DOCS_MAGIC, DOCS_VERSION, &blob)?;
         let path = self.host_path(&stem);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
+            // Runtime re-check (defense in depth): a shard directory swapped
+            // for a symlink between open and this write must not redirect the
+            // body outside the cache directory.
+            if !is_real_dir(parent) {
+                return None;
+            }
         }
         if crate::settings::atomic_write(
             path.parent().unwrap_or(&self.dir),
@@ -444,7 +440,10 @@ impl DocsStore {
         }
         self.index_dirty = true;
         self.ram_insert(record);
-        Some((size as i64 - old_size as i64, evicted))
+        Some((
+            size as i64 - old_size as i64 - evicted_index_bytes as i64,
+            evicted,
+        ))
     }
 
     /// Removes one key (FIFO eviction / clear). Returns freed bytes.
@@ -526,8 +525,9 @@ impl DocsStore {
     }
 
     /// Refreshes an entry's expiry/validators after a 304 (rewrites the host
-    /// file; the body is unchanged). Returns the byte delta plus the
-    /// host-cap-evicted keys (`None` = no such entry).
+    /// file; the body is unchanged). Returns the NET byte delta for the
+    /// global accounting plus the host-cap-evicted keys (`None` = no such
+    /// entry; see [`Self::insert`]).
     pub(crate) fn refresh(
         &mut self,
         key: &str,
@@ -724,6 +724,33 @@ pub(crate) fn rename_away_and_delete(dir: PathBuf) {
         .ok();
 }
 
+/// Oldest-first host-cap eviction (pure, unit-testable): drops entries from
+/// the front of `entries` while their serialized total exceeds `cap`,
+/// always keeping the newest record. Returns the INDEX-charged keys removed
+/// and the bytes they were charged, so the manager can shrink the global
+/// total by them (entries of another stem are poisoned records: dropped
+/// from the rewritten file, never charged).
+fn evict_over_host_cap(
+    entries: &mut Vec<DocRecord>,
+    index: &HashMap<String, DocIndexEntry>,
+    stem: &str,
+    cap: u64,
+) -> (Vec<String>, u64) {
+    let mut evicted: Vec<String> = Vec::new();
+    let mut evicted_index_bytes: u64 = 0;
+    let mut host_bytes: u64 = entries.iter().map(|r| serialized_doc_len(r) as u64).sum();
+    while host_bytes > cap && entries.len() > 1 {
+        let old = entries.remove(0);
+        host_bytes = host_bytes.saturating_sub(serialized_doc_len(&old) as u64);
+        if index.get(&old.key).is_some_and(|e| e.host_stem == stem) {
+            evicted_index_bytes =
+                evicted_index_bytes.saturating_add(index.get(&old.key).map_or(0, |e| e.size));
+            evicted.push(old.key);
+        }
+    }
+    (evicted, evicted_index_bytes)
+}
+
 fn serialized_doc_len(record: &DocRecord) -> usize {
     record.key.len()
         + record.fetched_url.len()
@@ -840,6 +867,57 @@ mod tests {
         let mut bad = blob.clone();
         bad[0] = 99;
         assert!(parse_host_file(&bad, &stem).is_none());
+    }
+
+    /// Regression (global accounting): the host-cap eviction must report the
+    /// index-charged bytes it drops, so `CacheManager` can subtract them
+    /// from the global total. Before this, every over-cap insert left
+    /// phantom bytes behind, which later evicted unrelated entries.
+    #[test]
+    fn host_cap_eviction_reports_charged_bytes() {
+        let stem = stem_for("ex.com");
+        let mut entries: Vec<DocRecord> = ["one", "two", "three"]
+            .into_iter()
+            .map(|n| record(&format!("https://ex.com/{n}"), "ex.com"))
+            .collect();
+        for (i, r) in entries.iter_mut().enumerate() {
+            r.stored_at = i as u64 + 1;
+        }
+        let sizes: Vec<u64> = entries
+            .iter()
+            .map(|r| serialized_doc_len(r) as u64)
+            .collect();
+        let mut index: HashMap<String, DocIndexEntry> = HashMap::new();
+        for (i, r) in entries.iter().enumerate() {
+            index.insert(
+                r.key.clone(),
+                DocIndexEntry {
+                    host_stem: stem.clone(),
+                    fetched_url: r.fetched_url.clone(),
+                    size: sizes[i],
+                    stored_at: r.stored_at,
+                    fresh_until: 0,
+                    seq: i as u64,
+                    has_validator: false,
+                },
+            );
+        }
+        // A cap that fits exactly the two newest records: the oldest one
+        // (whose full index-charged size is reported) is evicted.
+        let cap = sizes[1] + sizes[2];
+        let (evicted, bytes) = evict_over_host_cap(&mut entries, &index, &stem, cap);
+        assert_eq!(evicted, vec!["https://ex.com/one".to_string()]);
+        assert_eq!(bytes, sizes[0]);
+        assert_eq!(entries.len(), 2);
+        // A poisoned record of ANOTHER stem is dropped from the file but
+        // never reported as freed: it was never part of the global total.
+        let mut foreign = record("https://evil.com/x", "evil.com");
+        foreign.stored_at = 0;
+        let mut entries = vec![foreign, entries.remove(0)];
+        let (evicted, bytes) = evict_over_host_cap(&mut entries, &index, &stem, 0);
+        assert!(evicted.is_empty());
+        assert_eq!(bytes, 0);
+        assert_eq!(entries.len(), 1);
     }
 
     #[test]
