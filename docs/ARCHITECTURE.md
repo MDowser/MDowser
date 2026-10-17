@@ -50,6 +50,12 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   ├─ protocol/local (file:// documents: path candidates (exact, .md
   │                 completion, directory indexes), capped UTF-8
   │                 reads with cooperative cancel; reuses `finish_document`)
+  ├─ cache (encrypted HTTP disk cache: documents/images/favicons;
+  │         `policy` = Cache-Control/Expires/ETag freshness + canonical
+  │         keys, `format` = bounded record encoding + validated hashed
+  │         stems, `docs` = one encrypted file per host, `images` = one
+  │         encrypted file per URL, `favicons` = one encrypted file for
+  │         all probes; 512 MiB / 50k entries, FIFO, per-class clears)
   ├─ markdown (frontmatter split+cap (`Cow` body: no copy without a block),
   │            parser options, `:shortcode:` emoji,
   │            anchors (heading/footnote targets), `:::`/`!!!` admonitions +
@@ -73,14 +79,16 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │            the Copy-text derivation (`plain`) and the first-H1 page-title
   │            fallback (`title`))
   ├─ media (pure-Rust image pipeline for subresources)
-  │    ├─ fetch (background download; content-type gate + decode)
+  │    ├─ fetch (background download via the encrypted disk cache;
+  │    │         content-type gate + decode)
   │    ├─ emoji (color emoji: harfrust shaping + SVG-table extraction
   │    │         through resvg; bounded inline textures)
   │    ├─ decode (magic sniff + dispatch; `raster` = image/jxl-oxide/
   │    │         avif-decode, `svg` = usvg/resvg sanitize + rasterize)
   │    ├─ cache (per-document textures; url → Loading/Ready/Failed;
   │    │        one transient-failure retry)
-  │    └─ favicon (session per-origin icons for the tab rail)
+  │    └─ favicon (session per-origin icon textures for the tab rail;
+  │              probes served from the encrypted disk cache first)
   ├─ viewer (document rendering; the internal about:licenses page too)
   │    ├─ markdown (CommonMark block renderer: `walk` = recursive block
   │    │            walk, `blocks`/`headings`/`tables`/`html` = block
@@ -160,9 +168,26 @@ Key contracts:
   per-chunk stall timeout (`CHUNK_TIMEOUT_SECS`).
 - Transparent `gzip`/`brotli`/`deflate` decompression on the shared client;
   caps apply to decompressed bytes.
+- Encrypted disk cache (`cache/`, 512 MiB / 50 000 entries, same `store.key`
+  as history/bookmarks/settings): documents (one AEAD file per host, keyed
+  by the canonical `doc_key` so every route spelling hits the same record),
+  images (one AEAD file per URL, sharded) and favicons (one AEAD file for
+  all probes). `Cache-Control`/`Expires` (+`Date`/`Age`) set freshness under
+  the absolute 1-year ceiling; `no-store` (or `Vary: *`) skips storage and
+  evicts any older record for that URL, `no-cache` revalidates, 304
+  refreshes the record (`ETag`/`Last-Modified`), and an expired record that
+  cannot be revalidated fails instead of serving stale; `Refresh` forces
+  revalidation. Past either bound the oldest entries evict FIFO (never an
+  error); per-class clears live in Preferences/Data. Startup decrypts only
+  the small indexes (bodies lazily per hit) plus a bounded RAM fast path;
+  body writes run synchronously on the fetching job thread, index/favicon
+  writes on a debounced background flusher (exit drains it bounded).
+  "Forget on exit" disables the cache (leftovers wiped).
 - Stale-while-revalidate: `Loading::backdrop` keeps the old doc on screen;
-  its images stay textured until the new document resolves (no cross-page
-  image cache: `Tab::images.cancel_all()` on resolve/failure/reset). A
+  its images stay textured until the new document resolves (decoded
+  textures are never shared across pages: `Tab::images.cancel_all()` on
+  resolve/failure/reset; the encrypted DISK cache below this layer is what
+  avoids re-downloading them). A
   visual timeout with a backdrop restores the page (history snapshots and
   textures intact) and reports the timeout as a toast; only a first load
   without one settles into `Failed`. `Stop` and the visual timeout restore
@@ -894,8 +919,9 @@ Key contracts:
   button owns a fixed slot whatever icon it shows, so a swap (Reload/Stop,
   ribbon states) never shifts its neighbours. Favicons are
   probed per origin (`/favicon.ico` → `/favicon.png` → `/favicon.svg`, each
-  probe bounded by `FAVICON_REQUEST_TIMEOUT_SECS`) and cached for the
-  session; the cache gates `poll`/`has_pending` in O(1) from
+  probe bounded by `FAVICON_REQUEST_TIMEOUT_SECS`), decoded into session
+  textures and persisted in the encrypted disk cache (`favicons.bin`, so a
+  relaunch skips the probes); the cache gates `poll`/`has_pending` in O(1) from
   loading/backoff/failed counters (settled frames do not walk its
   entries), the budget-backoff walk only runs once the earliest deadline
   passes, and a probe the image-slot limiter defers records a short
@@ -1142,7 +1168,8 @@ Key contracts:
 
 ## Performance
 
-- Reused global HTTP client (TLS/HTTP2 pool, no proxy/cookies/cache).
+- Reused global HTTP client (TLS/HTTP2 pool, no proxy/cookies; the only
+  client-side state is the encrypted disk cache plus the visible tab).
 - Transparent `gzip`/`brotli`/`deflate` decompression: markdown and error
   bodies shrink several times over the wire; the anti-abuse caps run on the
   decompressed stream.

@@ -57,6 +57,20 @@ fn read_regular_file_is_bounded_and_type_checked() {
     cleanup(&dir);
 }
 
+/// A store file is never a symlink: a planted link must not make the reader
+/// follow it out of the data directory (nor tighten the target's mode).
+#[cfg(unix)]
+#[test]
+fn read_regular_file_rejects_symlinks() {
+    let dir = tmp_dir("read-regular-link");
+    let target = dir.join("target.bin");
+    std::fs::write(&target, b"secret").unwrap();
+    let link = dir.join("link.bin");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert_eq!(super::read_regular_file(&link, 1024), None);
+    cleanup(&dir);
+}
+
 /// Writing one key must never clobber another (history retention and the
 /// Preferences window update different keys in the same file).
 #[test]

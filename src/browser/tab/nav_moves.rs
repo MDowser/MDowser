@@ -57,6 +57,8 @@ impl Tab {
     }
 
     /// "Refresh" button (honors the 5s cooldown, never duplicates in Loading).
+    /// Forces a revalidation (or a full refetch when there is nothing to
+    /// validate with) instead of serving a fresh disk-cache record.
     pub fn refresh(&mut self) {
         if !self.can_refresh() {
             return;
@@ -65,6 +67,7 @@ impl Tab {
         // the previous page that `current` still points at.
         if let Some(cur) = self.action_target() {
             // Refresh leaves history alone (same page).
+            self.force_revalidate = true;
             self.navigate_to_url(&cur, false);
         }
     }

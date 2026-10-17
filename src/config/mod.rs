@@ -922,6 +922,89 @@ pub fn deadline_after(secs: u64) -> std::time::Instant {
         .unwrap_or_else(std::time::Instant::now)
 }
 
+// ---------------------------------------------------------------------------
+// Encrypted HTTP disk cache (`cache/`): documents, images, favicons
+// ---------------------------------------------------------------------------
+
+/// Max total plaintext bytes held by the encrypted HTTP disk cache
+/// (documents + images + favicons, all classes combined).
+/// - Past this the OLDEST entries are evicted first (FIFO): a store never
+///   fails and never toasts, it makes room. 512 MiB caps a full session of
+///   heavy reading while staying small next to the 768 MiB process-wide
+///   texture budget.
+pub const MAX_CACHE_BYTES: usize = 512 * 1024 * 1024;
+
+/// Max total entries held by the encrypted HTTP disk cache (all classes).
+/// - FIFO like the byte budget: the oldest entry goes first, never an error.
+/// - 50 000 entries of small metadata + bodies stay well under the byte cap
+///   on their own; the two bounds are enforced together (whichever trips
+///   first evicts).
+pub const MAX_CACHE_ENTRIES: usize = 50_000;
+
+/// Max plaintext bytes of ONE cached document class shard: documents are
+/// stored one encrypted file per host, and a single host must not be able
+/// to eat the whole cache (a hostile mirror of 10 MiB pages).
+pub const MAX_CACHE_DOMAIN_BYTES: usize = 32 * 1024 * 1024;
+
+/// Max plaintext bytes of the single favicon store file (`favicons.bin`).
+/// - Favicons decode at `MAX_FAVICON_DIM` and are small; 32 MiB still holds
+///   thousands of icons. Past it the oldest probes are evicted FIFO.
+pub const MAX_CACHE_FAVICON_BYTES: usize = 32 * 1024 * 1024;
+
+/// Max plaintext bytes of ONE cached image entry (mirrors the fetch cap:
+/// an entry can never hold more than the network would deliver).
+pub const MAX_CACHE_IMAGE_BYTES: usize = MAX_IMAGE_BYTES;
+
+/// Max entries kept in the favicon disk store (origins x probes).
+/// - The session cache already caps origins at `MAX_FAVICON_HOSTS`; the disk
+///   store keeps the same order of magnitude, FIFO-evicted past the cap.
+pub const MAX_CACHE_FAVICON_ENTRIES: usize = 2_048;
+
+/// Absolute freshness ceiling for ANY cached entry (seconds): even an
+/// `immutable` response with `max-age=31536000` is revalidated after a year.
+/// - HTTP caches must bound heuristic/declared freshness; a year is the
+///   longest honest TTL, and it keeps "Delete all data" honest too.
+pub const MAX_CACHE_FRESHNESS_SECS: u64 = 365 * 24 * 60 * 60;
+
+/// Default freshness (seconds) when a cacheable response carries no
+/// explicit freshness (`max-age`/`Expires`): documents change often.
+pub const CACHE_DEFAULT_DOC_TTL_SECS: u64 = 5 * 60;
+
+/// Default freshness (seconds) for cacheable image responses without
+/// explicit freshness.
+pub const CACHE_DEFAULT_IMAGE_TTL_SECS: u64 = 60 * 60;
+
+/// Default freshness (seconds) for cacheable favicon responses without
+/// explicit freshness (icons change rarely).
+pub const CACHE_DEFAULT_FAVICON_TTL_SECS: u64 = 24 * 60 * 60;
+
+/// Debounce before dirty cache indexes are flushed to disk (seconds).
+/// - Body files are written synchronously on the background job thread that
+///   fetched them; only the small index files are debounced, so a burst of
+///   loads rewrites them at most once per window.
+pub const CACHE_INDEX_FLUSH_DEBOUNCE_SECS: u64 = 10;
+
+/// How long a synchronous cache flush waits for the background flusher
+/// before giving up (seconds). A hung disk must not freeze a frame or exit.
+pub const CACHE_FLUSH_TIMEOUT_SECS: u64 = 5;
+
+/// How long one cached document body is kept VERIFIED-fresh in the RAM
+/// fast path after its last use is irrelevant: the RAM copy is keyed by the
+/// same expiry as disk, so this only bounds process memory, not correctness.
+/// - 64 MiB of recently used document bodies avoids re-reading + re-decrypting
+///   the domain file on Back/Forward.
+pub const CACHE_RAM_DOC_BYTES: usize = 64 * 1024 * 1024;
+
+/// Max chars kept per captured HTTP cache header (`ETag`, `Last-Modified`,
+/// `Expires`, …). Servers control these values; the cap bounds the index
+/// entries and log lines derived from them.
+pub const MAX_CACHE_HEADER_CHARS: usize = 512;
+
+/// Max repeated values captured per cache-policy header (`Cache-Control`,
+/// `Vary`). Past this the response is treated as non-storable: the values
+/// that did not fit could forbid caching.
+pub const MAX_CACHE_HEADER_VALUES: usize = 8;
+
 /// Most visible bookmark-tile rows before the Home grid itself scrolls.
 /// Below this the floating scrollbar stays hidden (the trailing item gap
 /// would otherwise report overflow with nothing to scroll).

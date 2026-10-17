@@ -8,12 +8,13 @@
 //! - `decode`: magic-byte sniffing + decoders (PNG/JPEG/GIF/WebP/ICO via
 //!   `image`, JPEG XL via `jxl-oxide`, AVIF via `avif-decode`/`rav1d`,
 //!   static SVG via `resvg`/`usvg` with scripts and external refs off).
-//! - `fetch`: background download (HTTPS) / local read (file) with the same
-//!   anti-abuse caps
+//! - `fetch`: background download (HTTPS, through the encrypted disk
+//!   cache) / local read (file, never cached) with the same anti-abuse caps
 //!   as documents (capped streaming, stall timeout, cooperative cancel).
-//! - `cache`: one document's decoded images, keyed by absolute URL. Entries
-//!   live as long as the document; navigation drops them (the no-cache rule
-//!   applies to documents and their subresources alike).
+//! - `cache`: one document's decoded image textures, keyed by absolute URL.
+//!   Entries live as long as the document; navigation drops them (decoded
+//!   textures are never shared across pages — the encrypted DISK cache in
+//!   `cache` is what avoids re-downloading them).
 //! - `emoji`: color emoji from the embedded Noto Color Emoji: grapheme
 //!   clusters are shaped with harfrust, their SVG-in-OpenType documents
 //!   rasterized through `decode` and cached as bounded inline textures.

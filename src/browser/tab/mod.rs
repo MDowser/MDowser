@@ -29,9 +29,9 @@
 //! - `back`: stack of previously shown URLs (normalized `/.../`).
 //! - `forward`: stack for the forward button.
 //! - Navigating to a new URL pushes `current` to `back` and clears `forward`.
-//! - Back/forward/refresh/retry re-download (no cache): neither
-//!   documents nor errors are reused, even for the same URL. Home lands on
-//!   the new tab page (no network).
+//! - Back/forward/refresh/retry re-navigate: a fresh encrypted disk-cache
+//!   record may serve without network, a stale one revalidates, and errors
+//!   are never reused. Home lands on the new tab page (no network).
 //!
 //! MINIMAL UI:
 //! - `address` is shown WITHOUT `https://` (always https internally; a local
@@ -208,8 +208,9 @@ pub struct Tab {
     /// (which failed when the user typed and reverted to the same text).
     pub address_dirty: bool,
     /// Decoded images of the CURRENT document (keyed by absolute URL).
-    /// Dropped/cancelled on every navigation: subresources are not cached
-    /// across pages, matching the document no-cache rule.
+    /// Dropped/cancelled on every navigation: decoded TEXTURES are never
+    /// shared across pages (the encrypted disk cache below this layer still
+    /// avoids re-downloading them).
     pub images: ImageCache,
     /// Color-emoji textures for this tab (bounded, process-budgeted).
     pub emoji: crate::media::emoji::EmojiCache,
@@ -247,6 +248,10 @@ pub struct Tab {
     /// rendered total. Per tab; cleared on navigation/tab switch with the
     /// rest of the overlay state.
     pub find: crate::viewer::find::FindState,
+    /// Next fetch bypasses fresh disk-cache hits and revalidates instead
+    /// (set by Refresh; consumed when the fetch spawns). Back/Forward and
+    /// plain navigations serve fresh records without network.
+    force_revalidate: bool,
     /// Memoized `(state kind, generation, title, favicon origin)` for the
     /// tab strip. See [`Self::display`].
     display_cache: Option<(TabStateKind, u64, TabDisplay)>,
@@ -323,6 +328,7 @@ impl Tab {
             pending_visit: None,
             doc_generation: 0,
             find: crate::viewer::find::FindState::default(),
+            force_revalidate: false,
             display_cache: None,
         }
     }

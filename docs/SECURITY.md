@@ -16,10 +16,12 @@ MDowser is a viewer for Markdown (`text/markdown` and its common aliases)
 served over HTTPS or opened from local files. It deliberately minimizes
 attack surface:
 
-- Network transport is `https://` ONLY: only `GET`, no proxies, no cookies,
-  no cache. `https_only(true)` rejects `http://` downgrades before the
-  network; a redirect that lands off-`https` is rejected before the body is
-  read (never treated as a valid candidate).
+- Network transport is `https://` ONLY: only `GET`, no proxies, no cookies.
+  The encrypted disk cache (`cache/`) reuses validated responses within
+  their HTTP freshness (`Cache-Control`/`Expires`, absolute 1-year ceiling);
+  `https_only(true)` rejects `http://` downgrades before the network; a
+  redirect that lands off-`https` is rejected before the body is read
+  (never treated as a valid candidate).
 - Local files (`file://` or an absolute/`~/` path) are reachable ONLY from
   user input (address bar, command line, OS hand-off) and from links inside
   an already-local document. A remote page can never name a local file:
@@ -40,9 +42,11 @@ attack surface:
   `native-tls` so the contract cannot regress via new dependencies.
 - Only a Markdown `Content-Type` (the standard type plus its common
   aliases) with UTF-8; everything else -- including `text/plain` -- is
-  dropped and the next route candidate is tried. All other response headers
-  are ignored (plus `Content-Length`, read only as an early anti-abuse
-  cutoff), and `GET` works with any static server.
+  dropped and the next route candidate is tried. Response headers beyond
+  `Content-Type` are ignored except `Content-Length` (read only as an early
+  anti-abuse cutoff) and the cache set (`Cache-Control`, `Expires`, `ETag`,
+  `Last-Modified`, `Date`, `Age`, `Vary`), which the encrypted disk cache
+  honors; `GET` works with any static server.
 - Bodies are capped at 10 MiB with chunked reads + 15s per-chunk stall
   timeout; frontmatter YAML is capped at 64 KiB and YAML aliases are never
   expanded (unknown fields skip with `IgnoredAny`); documents are capped at
@@ -335,6 +339,32 @@ attack surface:
   while stored glyphs and colors keep rendering), and
   tile favicons reuse the existing bounded favicon pipeline (HTTPS
   origins only, the site's own `/favicon.*` over a plain GET).
+- The encrypted HTTP disk cache (`cache/`, 512 MiB / 50 000 entries) reuses
+  the same store key and AEAD recipe (ChaCha20-Poly1305, random 96-bit nonce
+  per file, 0600/0700 on Unix, atomic temp+rename): documents (one encrypted
+  file per host), images (one encrypted file per URL, sharded) and favicons
+  (one encrypted file for all probes). Filenames are key hashes, never
+  hostnames/URLs, and every record carries its key, verified on read, so a
+  listing or a hash collision can never leak or mix pages. Loaded index
+  stems must be exactly the 16 lowercase hex chars the cache writes before
+  they become path components, and startup sweeps remove symlinks instead
+  of following them, so a planted entry cannot walk outside `cache/`.
+  A policy-header set that exceeds the bounded capture (too many repeated
+  values, or one value too long) is never stored: a partial view could hide
+  `no-store`/`Vary: *`.
+  Freshness is HTTP: `max-age` / `Expires` (+`Date`/`Age`), `no-store`
+  (never persisted, and evicts an older record for the same URL),
+  `no-cache` (always revalidated), `must-revalidate`, `immutable` inside the
+  absolute 1-year ceiling, `ETag`/`Last-Modified` revalidation (304 refreshes
+  the entry, 200 replaces it); `Vary: *` (or over anything but
+  `Accept`/`Accept-Encoding`) is never stored, `Refresh` forces a
+  revalidation, and an expired entry that cannot be revalidated fails
+  instead of serving stale. Past either bound the OLDEST entries evict FIFO
+  (never an error, never a toast), with per-class quotas so one gallery
+  cannot evict every document. Local files and internal pages are never
+  cached; "Forget on exit" disables the cache entirely (neither read nor
+  written, leftovers wiped); each class clears separately from Preferences
+  and "Delete all data" removes the whole directory.
 - Credentials in pasted URLs (`user:pass@host`) are stripped before the
   network and never logged; any non-https scheme with an authority
   (`http://user:pass@host`, `http:/user:pass@host` with a single slash,

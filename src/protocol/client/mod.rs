@@ -12,9 +12,11 @@
 //! - Only `GET`. No POST/HEAD. Works with any static server.
 //! - `Accept: text/markdown;q=0.8` header (see `config`).
 //! - ALL response headers are ignored except `Content-Type`
-//!   (validated) and `Content-Length` (only as an early anti-abuse cutoff,
-//!   not as cache) — no caching of any kind (neither disk nor memory;
-//!   only the visible tab document is kept).
+//!   (validated), `Content-Length` (only as an early anti-abuse cutoff,
+//!   not as cache) and the cache-relevant set captured for the encrypted
+//!   disk cache (`Cache-Control`, `Expires`, `ETag`, `Last-Modified`,
+//!   `Date`, `Age`, `Vary`; see `cache::policy`). The only client-side
+//!   state is that encrypted cache plus the visible tab document.
 //! - Each candidate is validated: 2xx status + markdown Content-Type + UTF-8 + YAML ok.
 //!   On any failure the next one is tried. When none works, returns
 //!   `BrowserError::NoCandidateWorked` with the line-by-line log.
@@ -146,7 +148,9 @@ fn acquire_local_slot(cancel: &AtomicBool) -> Option<LocalSlotGuard> {
 
 /// Reused global client: TLS/HTTP2 connection pool across navigations.
 /// - Built once (`OnceLock`); `reqwest::Client::clone()` is cheap (Arc).
-/// - No cookies, no cache, no system proxy (deterministic and fast).
+/// - No cookies, no system proxy, no plaintext cache (deterministic and
+///   fast). The only persistent response state is the encrypted disk cache
+///   in `cache/`, which this layer feeds but does not own.
 /// - Returns `Result`: an `expect()` here would panic the background thread
 ///   and `poll-promise` panics when polled for a promise whose thread
 ///   died without sending a value (whole app crash). Must never panic.
@@ -607,11 +611,13 @@ fn blocked_scheme_password_domain(input: &str) -> Option<String> {
 mod fetch;
 mod get;
 
+#[cfg(test)]
 pub use fetch::fetch_blocking;
+pub use fetch::fetch_blocking_with_mode;
 #[cfg(test)]
 use fetch::fetch_one;
-pub(crate) use fetch::finish_document;
-pub(crate) use get::get_bytes;
+pub(crate) use fetch::{finish_document, FetchMode};
+pub(crate) use get::{get_bytes, Conditional, GetOptions, GetOutcome};
 
 #[cfg(test)]
 mod tests;

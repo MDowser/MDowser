@@ -65,6 +65,8 @@ deliverables: no `target/`, `dist/`, `.env*`, OS cruft or AI tooling scratch
 Read `SECURITY.md` first. Never add `http://`, a `file:` destination
 reachable from a remote page, a remote `file://host/` share, a local read
 that bypasses the UTF-8/caps/cancel contract, an image fetch that bypasses
-the Content-Type gate or the decode/caps pipeline, cache/cookies, or
-`unsafe`. Keep new bounds in `config/` (`MAX_*`) with tests. Run
-`cargo audit` + `cargo deny check` before large dep bumps.
+the Content-Type gate or the decode/caps pipeline, an unencrypted or
+unbounded cache, cookies, or `unsafe`. Every network response that is
+persisted must go through `cache/` and its HTTP freshness/eviction policy.
+Keep new bounds in `config/` (`MAX_*`) with tests. Run `cargo audit` +
+`cargo deny check` before large dep bumps.

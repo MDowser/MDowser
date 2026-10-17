@@ -243,8 +243,11 @@ pub(crate) fn wipe_all_data() -> io::Result<()> {
 /// is `None`: every store treats that as "empty in-memory store".
 pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
     use std::io::Read as _;
-    let meta = std::fs::metadata(path).ok()?;
-    if !meta.is_file() {
+    // `symlink_metadata` inspects the directory entry itself: a store file is
+    // never a symlink, and following one would let a planted link read (and
+    // tighten permissions on) an arbitrary file outside the data directory.
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if !meta.file_type().is_file() {
         return None;
     }
     if meta.len() > max_len {
@@ -255,7 +258,7 @@ pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
         use std::os::unix::fs::OpenOptionsExt as _;
         std::fs::OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NONBLOCK)
+            .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
             .open(path)
             .ok()?
     };
@@ -263,7 +266,7 @@ pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
     let opened = std::fs::File::open(path).ok()?;
     let mut file = opened;
     // Re-check the OPENED handle: the path may have been swapped between
-    // `metadata` and `open`; the handle is what is actually read.
+    // `symlink_metadata` and `open`; the handle is what is actually read.
     if !file.metadata().ok()?.is_file() {
         return None;
     }
@@ -292,6 +295,40 @@ pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
 /// Unique temp-file sequence for [`atomic_write`] (module scope so the
 /// counter survives every call).
 static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Tightens a directory to owner-only on Unix, without following a symlink
+/// and without ever widening an admin-hardened mode. Best-effort: a platform
+/// or filesystem that refuses the change leaves it as is.
+pub(crate) fn tighten_dir_perms(dir: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        // Open the directory itself with `O_NOFOLLOW` and `fchmod` the
+        // handle: a path swapped for a symlink between check and chmod must
+        // never retarget the operation.
+        let Ok(file) = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(dir)
+        else {
+            return;
+        };
+        let Ok(meta) = file.metadata() else {
+            return;
+        };
+        if !meta.is_dir() {
+            return;
+        }
+        let mode = meta.permissions().mode() & 0o777;
+        if mode & 0o077 != 0 {
+            let _ = file.set_permissions(std::fs::Permissions::from_mode(mode & !0o077));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+    }
+}
 
 /// Once set by [`suppress_writes`], every store write fails instead of
 /// recreating the data directory (the "Delete all data and close" teardown).
@@ -327,19 +364,7 @@ pub(crate) fn atomic_write(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<(
         return Err(io::Error::other("store writes suppressed"));
     }
     std::fs::create_dir_all(dir)?;
-    #[cfg(unix)]
-    {
-        // Tighten only: strip group/other bits, never widen owner bits.
-        // A `0500` admin-hardened dir must not be widened to `0700`.
-        use std::os::unix::fs::PermissionsExt as _;
-        if let Ok(meta) = std::fs::metadata(dir) {
-            let mode = meta.permissions().mode() & 0o777;
-            if mode & 0o077 != 0 {
-                let _ =
-                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(mode & !0o077));
-            }
-        }
-    }
+    tighten_dir_perms(dir);
     let target = dir.join(name);
     // Any failure while creating/writing/syncing the temp file removes it:
     // a full disk (the history store retries every few seconds) must not

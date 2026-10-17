@@ -17,7 +17,9 @@ fn fetch_one_sync(url: &str) -> Result<(String, url::Url), String> {
     let url = parse_https(url).unwrap();
     run_network(async move {
         let cancel = AtomicBool::new(false);
-        fetch_one(&client, &url, &cancel).await
+        fetch_one(&client, &url, false, &cancel)
+            .await
+            .map(|(text, final_url, _headers)| (text, final_url))
     })
     .expect("shared network runtime")
 }

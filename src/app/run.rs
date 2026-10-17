@@ -159,6 +159,12 @@ impl eframe::App for MdowserApp {
                 config::HISTORY_SAVE_DEBOUNCE_SECS,
             ));
         }
+        // Debounced encrypted-cache index flush (no-op while clean): only
+        // the small index files land here; body files are written
+        // synchronously by the background job threads that fetched them.
+        if let Some(cache) = crate::cache::global() {
+            cache.tick();
+        }
         // Same debounced encrypted save for the bookmark store (Ctrl/Cmd+D
         // and the Home rows are the only writers).
         if self.bookmarks.tick() {
@@ -403,6 +409,13 @@ impl eframe::App for MdowserApp {
     fn on_exit(&mut self) {
         self.history.on_exit();
         self.bookmarks.on_exit();
+        // Encrypted cache indexes (bounded wait): body files are already on
+        // disk; this only persists the debounced metadata.
+        if let Some(cache) = crate::cache::global() {
+            cache.flush_blocking(std::time::Duration::from_secs(
+                config::CACHE_FLUSH_TIMEOUT_SECS,
+            ));
+        }
         // Last window geometry (a move or resize right before closing must
         // not be lost to the debounce).
         self.save_window_geometry_on_exit();

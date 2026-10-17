@@ -8,8 +8,9 @@
 //! - Keyed by absolute URL string. `ensure()` registers a URL and starts a
 //!   background fetch+decode as soon as a global image slot is free.
 //! - `poll()` (UI thread) collects finished jobs and uploads textures.
-//! - Entries are dropped together with the document on navigation: there is
-//!   no cross-page image cache (the no-cache rule stays intact).
+//! - Entries are dropped together with the document on navigation: decoded
+//!   textures are never shared across pages (the encrypted DISK cache in
+//!   `cache` is what avoids re-downloading them).
 //! - Bounded: at most `MAX_IMAGES_PER_DOC` entries; beyond that the renderer
 //!   shows a placeholder instead of queueing unbounded work.
 //! - Transient failures (network error, stall timeout, truncated transfer

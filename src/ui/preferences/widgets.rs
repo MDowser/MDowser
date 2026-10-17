@@ -189,6 +189,116 @@ pub(super) fn history_caption(ui: &mut egui::Ui, s: &theme::Scheme, store: &Hist
     });
 }
 
+/// Caption under the CACHE card title: global budget usage, or why the
+/// cache is off (forget-on-exit / no data directory). Bounded: three small
+/// integers, no disk walk.
+pub(super) fn cache_caption(ui: &mut egui::Ui, s: &theme::Scheme) {
+    let text = match crate::cache::global().map(|c| c.stats()) {
+        Some(stats) if stats.enabled => {
+            let total = stats
+                .doc_bytes
+                .saturating_add(stats.image_bytes)
+                .saturating_add(stats.favicon_bytes)
+                .saturating_add(stats.index_bytes);
+            let entries = stats
+                .doc_entries
+                .saturating_add(stats.image_entries)
+                .saturating_add(stats.favicon_entries);
+            format!(
+                "Encrypted on disk · {} of {} · {} entries",
+                human_bytes(total),
+                human_bytes(crate::config::MAX_CACHE_BYTES as u64),
+                entries
+            )
+        }
+        _ => "Cache off (forget on exit, or no data directory)".to_string(),
+    };
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(text)
+                .size(theme::typography::UI_SMALL)
+                .color(s.on_surface_variant),
+        )
+        .truncate()
+        .selectable(false),
+    );
+}
+
+/// Short human size (`512 B`, `12.3 KiB`, `4.1 MiB`, `1.0 GiB`): one decimal
+/// past bytes, never wider than a caption row.
+pub(super) fn human_bytes(bytes: u64) -> String {
+    const KIB: f64 = 1024.0;
+    let value = bytes as f64;
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} KiB", value / KIB)
+    } else if bytes < 1024 * 1024 * 1024 {
+        format!("{:.1} MiB", value / (KIB * KIB))
+    } else {
+        format!("{:.1} GiB", value / (KIB * KIB * KIB))
+    }
+}
+
+/// Description of one cache class in the Preferences CACHE card.
+pub(super) struct CacheClearSpec {
+    /// Row noun (`documents`, `images`, `favicons`).
+    pub noun: &'static str,
+    /// Counted unit (`pages`, `files`, `icons`).
+    pub unit: &'static str,
+    /// Bytes currently used by the class.
+    pub size: fn(&crate::cache::CacheStats) -> u64,
+    /// Entry count for the class.
+    pub count: fn(&crate::cache::CacheStats) -> usize,
+    /// Matching `CacheManager` clear method.
+    pub clear: fn(&crate::cache::CacheManager),
+}
+
+/// One per-class cache clear row: fixed geometry, live size, two-click
+/// confirmation. Returning `armed` lets the caller request repaints while
+/// any row counts down.
+pub(super) fn cache_clear_row(
+    ui: &mut egui::Ui,
+    s: &theme::Scheme,
+    stats: Option<&crate::cache::CacheStats>,
+    confirm_until: &mut Option<Instant>,
+    spec: &CacheClearSpec,
+) -> bool {
+    let now = Instant::now();
+    let confirming = confirm_until.is_some_and(|until| until > now);
+    let label = if confirming {
+        format!("Confirm clear {}", spec.noun)
+    } else {
+        match stats {
+            Some(st) if st.enabled => format!(
+                "Clear {} ({} · {} {})",
+                spec.noun,
+                human_bytes((spec.size)(st)),
+                (spec.count)(st),
+                spec.unit
+            ),
+            _ => format!("Clear {} (cache off)", spec.noun),
+        }
+    };
+    if danger_row(ui, s, &label, icons::Icon::Delete).clicked() {
+        if confirming {
+            if let Some(cache) = crate::cache::global() {
+                (spec.clear)(cache);
+            }
+            *confirm_until = None;
+        } else {
+            *confirm_until = Some(crate::config::deadline_after(CLEAR_CONFIRM_SECS));
+        }
+    }
+    let armed = confirm_until.is_some_and(|until| until > Instant::now());
+    confirm_note(
+        ui,
+        armed,
+        &format!("Click again to delete cached {}.", spec.noun),
+    );
+    armed
+}
+
 /// `N pages stored`, singular-aware. Delegates the singular/plural rule to
 /// the history page's memoized caption (single source; the `" stored"`
 /// suffix stays here, where the persistence meaning lives).

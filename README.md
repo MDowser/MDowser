@@ -6,7 +6,7 @@
 
 **A cleaner web should not be a privilege reserved for AI agents. People deserve it, too.**
 
-Read the web as text-first documents; without a webview, JavaScript, cookies or cache.
+Read the web as text-first documents; without a webview, JavaScript, cookies or trackers.
 
 [**⬇ Download MDowser**](https://github.com/MDowser/MDowser/releases)
 
@@ -24,7 +24,7 @@ Read the web as text-first documents; without a webview, JavaScript, cookies or 
 
 Modern web pages often bring far more than the document you came to read: scripts, interfaces, trackers and layers of machinery between you and the information. AI agents are increasingly being given cleaner ways to access content. **That should not mean humans are left with the clutter.**
 
-**MDowser brings the plain-text web to your desktop.** Enter an `https://` address or open a local Markdown file, and MDowser renders the document in a fast, native interface designed for reading. No embedded web browser. No JavaScript execution. No cookies or cache. Just the content, presented clearly.
+**MDowser brings the plain-text web to your desktop.** Enter an `https://` address or open a local Markdown file, and MDowser renders the document in a fast, native interface designed for reading. No embedded web browser. No JavaScript execution. No cookies or trackers. An encrypted, bounded disk cache keeps repeat visits fast and stays under your control. Just the content, presented clearly.
 
 MDowser is deliberately focused: one document format, one HTTP method and one network protocol. There is no web stack to run scripts or reproduce an entire website. If a host serves a Markdown document over HTTPS, MDowser can read it.
 
@@ -36,11 +36,11 @@ MDowser is deliberately focused: one document format, one HTTP method and one ne
 
 - **Markdown, rendered natively.** CommonMark with GFM-style tables, footnotes, task lists and strikethrough, plus YAML frontmatter. Code blocks include syntax coloring and a Copy button; tables, callouts and documentation layouts are rendered by MDowser itself. HTML, JSX and `:::` containers are treated as markup rather than executable application code. MDX components such as `<Tabs>`, `<Accordion>`, `<Card>`, `<Steps>`, `<CodeGroup>` and `<Badge>` — along with supported `:::` equivalents — render natively, without running JavaScript. [See rendering details.](docs/RENDERING.md)
 
-- **A real desktop-browser experience.** Vertical tabs, an address bar with autocomplete, favicons, encrypted local history and bookmarks, zoom, light and dark themes, preferences and built-in `about:home`, `about:history` and `about:licenses` pages. [Explore the interface.](docs/INTERFACE.md)
+- **A real desktop-browser experience.** Vertical tabs, an address bar with autocomplete, favicons, encrypted local history and bookmarks, an encrypted HTTP cache for repeat visits, zoom, light and dark themes, preferences and built-in `about:home`, `about:history` and `about:licenses` pages. [Explore the interface.](docs/INTERFACE.md)
 
 - **Your documents, not a stripped-down text dump.** Images, color emoji, CJK and right-to-left scripts, in-page anchors, footnotes and automatic links for bare URLs are supported. Image formats include PNG, JPEG, GIF, WebP, JPEG XL, AVIF, ICO and static SVG, decoded in pure Rust.
 
-- **Privacy by design.** HTTPS only — never plain HTTP. GET requests only. No JavaScript, webview, cookies, cache or proxy. Local files are opened only through user input or links inside a local document. A remote page cannot specify a local file path. [Read the security model.](docs/SECURITY.md)
+- **Privacy by design.** HTTPS only — never plain HTTP. GET requests only. No JavaScript, webview, cookies or proxy. Responses are cached only in an encrypted, bounded store that Preferences can clear per class and "Forget on exit" disables. Local files are opened only through user input or links inside a local document. A remote page cannot specify a local file path. [Read the security model.](docs/SECURITY.md)
 
 - **Small enough to reason about.** One desktop application, `unsafe_code = "forbid"`, bounded inputs and a deliberately limited document format. Rendering is incremental: code blocks draw only visible lines, tables are fingerprinted once per document and the palette is interned. [See the architecture.](docs/ARCHITECTURE.md)
 
@@ -136,16 +136,12 @@ Want to understand a specific part of MDowser? Start here:
 MDowser keeps its network and document-handling surface intentionally small:
 
 - `https://` only, `GET` only, and a single Markdown content type.
-- No JavaScript execution, webview, cookies, cache or proxy.
+- No JavaScript execution, webview, cookies or proxy. The only persistent network state is an encrypted, bounded HTTP cache that Preferences can clear per class and "Forget on exit" disables.
 - Remote documents cannot name or load local paths; local files are opened only from user input or links in a local document.
-- Hard limits on input and decoding: 10 MiB documents, 16 MiB / 48 MP images, 1 million events, and bounded encrypted history and bookmarks.
+- Hard limits on input and decoding: 10 MiB documents, 16 MiB / 48 MP images, 1 million events, and bounded encrypted history, bookmarks and cache.
 - SVG is rasterized statically, and `unsafe_code = "forbid"`.
 
 These restrictions are part of the design, not optional privacy switches. Read the full [**threat model and security limits**](docs/SECURITY.md).
-
-## Roadmap
-
-- Optional cache — MDowser is deliberately cacheless today.
 
 ## License
 

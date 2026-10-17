@@ -168,14 +168,19 @@ impl Tab {
 
     /// Navigates to an already validated `Url` (enters `Loading`).
     ///
-    /// No cache: refresh, retry and re-navigation always re-download.
-    /// Neither documents nor errors are reused; a new fetch is spawned
-    /// even when the target is the same logical document as `current`.
+    /// A fresh encrypted disk-cache record serves without network; Refresh
+    /// revalidates instead (see `force_revalidate`). Neither errors nor
+    /// failed fetches are reused; a same-document reload still navigates
+    /// (history untouched, like refresh) instead of returning early.
     /// Single-flight per tab: any previous in-flight fetch is cancelled
     /// cooperatively before the new thread spawns. The old thread exits
     /// promptly (cancel flag + per-chunk stall timeout in `fetch_one`), so
     /// rapid navigations cannot accumulate unbounded background threads.
     pub fn navigate_to_url(&mut self, url: &Url, push_history: bool) {
+        // Refresh consumes the forced-revalidation flag up front (even when
+        // this navigation turns out to be a duplicate-in-flight no-op
+        // below): a stale flag must never leak into the next navigation.
+        let force_revalidate = std::mem::replace(&mut self.force_revalidate, false);
         // Internal page reached through back/forward/refresh (the address
         // text path is intercepted in `navigate_to_text`).
         if is_history_url(url) {
@@ -229,8 +234,8 @@ impl Tab {
         // History: current moves to `back`; `forward` clears on new navigation.
         // Both stacks are bounded (`MAX_HISTORY_ENTRIES`): oldest dropped.
         // Same-document reload (Go to the same URL, error retry of the same
-        // page) leaves both stacks alone, like refresh: it re-downloads
-        // without pushing duplicates or dropping forward.
+        // page) leaves both stacks alone, like refresh: it revalidates (or
+        // refetches) without pushing duplicates or dropping forward.
         let pushed_history = push_history && !is_reload_same;
         // A genuinely new page starts at the top; Back/Forward/Refresh and
         // same-document reloads keep the flag clear so egui restores the
@@ -298,13 +303,20 @@ impl Tab {
         // never a per-job one: the HTTP pool must stay attached to the
         // process-wide executor; see `protocol::client`). The UI never
         // blocks; `poll()` collects the result.
+        // Refresh consumes the forced-revalidation flag; every other
+        // navigation serves fresh disk-cache records without network.
         // The cancel flag is shared: superseding navigation sets it.
         let start = url.clone();
         let cancel = Arc::new(AtomicBool::new(false));
         self.cancel = Some(cancel.clone());
         let job_cancel = cancel.clone();
+        let mode = if force_revalidate {
+            client::FetchMode::ForceRevalidate
+        } else {
+            client::FetchMode::Normal
+        };
         let promise = Promise::spawn_thread("fetch-markdown", move || {
-            client::fetch_blocking(&start, job_cancel)
+            client::fetch_blocking_with_mode(&start, job_cancel, mode)
         });
         self.state = TabState::Loading {
             promise,

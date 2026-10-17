@@ -30,13 +30,15 @@
     <p>
       It is deliberately small and auditable: one document format, one HTTP
       method, one network protocol. There is no webview, no JavaScript, no
-      cookies, no cache and no proxy.
+      cookies and no proxy; repeat visits use a bounded, encrypted local
+      HTTP cache that can be cleared or disabled at any time.
     </p>
     <p>Highlights:</p>
     <ul>
       <li>Native Markdown rendering: CommonMark plus GFM-style tables, footnotes, tasklists, YAML frontmatter, code cards with syntax colors.</li>
       <li>MDX/JSX components (Tabs, Accordion, Card, Steps, CodeGroup, Badge) and ::: custom containers render natively; nothing is ever executed.</li>
       <li>Real browser chrome: vertical tab rail, address autocomplete (bookmarks, local history, curated list), encrypted local history and bookmarks, zoom, light/dark theme.</li>
+      <li>Encrypted, bounded HTTP cache for documents, images and favicons, with per-class clearing and a forget-on-exit mode.</li>
       <li>Color emoji, CJK and RTL scripts, and PNG/JPEG/GIF/WebP/JPEG XL/AVIF/ICO/static SVG images, all decoded in pure Rust.</li>
       <li>Private by design: HTTPS only, GET only, local files only from user input.</li>
     </ul>

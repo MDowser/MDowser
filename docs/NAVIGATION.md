@@ -32,6 +32,13 @@ dropped like any other wrong `Content-Type`. The navbar and history show
 where the load landed (`ex.com/hola` found at `ex.com/hola/` shows
 `ex.com/hola/`).
 
+Repeat visits consult the encrypted HTTP cache first: a fresh record is
+served without the network, a stale one revalidates with
+`If-None-Match`/`If-Modified-Since`, and Refresh forces that revalidation
+(or a full cascade when the response carried no validator). A failed
+revalidation falls back to the normal route cascade; a stale body is never
+served as if it were current.
+
 ## Autocomplete
 
 Both address fields (the toolbar and the large Home capsule) suggest pages

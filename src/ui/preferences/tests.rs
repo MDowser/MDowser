@@ -1057,3 +1057,272 @@ fn closing_keeps_the_selected_tab() {
         "close must keep the selected tab"
     );
 }
+
+/// The Data tab holds the CACHE card: one caption plus one two-click clear
+/// row per class, in documents/images/favicons order, with nothing clipped
+/// by the dialog or the scroll viewport.
+#[test]
+fn cache_card_lists_three_clears() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
+    let mut last = None;
+    for _ in 0..6 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show(root.ctx(), &mut store, &mut prefs);
+        });
+        out.textures_delta.clear();
+        last = Some(out);
+    }
+    let out = last.expect("dialog rendered");
+    let rendered = texts(&out.shapes);
+    let y_of = |needle: &str| {
+        rendered
+            .iter()
+            .find(|(text, _)| text == needle)
+            .map(|(_, pos)| pos.y)
+            .unwrap_or_else(|| panic!("{needle:?} visible"))
+    };
+    // Section first, then one row per class in a stable order.
+    let caption = y_of("CACHE");
+    let docs = rendered
+        .iter()
+        .find(|(text, _)| text.starts_with("Clear documents ("))
+        .map(|(_, pos)| pos.y)
+        .expect("documents clear row visible");
+    let images = rendered
+        .iter()
+        .find(|(text, _)| text.starts_with("Clear images ("))
+        .map(|(_, pos)| pos.y)
+        .expect("images clear row visible");
+    let favicons = rendered
+        .iter()
+        .find(|(text, _)| text.starts_with("Clear favicons ("))
+        .map(|(_, pos)| pos.y)
+        .expect("favicons clear row visible");
+    assert!(
+        caption < docs && docs < images && images < favicons,
+        "cache rows must stack under their caption in class order"
+    );
+    // The rows sit between the history and the wipe cards, never overlapping
+    // them.
+    let history = y_of("Delete history");
+    let wipe = y_of("Delete all data and close");
+    assert!(
+        history < docs && favicons < wipe,
+        "the cache card must sit between the history and wipe cards"
+    );
+    // Nothing the dialog paints may be clipped.
+    for c in &out.shapes {
+        if let egui::epaint::Shape::Text(t) = &c.shape {
+            let rect = ink_rect(t);
+            assert!(
+                c.clip_rect.contains_rect(rect),
+                "{:?} is clipped: {rect:?} outside {:?}",
+                t.galley.text(),
+                c.clip_rect
+            );
+        }
+    }
+}
+
+/// Each cache class clears with two clicks: the first arms its own
+/// confirmation (sibling rows keep their exact positions), the second
+/// dismisses it. The actual per-class store clearing is covered by the
+/// `cache` module tests, which use isolated managers instead of the
+/// process-wide test cache.
+#[test]
+fn cache_clear_needs_two_clicks_per_class() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
+    // Events run ONLY on the first frame (replaying a click every frame
+    // would arm/clear/arm again); the following frames settle hovers.
+    // Like the existing click tests, the pointer moves to the target first:
+    // without it egui never hovers the row the click lands on.
+    let mut run =
+        |windows: &mut PreferencesState, at: Option<egui::Pos2>, events: Vec<egui::Event>| {
+            let mut last = None;
+            for frame in 0..3 {
+                let mut input = input_at(at);
+                if frame == 0 {
+                    input.events.extend(events.clone());
+                }
+                let mut out = ctx.run_ui(input, |root| {
+                    windows.show(root.ctx(), &mut store, &mut prefs);
+                });
+                out.textures_delta.clear();
+                last = Some(out);
+            }
+            last.expect("frames run")
+        };
+    let row_center = |out: &egui::FullOutput, prefix: &str| {
+        texts(&out.shapes)
+            .iter()
+            .find(|(text, _)| text.starts_with(prefix))
+            .map(|(_, pos)| *pos + egui::vec2(1.0, 1.0))
+            .unwrap_or_else(|| panic!("{prefix:?} row visible"))
+    };
+    let click = |pos: egui::Pos2| {
+        vec![
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ]
+    };
+    // With no initialized cache the rows still render, with their off label.
+    let settled = run(&mut windows, None, vec![]);
+    assert!(
+        texts(&settled.shapes)
+            .iter()
+            .any(|(text, _)| text.starts_with("Clear documents (cache off)")),
+        "the documents row must render with the cache-off label"
+    );
+
+    // First click on "Clear images" arms ONLY its confirmation: sibling rows
+    // keep their exact positions, like the history delete.
+    let before: Vec<(String, egui::Pos2)> = texts(&settled.shapes);
+    let at = |v: &[(String, egui::Pos2)], needle: &str| {
+        v.iter()
+            .find(|(text, _)| text.starts_with(needle))
+            .map(|(_, pos)| *pos)
+            .unwrap_or_else(|| panic!("{needle:?} visible"))
+    };
+    let images_at = row_center(&settled, "Clear images (");
+    let _ = run(&mut windows, Some(images_at), click(images_at));
+    let armed = run(&mut windows, Some(images_at), vec![]);
+    let armed_texts = texts(&armed.shapes);
+    assert!(
+        armed_texts
+            .iter()
+            .any(|(text, _)| text == "Confirm clear images"),
+        "first click must arm the images confirmation"
+    );
+    assert!(
+        armed_texts
+            .iter()
+            .any(|(text, _)| text == "Click again to delete cached images."),
+        "the armed note must be visible"
+    );
+    assert_eq!(
+        at(&before, "Clear documents ("),
+        at(&armed_texts, "Clear documents ("),
+        "arming must not move the documents row above"
+    );
+    // The row BELOW the armed one moves down (or stays when the scroll
+    // covers it), never up over the note — the same fit-content rule as
+    // the history delete.
+    assert!(
+        at(&armed_texts, "Clear favicons (").y >= at(&before, "Clear favicons (").y,
+        "arming must not pull the favicons row up"
+    );
+
+    // Second click dismisses the confirmation without touching siblings.
+    let _ = run(&mut windows, Some(images_at), click(images_at));
+    let cleared = run(&mut windows, None, vec![]);
+    let cleared_texts = texts(&cleared.shapes);
+    assert!(
+        cleared_texts
+            .iter()
+            .any(|(text, _)| text.starts_with("Clear images (cache off)")),
+        "second click must dismiss the confirmation"
+    );
+    assert!(
+        cleared_texts
+            .iter()
+            .all(|(text, _)| text != "Click again to delete cached images."),
+        "the armed note must disappear"
+    );
+}
+
+/// On a short viewport the taller Data tab scrolls instead of breaking:
+/// the whole CACHE card fits the first screen (no scroll needed to see all
+/// three clears) and the wipe card below stays reachable by scrolling.
+#[test]
+fn cache_card_fits_first_screen_and_rest_stays_reachable() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::Data;
+    // Short window: the dialog maxes out and the tab scrolls.
+    let input = |events: Vec<egui::Event>| egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(900.0, 560.0),
+        )),
+        events,
+        ..Default::default()
+    };
+    let mut run = |windows: &mut PreferencesState, events: Vec<egui::Event>| {
+        let mut last = None;
+        for frame in 0..4 {
+            let mut frame_input = input(vec![]);
+            if frame == 0 {
+                frame_input.events = events.clone();
+            }
+            let mut out = ctx.run_ui(frame_input, |root| {
+                windows.show(root.ctx(), &mut store, &mut prefs);
+            });
+            out.textures_delta.clear();
+            last = Some(out);
+        }
+        last.expect("frames run")
+    };
+    let painted = |out: &egui::FullOutput| {
+        texts(&out.shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>()
+    };
+    // The full CACHE card is above the fold: caption plus all three rows
+    // paint with no scrolling (egui culls fully-outside text, so painted =
+    // visible).
+    let first = painted(&run(&mut windows, vec![]));
+    for needle in [
+        "CACHE",
+        "Clear documents (",
+        "Clear images (",
+        "Clear favicons (",
+    ] {
+        assert!(
+            first.iter().any(|t| t.starts_with(needle)),
+            "{needle:?} must be visible without scrolling"
+        );
+    }
+    // The wipe card below the fold is one scroll away (same wheel pattern
+    // as the tab-scroll test: egui smooths the delta, so the end position
+    // is deterministic).
+    let wheel = egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, -400.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut events = vec![egui::Event::PointerMoved(egui::pos2(450.0, 300.0))];
+    events.extend(std::iter::repeat_n(wheel, 4));
+    let scrolled = painted(&run(&mut windows, events));
+    assert!(
+        scrolled.iter().any(|t| t == "Delete all data and close"),
+        "the wipe card must be reachable by scrolling"
+    );
+}

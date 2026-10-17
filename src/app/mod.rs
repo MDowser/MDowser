@@ -128,6 +128,13 @@ impl MdowserApp {
         if history.forgets_on_exit() && prefs.restore_tabs() {
             prefs.set_restore_tabs(false);
         }
+        // Encrypted HTTP disk cache (documents, images, favicons): "Forget
+        // on exit" disables it entirely (neither read nor written, leftovers
+        // wiped), like history.
+        crate::cache::init(
+            crate::settings::default_data_dir(),
+            !history.forgets_on_exit(),
+        );
 
         let mut next_id = 1usize;
         let mut tabs: Vec<Tab> = tabs_from_initial(initial, &mut next_id);
@@ -323,6 +330,16 @@ impl MdowserApp {
     /// failure is surfaced in Preferences and the app keeps running.
     fn wipe_all_and_exit(&mut self) {
         crate::settings::suppress_writes();
+        // Stop the cache and drain its flusher (bounded): a racing
+        // background fetch must neither recreate the wiped directory nor
+        // keep a worker writing into it while it is removed. Writes already
+        // fail above, so the drain is only a bounded join.
+        crate::cache::suppress();
+        if let Some(cache) = crate::cache::global() {
+            cache.flush_blocking(std::time::Duration::from_secs(
+                config::CACHE_FLUSH_TIMEOUT_SECS,
+            ));
+        }
         self.history.on_exit();
         self.bookmarks.on_exit();
         crate::settings::flush_settings_writes();
@@ -330,6 +347,9 @@ impl MdowserApp {
             Ok(()) => std::process::exit(0),
             Err(e) => {
                 crate::settings::allow_writes();
+                // Same for the cache: the data directory survived, so the
+                // cache must resume writing instead of staying suppressed.
+                crate::cache::resume();
                 self.prefs
                     .note_wipe_error(format!("could not delete all local data: {e}"));
                 let message = "Could not delete local data";

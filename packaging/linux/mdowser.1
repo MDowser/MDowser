@@ -28,8 +28,9 @@ over HTTPS (there is no
 support) or read from the local filesystem, parsed once as CommonMark with
 GFM-style extensions, and
 rendered with a desktop-browser-style interface. There is no webview, no
-JavaScript, no cookies, no cache, no proxy and no command-line option: every
-argument is an open target.
+JavaScript, no cookies, no proxy and no command-line option: every argument
+is an open target. Repeat visits use a bounded, encrypted on-disk HTTP cache,
+which the app clears or disables from its preferences.
 .PP
 When the application is already running, a new launch opens its targets in a
 new instance; MDowser does not use a single-instance guard.
@@ -41,7 +42,8 @@ argument is never treated as a document.
 .SH ENVIRONMENT
 .TP
 .B XDG_DATA_HOME
-Base directory for the encrypted settings, session, history and bookmarks.
+Base directory for the encrypted settings, session, history, bookmarks and
+cache.
 Defaults to
 .IR $HOME/.local/share ;
 MDowser uses the

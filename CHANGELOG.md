@@ -5,6 +5,73 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Encrypted HTTP disk cache (`src/cache/`, same `store.key` as
+  history/bookmarks/settings): documents (one AEAD file per host, keyed by
+  the canonical page identity so every route spelling hits the same record),
+  images (one AEAD file per URL, sharded) and favicons (one AEAD file for
+  all probes). Honors `Cache-Control`/`Expires` (+`Date`/`Age`) under an
+  absolute 1-year ceiling; `no-store`/`Vary: *` are never persisted and
+  evict an older record for the same URL; `ETag`/`Last-Modified`
+  revalidation (304 refreshes, 200 replaces) and never serves stale when
+  revalidation fails; `Refresh` forces a revalidation. Bounded at 512 MiB /
+  50 000 entries with silent FIFO eviction (never an error) and per-class
+  quotas; each class clears separately from Preferences/Data. "Forget on
+  exit" disables the cache entirely. (`src/cache/`, `src/config/mod.rs`,
+  `src/protocol/client/`, `src/media/fetch.rs`, `src/app/`,
+  `src/ui/preferences/`, `docs/`.)
+
+### Changed
+
+- README, security/architecture docs and the contributing guide now describe
+  the encrypted cache accurately (no more "no cache" claims) and state the
+  persistence rule for new network resources.
+- `CacheManager` refresh paths now keep the global byte accounting exact
+  when revalidation metadata changes a stored record's size.
+- Preferences/Data cache rows share the same fixed-geometry two-click
+  pattern as the other destructive actions, with live per-class sizes.
+
+### Fixed
+
+- `make` now builds its default current-OS dist through the complete
+  `--host-only` path, so macOS no longer leaves an older version's `.app.zip`
+  next to the new one in `dist/`.
+- The dist script probes `cargo-zigbuild --version` (the subcommand does not
+  accept `--version`), so an installed Linux cross toolchain is no longer
+  reported as missing and the Linux artifacts build.
+- A failed "Delete all data" wipe now re-enables the cache too (it was
+  left silently read-only for the rest of the session, like the other
+  stores were before).
+- A redirect's landed URL now stores its own revalidation target instead of
+  reusing the original candidate URL, so a direct visit to the landed page
+  can never revalidate (and re-store) a different resource.
+- Corrupt or hash-collided cache records are dropped from the index instead
+  of being retried on every navigation/render.
+- A `304 Not Modified` that omits `Cache-Control` now preserves the entry's
+  original lifetime (a `no-cache` record stays no-cache) instead of silently
+  adopting the class default TTL.
+- Corrupt cache index entries and crash-leftover `.clear.*` directories are
+  swept at startup; cache indexes/paths no longer accept malformed stems.
+
+### Security
+
+- Cache stems loaded from encrypted indexes must match the 16-lowercase-hex
+  filename shape before becoming path components; sharding is panic-free on
+  malformed input.
+- Cache sweeps never follow symlinked shard directories/files, and the
+  shared store reader refuses symlinks (`O_NOFOLLOW` on Unix) instead of
+  reading (or tightening permissions on) an arbitrary target.
+- A response that becomes `no-store`/`Vary: *` now evicts any older cached
+  copy for the same URL in all three cache classes.
+- Cache-relevant headers that exceed the bounded capture (repeated values or
+  one oversized policy value) are treated as non-storable instead of being
+  cached from a partial view that could hide `no-store`/`Vary: *`.
+- The cache directory is tightened to owner-only permissions like the rest
+  of the data directory.
+
 ## [0.5.4] - 2026-10-16
 
 ### Added

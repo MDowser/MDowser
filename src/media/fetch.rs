@@ -27,8 +27,16 @@
 //!   promise thread (which would panic the UI when polled).
 
 use super::decode::{self, DecodedImage};
+use crate::cache::format::now_secs;
+use crate::cache::global;
+use crate::cache::images;
+use crate::cache::images::ImageRecord;
+use crate::cache::policy::{
+    freshness, must_not_store, refresh_freshness, resource_key, CapturedHeaders,
+};
 use crate::config;
 use crate::protocol::client;
+use crate::protocol::client::{Conditional, GetOutcome};
 use crate::protocol::content_type::{is_image_content_type, is_octet_stream};
 use crate::util::truncate_chars;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,24 +47,55 @@ use url::Url;
 ///
 /// `accept` is the `Accept` header; `max_bytes` the anti-abuse cap; `timeout`
 /// the per-request budget (documents own theirs, images a long one, favicon
-/// probes a short one). Returns the raw bytes; image-type validation of the
-/// header happens here, while format validation happens in `decode`.
+/// probes a short one). Returns the raw bytes + captured cache headers;
+/// image-type validation of the header happens here, while format validation
+/// happens in `decode`. A conditional request answers 304 as
+/// `BinaryOutcome::NotModified`.
+pub(crate) enum BinaryOutcome {
+    Fresh {
+        bytes: Vec<u8>,
+        headers: CapturedHeaders,
+    },
+    NotModified {
+        headers: CapturedHeaders,
+    },
+}
+
 pub(crate) async fn fetch_binary(
     url: &Url,
     accept: &str,
     max_bytes: usize,
     timeout: std::time::Duration,
+    conditional: Option<&Conditional>,
     cancel: &AtomicBool,
-) -> Result<Vec<u8>, String> {
+) -> Result<BinaryOutcome, String> {
     let client = client::global_client().map_err(|e| e.to_string())?.clone();
     let gate = |cts: &[String]| image_type_gate(url, cts);
     // Sanitize like the document path: reqwest errors can embed a server
     // redirect URL with `user:pass@`, and image failure reasons reach the
     // UI as tooltips (`media::cache` -> `viewer::image`).
-    let raw = client::get_bytes(&client, url, accept, max_bytes, timeout, &gate, cancel)
-        .await
-        .map_err(|e| crate::util::strip_credentials_for_log(&e).into_owned())?;
-    Ok(raw.bytes)
+    let outcome = client::get_bytes(
+        &client,
+        url,
+        &client::GetOptions {
+            accept,
+            max_bytes,
+            timeout,
+            gate: &gate,
+            conditional,
+            reload: false,
+        },
+        cancel,
+    )
+    .await
+    .map_err(|e| crate::util::strip_credentials_for_log(&e).into_owned())?;
+    match outcome {
+        GetOutcome::Fresh(raw) => Ok(BinaryOutcome::Fresh {
+            bytes: raw.bytes,
+            headers: raw.headers,
+        }),
+        GetOutcome::NotModified { headers } => Ok(BinaryOutcome::NotModified { headers }),
+    }
 }
 
 /// Header gate for image/favicon subresources: a declared concrete non-image
@@ -82,6 +121,8 @@ fn image_type_gate(url: &Url, content_types: &[String]) -> Result<(), String> {
 
 /// Fetches + decodes one markdown image on a background thread.
 ///
+/// The encrypted disk cache is consulted first (fresh records skip the
+/// network; stale records with validators revalidate conditionally).
 /// Panic-guarded: image decoders (`image`, `jxl-oxide`, `avif-decode`) run
 /// on this thread, and a panic would otherwise drop the promise sender and
 /// panic the UI when polled (see `util::guard_panics`).
@@ -95,29 +136,149 @@ fn fetch_image_blocking_inner(url: &str, cancel: Arc<AtomicBool>) -> Result<Deco
         return Err("cancelled".to_string());
     }
     let parsed = client::parse_navigable(url).map_err(|e| e.to_string())?;
-    let bytes = if crate::protocol::local::is_file_url(&parsed) {
-        // Local image referenced by a local document: read from disk with
-        // the image cap. There is no Content-Type header; the magic-byte
-        // sniff + decoder validate the payload exactly like a remote
-        // `application/octet-stream`.
-        crate::protocol::local::read_bytes(&parsed, config::MAX_IMAGE_BYTES, &cancel)?
-    } else {
-        let job_cancel = cancel.clone();
-        client::run_network(async move {
-            fetch_binary(
-                &parsed,
-                config::IMAGE_ACCEPT_HEADER_VALUE,
-                config::MAX_IMAGE_BYTES,
-                std::time::Duration::from_secs(config::IMAGE_REQUEST_TIMEOUT_SECS),
-                &job_cancel,
-            )
-            .await
-        })??
-    };
+    // Local images (referenced by a local document) are read from disk with
+    // the image cap and never touch the HTTP cache (the disk is the cache).
+    if crate::protocol::local::is_file_url(&parsed) {
+        let bytes = crate::protocol::local::read_bytes(&parsed, config::MAX_IMAGE_BYTES, &cancel)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        return decode::decode(&bytes);
+    }
+    let key = resource_key(&parsed);
+    // Fresh disk record: skip the network entirely.
+    if let Some(k) = key.as_deref() {
+        if let Some(images::ImageHit::Fresh(record)) = global().and_then(|c| c.image_lookup(k)) {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
+            }
+            // A stored body that no longer decodes (decoder drift, corrupt
+            // file) is dropped: fall through to the network.
+            match decode::decode(&record.body) {
+                Ok(decoded) => return Ok(decoded),
+                Err(_) => {
+                    if let Some(c) = global() {
+                        c.clear_images_for_key(k);
+                    }
+                }
+            }
+        }
+    }
+    let job_cancel = cancel.clone();
+    let bytes = client::run_network(async move {
+        fetch_image_bytes(&parsed, key.as_deref(), &job_cancel).await
+    })??;
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".to_string());
     }
     decode::decode(&bytes)
+}
+
+/// Network half of [`fetch_image_blocking_inner`]: fresh fetch, or a
+/// conditional revalidation of a stale disk record (304 serves the stored
+/// bytes; 200 replaces them). A failed revalidation falls back to a full
+/// fetch; when that fails too the error surfaces (stale is never served).
+async fn fetch_image_bytes(
+    parsed: &Url,
+    key: Option<&str>,
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<u8>, String> {
+    // Stale record with validators: try one conditional request first.
+    if let Some(k) = key {
+        if let Some(images::ImageHit::Stale(record)) = global().and_then(|c| c.image_lookup(k)) {
+            if !record.etag.is_empty() || !record.last_modified.is_empty() {
+                let conditional = Conditional {
+                    etag: record.etag.clone(),
+                    last_modified: record.last_modified.clone(),
+                };
+                match fetch_binary(
+                    &record
+                        .fetched_url
+                        .parse()
+                        .unwrap_or_else(|_| parsed.clone()),
+                    config::IMAGE_ACCEPT_HEADER_VALUE,
+                    config::MAX_IMAGE_BYTES,
+                    std::time::Duration::from_secs(config::IMAGE_REQUEST_TIMEOUT_SECS),
+                    Some(&conditional),
+                    cancel,
+                )
+                .await
+                {
+                    Ok(BinaryOutcome::NotModified { headers }) => {
+                        if let Some(c) = global() {
+                            if must_not_store(&headers, headers.pragma_no_cache) {
+                                c.clear_images_for_key(k);
+                            } else {
+                                let fresh_until = refresh_freshness(
+                                    &headers,
+                                    record.stored_at,
+                                    record.fresh_until,
+                                    now_secs(),
+                                    config::CACHE_DEFAULT_IMAGE_TTL_SECS,
+                                );
+                                c.image_refresh(k, fresh_until, &headers);
+                            }
+                        }
+                        return Ok(record.body);
+                    }
+                    Ok(BinaryOutcome::Fresh { bytes, headers }) => {
+                        store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
+                        return Ok(bytes);
+                    }
+                    // Revalidation failed: fall through to a full fetch.
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+    match fetch_binary(
+        parsed,
+        config::IMAGE_ACCEPT_HEADER_VALUE,
+        config::MAX_IMAGE_BYTES,
+        std::time::Duration::from_secs(config::IMAGE_REQUEST_TIMEOUT_SECS),
+        None,
+        cancel,
+    )
+    .await?
+    {
+        BinaryOutcome::Fresh { bytes, headers } => {
+            if let Some(k) = key {
+                store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
+            }
+            Ok(bytes)
+        }
+        // No validators were sent: a 304 answers nothing we asked.
+        BinaryOutcome::NotModified { .. } => Err("unexpected 304 for an image".to_string()),
+    }
+}
+
+/// Stores freshly fetched image bytes (`no-store` / uncachable `Vary`
+/// evicts any older record; oversized bodies refused by the store itself).
+fn store_image_in_cache(key: &str, fetched_url: &str, bytes: &[u8], headers: &CapturedHeaders) {
+    let Some(cache) = global() else { return };
+    if !cache.enabled() {
+        return;
+    }
+    if must_not_store(headers, headers.pragma_no_cache) {
+        // A previously cacheable image turned non-storable: drop it so the
+        // old body cannot outlive the origin's new policy.
+        cache.clear_images_for_key(key);
+        return;
+    }
+    let now = now_secs();
+    let fresh = freshness(headers, now, config::CACHE_DEFAULT_IMAGE_TTL_SECS);
+    // The landed URL is where the bytes came from; the key stays the asked
+    // spelling (redirects on images are rare and the key space is exact).
+    cache.image_store(ImageRecord {
+        key: key.to_string(),
+        fetched_url: fetched_url.to_string(),
+        content_type: headers.content_type.clone().unwrap_or_default(),
+        stored_at: now,
+        fresh_until: fresh.fresh_until,
+        etag: headers.etag.clone().unwrap_or_default(),
+        last_modified: headers.last_modified.clone().unwrap_or_default(),
+        body: bytes.to_vec(),
+    });
 }
 
 /// Probes the conventional favicon paths (`config::FAVICON_PATHS`) for
@@ -152,6 +313,47 @@ fn fetch_favicon_blocking_inner(
             probe.set_path(&format!("/{name}"));
             probe.set_query(None);
             probe.set_fragment(None);
+            let probe_str = probe.as_str().to_string();
+            let key = resource_key(&probe);
+            // Fresh disk record: decode without network.
+            if let Some(k) = key.as_deref() {
+                if let Some(hit) = global().and_then(|c| c.favicon_lookup(k)) {
+                    match hit {
+                        images::ImageHit::Fresh(record) => {
+                            if let Ok(img) =
+                                decode::decode_with_max_dim(&record.body, config::MAX_FAVICON_DIM)
+                            {
+                                return Ok(img);
+                            }
+                            if let Some(c) = global() {
+                                c.clear_favicons_for_key(k);
+                            }
+                        }
+                        images::ImageHit::Stale(record) => {
+                            if let Some(result) =
+                                revalidate_favicon(&probe, k, &record, &cancel).await
+                            {
+                                // Revalidated (or failed and fell back):
+                                // the verdict for THIS probe is final.
+                                match result {
+                                    Ok(bytes) => {
+                                        if let Ok(img) = decode::decode_with_max_dim(
+                                            &bytes,
+                                            config::MAX_FAVICON_DIM,
+                                        ) {
+                                            return Ok(img);
+                                        }
+                                    }
+                                    // Revalidation fell back to network and
+                                    // failed: try the next probe.
+                                    Err(_) => continue,
+                                }
+                            }
+                            // No validators: full fetch below.
+                        }
+                    }
+                }
+            }
             let bytes = match fetch_binary(
                 &probe,
                 config::FAVICON_ACCEPT_HEADER_VALUE,
@@ -161,11 +363,19 @@ fn fetch_favicon_blocking_inner(
                 // case (`FAVICON_PATHS.len()` probes) under the entry
                 // deadline instead of pinning a slot for 3x60s.
                 std::time::Duration::from_secs(config::FAVICON_REQUEST_TIMEOUT_SECS),
+                None,
                 &cancel,
             )
             .await
             {
-                Ok(b) => b,
+                Ok(BinaryOutcome::Fresh { bytes, headers }) => {
+                    if let Some(k) = key.as_deref() {
+                        store_favicon_in_cache(k, &probe_str, &bytes, &headers);
+                    }
+                    bytes
+                }
+                // No validators were sent: a 304 answers nothing we asked.
+                Ok(BinaryOutcome::NotModified { .. }) => continue,
                 // 404 / network / wrong type: try the next probe.
                 Err(_) => continue,
             };
@@ -179,6 +389,84 @@ fn fetch_favicon_blocking_inner(
         }
         Err("no favicon".to_string())
     })?
+}
+
+/// Conditional revalidation of one stale favicon probe (`Some(Ok)` =
+/// serve these bytes; `Some(Err)` = fall back failed, try next probe;
+/// `None` = no validators, fetch normally).
+async fn revalidate_favicon(
+    probe: &Url,
+    key: &str,
+    record: &ImageRecord,
+    cancel: &Arc<AtomicBool>,
+) -> Option<Result<Vec<u8>, String>> {
+    if record.etag.is_empty() && record.last_modified.is_empty() {
+        return None;
+    }
+    let conditional = Conditional {
+        etag: record.etag.clone(),
+        last_modified: record.last_modified.clone(),
+    };
+    match fetch_binary(
+        &record.fetched_url.parse().unwrap_or_else(|_| probe.clone()),
+        config::FAVICON_ACCEPT_HEADER_VALUE,
+        config::MAX_FAVICON_BYTES,
+        std::time::Duration::from_secs(config::FAVICON_REQUEST_TIMEOUT_SECS),
+        Some(&conditional),
+        cancel,
+    )
+    .await
+    {
+        Ok(BinaryOutcome::NotModified { headers }) => {
+            if let Some(c) = global() {
+                if must_not_store(&headers, headers.pragma_no_cache) {
+                    // The origin turned to `no-store`: serve these bytes once
+                    // (the 304 validated them) but drop the record.
+                    c.clear_favicons_for_key(key);
+                } else {
+                    let fresh_until = refresh_freshness(
+                        &headers,
+                        record.stored_at,
+                        record.fresh_until,
+                        now_secs(),
+                        config::CACHE_DEFAULT_FAVICON_TTL_SECS,
+                    );
+                    c.favicon_refresh(key, fresh_until, &headers);
+                }
+            }
+            Some(Ok(record.body.clone()))
+        }
+        Ok(BinaryOutcome::Fresh { bytes, headers }) => {
+            store_favicon_in_cache(key, probe.as_str(), &bytes, &headers);
+            Some(Ok(bytes))
+        }
+        Err(e) => Some(Err(e)),
+    }
+}
+
+/// Stores freshly probed favicon bytes (`no-store` / uncachable `Vary`
+/// evicts any older record; oversized bodies are refused by the store).
+fn store_favicon_in_cache(key: &str, probe_url: &str, bytes: &[u8], headers: &CapturedHeaders) {
+    let Some(cache) = global() else { return };
+    if !cache.enabled() {
+        return;
+    }
+    if must_not_store(headers, headers.pragma_no_cache) {
+        cache.clear_favicons_for_key(key);
+        return;
+    }
+    let now = now_secs();
+    let fresh = freshness(headers, now, config::CACHE_DEFAULT_FAVICON_TTL_SECS);
+    cache.favicon_store(ImageRecord {
+        key: key.to_string(),
+        fetched_url: probe_url.to_string(),
+        content_type: headers.content_type.clone().unwrap_or_default(),
+        stored_at: now,
+        fresh_until: fresh.fresh_until,
+        etag: headers.etag.clone().unwrap_or_default(),
+        last_modified: headers.last_modified.clone().unwrap_or_default(),
+        body: bytes.to_vec(),
+    });
 }
 
 #[cfg(test)]

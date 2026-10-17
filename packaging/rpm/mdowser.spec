@@ -63,8 +63,10 @@ Requires:       ca-certificates
 %description
 MDowser shows text/markdown documents served over HTTPS and local Markdown
 files. It is a native desktop browser: one document format, one HTTP method,
-no webview, no JavaScript, no cookies, no cache and no proxy. It registers as
-a Markdown viewer, so file managers can open .md documents with it.
+no webview, no JavaScript, no cookies and no proxy. Repeat visits use a
+bounded, encrypted local HTTP cache that can be cleared or disabled. It
+registers as a Markdown viewer, so file managers can open .md documents with
+it.
 
 TLS verification uses the system trust store (rustls-platform-verifier).
 

@@ -108,10 +108,11 @@ generic placeholder folder.
 
 `src/ui/navbar/mod.rs`: modern browser layout, no `Go`. Back / forward arrows,
 reload (5s cooldown + countdown in its tooltip, becomes a Stop X while
-loading), home (opens the new tab page; the page left behind stays on
-Back), zoom pill and the preferences gear. Circular hover fills; every icon
-is a monochrome vector glyph — muted at rest, easing to the accent and
-growing slightly on hover.
+loading; forces a cache revalidation instead of serving a fresh record),
+home (opens the new tab page; the page left behind stays on Back), zoom pill
+and the preferences gear. Circular hover fills; every icon is a monochrome
+vector glyph — muted at rest, easing to the accent and growing slightly on
+hover.
 
 ## Omnibox
 
@@ -204,13 +205,15 @@ keeps its own scroll position.
   confirmation) and the stored-count caption (the encrypted store location
   shows as its tooltip); selecting "Forget on exit" also turns off "restore
   tabs on startup" and deletes `session.bin`, because that encrypted snapshot
-  holds visited URLs and the mode promises nothing on disk — and the local
-  data card with "Delete all data and close" (two-click confirmation):
-  deletes the whole data directory (history, bookmarks, settings, session and
-  the shared key) and exits immediately with `process::exit` without further
-  saves. A deletion that FAILS (a file still open elsewhere, permissions)
-  does NOT close the app and does not pretend the data is gone: the card
-  shows the error, writes resume and the next attempt can succeed.
+  holds visited URLs and the mode promises nothing on disk — the cache card
+  (encrypted HTTP disk cache usage with one two-click "Clear …" action per
+  class: documents, images, favicons) — and the local data card with "Delete
+  all data and close" (two-click confirmation): deletes the whole data
+  directory (history, bookmarks, settings, session, cache and the shared
+  key) and exits immediately with `process::exit` without further saves. A
+  deletion that FAILS (a file still open elsewhere, permissions) does NOT
+  close the app and does not pretend the data is gone: the card shows the
+  error, writes resume and the next attempt can succeed.
 - The Shortcuts tab holds the read-only keyboard shortcut reference in
   English (Tabs / Navigation / Page / Zoom), mirroring the table below.
 

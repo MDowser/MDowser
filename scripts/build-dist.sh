@@ -663,7 +663,11 @@ do_linux() {
         log "brew install zig"
         brew install zig || { warn "linux (zig install failed)"; return 0; }
     fi
-    if ! cargo zigbuild --version >/dev/null 2>&1; then
+    # `cargo-zigbuild --version` (the binary), not `cargo zigbuild
+    # --version`: cargo subcommands do not implement `--version`, so the
+    # old probe reported an installed tool as missing and silently skipped
+    # the whole Linux group.
+    if ! cargo-zigbuild --version >/dev/null 2>&1; then
         if [ "$SKIP_SETUP" = "1" ]; then warn "linux (no cargo-zigbuild)"; return 0; fi
         log "cargo install cargo-zigbuild"
         cargo install cargo-zigbuild || { warn "linux (cargo-zigbuild install failed)"; return 0; }

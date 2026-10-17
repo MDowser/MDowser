@@ -74,14 +74,10 @@ SITES_FILE ?= assets/builtin_sites.txt
 .PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-dist deps run clean fmt clippy audit icons sync-sites check-sites help doctor
 
 # Default: install deps, build the host release binary, then the current-OS
-# dist. macOS gets the universal .app (dist-mac); other systems the fast
-# no-cross package (dist-host: Linux .tar.gz/.deb/.rpm/Flatpak, Windows .exe).
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Darwin)
-NATIVE_DIST = dist-mac
-else
+# dist. `dist-host` rebuilds dist/ from scratch on every host; on macOS it
+# dispatches to the universal .app (dist-mac is the additive single-group
+# variant, which keeps packages for other platforms already in dist/).
 NATIVE_DIST = dist-host
-endif
 all: deps build $(NATIVE_DIST)
 
 build:

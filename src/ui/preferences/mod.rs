@@ -8,8 +8,9 @@
 //! - `Preferences`: a FIXED-SIZE, card-style dialog (custom header, tab bar,
 //!   section cards, list rows) sized to its disarmed content. Three tabs:
 //!   General (appearance + version/licenses footer), Data (history retention
-//!   with the destructive "Delete history" action, plus the "Delete all data
-//!   and close" card) and Shortcuts (read-only keyboard shortcut reference
+//!   with the destructive "Delete history" action, per-class encrypted-cache
+//!   clears, plus the "Delete all data and close" card) and Shortcuts
+//!   (read-only keyboard shortcut reference
 //!   in English). The HISTORY LIST is not here: it is the internal
 //!   `about:history` page (`ui::history_page`), rendered in a tab like a
 //!   document. This module keeps only the Preferences overlay: `App` owns
@@ -75,6 +76,11 @@ pub struct PreferencesState {
     selected: PreferencesTab,
     /// Deadline of the armed "Delete history" confirmation.
     clear_confirm: Option<Instant>,
+    /// Deadlines of the armed per-class cache clears ("Clear documents" /
+    /// "Clear images" / "Clear favicons").
+    clear_docs_confirm: Option<Instant>,
+    clear_images_confirm: Option<Instant>,
+    clear_favicons_confirm: Option<Instant>,
     /// Deadline of the armed "Delete all data and close" confirmation.
     wipe_confirm: Option<Instant>,
 }
@@ -176,6 +182,9 @@ impl PreferencesState {
             prefs_open: false,
             selected: PreferencesTab::General,
             clear_confirm: None,
+            clear_docs_confirm: None,
+            clear_images_confirm: None,
+            clear_favicons_confirm: None,
             wipe_confirm: None,
         }
     }
@@ -194,6 +203,9 @@ impl PreferencesState {
     pub fn close_windows(&mut self) {
         self.prefs_open = false;
         self.clear_confirm = None;
+        self.clear_docs_confirm = None;
+        self.clear_images_confirm = None;
+        self.clear_favicons_confirm = None;
         self.wipe_confirm = None;
     }
 
@@ -222,6 +234,9 @@ impl PreferencesState {
         let mut open = self.prefs_open;
         let mut selected = self.selected;
         let mut confirm_until = self.clear_confirm;
+        let mut docs_until = self.clear_docs_confirm;
+        let mut images_until = self.clear_images_confirm;
+        let mut favicons_until = self.clear_favicons_confirm;
         let mut wipe_until = self.wipe_confirm;
         let mut applied_zoom = None;
         let mut open_licenses = false;
@@ -308,6 +323,9 @@ impl PreferencesState {
                                         store,
                                         prefs,
                                         &mut confirm_until,
+                                        &mut docs_until,
+                                        &mut images_until,
+                                        &mut favicons_until,
                                         &mut wipe_until,
                                         &mut wipe_all,
                                     );
@@ -326,6 +344,9 @@ impl PreferencesState {
         // would re-arm the label on a later visit without a new click).
         let live = |until: Option<Instant>| until.filter(|at| *at > Instant::now());
         self.clear_confirm = if open { live(confirm_until) } else { None };
+        self.clear_docs_confirm = if open { live(docs_until) } else { None };
+        self.clear_images_confirm = if open { live(images_until) } else { None };
+        self.clear_favicons_confirm = if open { live(favicons_until) } else { None };
         self.wipe_confirm = if open { live(wipe_until) } else { None };
         PrefsActions {
             zoom: applied_zoom,
@@ -464,7 +485,8 @@ impl PreferencesState {
         });
     }
 
-    /// Data tab: history retention + delete, and the wipe-everything card.
+    /// Data tab: history retention + delete, the per-class cache clears,
+    /// and the wipe-everything card.
     #[allow(clippy::too_many_arguments)]
     fn render_data(
         ui: &mut egui::Ui,
@@ -473,6 +495,9 @@ impl PreferencesState {
         store: &mut HistoryStore,
         prefs: &mut Prefs,
         confirm_until: &mut Option<Instant>,
+        docs_until: &mut Option<Instant>,
+        images_until: &mut Option<Instant>,
+        favicons_until: &mut Option<Instant>,
         wipe_until: &mut Option<Instant>,
         wipe_all: &mut bool,
     ) {
@@ -532,6 +557,65 @@ impl PreferencesState {
             confirm_note(ui, armed, "Click again to delete every visit.");
             if armed {
                 // Keep the armed label from going stale.
+                ctx.request_repaint_after(Duration::from_millis(250));
+            }
+        });
+
+        ui.add_space(theme::spacing::L);
+
+        // ---- Cache ---------------------------------------------------
+        // Encrypted HTTP disk cache (documents, images, favicons): each
+        // class clears separately, two clicks like every other destructive
+        // action. Sizes come from the live in-memory accounting (no disk
+        // walk per frame).
+        card(ui, s, |ui| {
+            ui.spacing_mut().item_spacing.y = 4.0;
+            section_title(ui, s, "CACHE");
+            cache_caption(ui, s);
+            divider(ui, s);
+            let stats = crate::cache::global().map(|c| c.stats());
+            let docs_armed = cache_clear_row(
+                ui,
+                s,
+                stats.as_ref(),
+                docs_until,
+                &CacheClearSpec {
+                    noun: "documents",
+                    unit: "pages",
+                    size: |st| st.doc_bytes,
+                    count: |st| st.doc_entries,
+                    clear: crate::cache::CacheManager::clear_docs,
+                },
+            );
+            divider(ui, s);
+            let images_armed = cache_clear_row(
+                ui,
+                s,
+                stats.as_ref(),
+                images_until,
+                &CacheClearSpec {
+                    noun: "images",
+                    unit: "files",
+                    size: |st| st.image_bytes,
+                    count: |st| st.image_entries,
+                    clear: crate::cache::CacheManager::clear_images,
+                },
+            );
+            divider(ui, s);
+            let favicons_armed = cache_clear_row(
+                ui,
+                s,
+                stats.as_ref(),
+                favicons_until,
+                &CacheClearSpec {
+                    noun: "favicons",
+                    unit: "icons",
+                    size: |st| st.favicon_bytes,
+                    count: |st| st.favicon_entries,
+                    clear: crate::cache::CacheManager::clear_favicons,
+                },
+            );
+            if docs_armed || images_armed || favicons_armed {
                 ctx.request_repaint_after(Duration::from_millis(250));
             }
         });
