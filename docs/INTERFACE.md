@@ -1,419 +1,362 @@
 # Interface
 
-Desktop-browser layout, light/dark, monochrome vector icons.
-Window chrome and rendering internals are in
-[`ARCHITECTURE.md`](ARCHITECTURE.md).
+Desktop-browser layout, light/dark, monochrome vector icons. Chrome and
+rendering internals in [`ARCHITECTURE.md`](ARCHITECTURE.md); Markdown mapping in
+[`RENDERING.md`](RENDERING.md); URL resolution in
+[`NAVIGATION.md`](NAVIGATION.md).
 
 ## App icon
 
-`assets/icon.svg`, raster ladder regenerated with `make icons`: one rounded
-blue tile with the white Markdown `M↓`, used as the window/taskbar icon
-(Windows/Linux), the `.exe` resource, the macOS `.app` icon and the Linux
-hicolor icon.
+`assets/icon.svg`: one rounded blue tile with the white Markdown `M↓`;
+`make icons` regenerates its raster ladder. It is the window/taskbar icon on
+Windows and Linux, the `.exe` resource, the macOS `.app` icon and Linux hicolor
+icon.
 
 ## Theme
 
-`src/ui/theme/mod.rs`: the README palette for the rendered document (light
-`#f6f8fa` chrome / white page, dark `#151b23` / `#0d1117`, `#0969da` links,
-`#d1d9e0` borders, neutral syntax colors), tonal pill buttons and
-error red for the chrome.
+`src/ui/theme/mod.rs`: the README document palette (light `#f6f8fa` chrome /
+white page, dark `#151b23` / `#0d1117`, `#0969da` links, `#d1d9e0` borders,
+neutral syntax colors), tonal pill buttons and error red for the chrome.
 
 ## Tabs
 
 Vertical tab rail (`src/ui/tabs/mod.rs`): a 44px collapsed rail below the
-toolbar with one favicon per tab, drawn at the toolbar's icon size
-(active tab highlighted with a surface pill + accent bar in the rail's left
-gutter). Hovering expands it to 248px as a floating overlay — never
-reflowing the page — with favicon + title + close and two pinned actions at
-the bottom: `+ New Tab` and `History` below it, their icons the same size
-as the toolbar's. The expansion is animated instead of popping open, and
-closes the same way: a short ease-out width tween (a quintic curve — fast
-start, gentle settle, mirrored on close) clipped to the growing edge, with
-the titles and action labels holding back until the panel has width and then
-fading in while drifting the last few pixels into their column, each tab row
-a beat after the one above it (a bounded cascade). The overlay collapses
-only when the pointer moves into the document area: moving up to the toolbar
-or leaving the window keeps it open. The overlay merges with the toolbar
-(no top seam) and only its right edge is elevated: a soft penumbra in light
-mode, a hairline in dark, present in both rail states (smaller and fainter
-while collapsed) and strengthening with the panel, so opening or closing
-never pops that boundary.
-The title and both action labels are regular chrome text: the rail never
-borrows the document bold face (`theme::strong`), which is reserved for
-emphasis in the reading surface.
-A tab's title is the page's own title — the frontmatter `title`, else the
-document's first `#` heading — and only falls back to the schemeless URL
-when the page has neither.
-A loading tab shows an hourglass icon where the favicon will be (a favicon
-already cached stays, with a small progress dot over it).
-New tabs are capped at `config::MAX_TABS` (128): opening one past the cap
-(+ New Tab, a bookmark, `Ctrl/Cmd+T`) is refused with a "Tab limit reached"
-toast instead of allocating an unbounded tab vector.
-Rows can be reordered: dragging one reorders the rail live — the list follows
-the pointer, the dragged row carries a primary ring, and the overlay stays
-open for the whole gesture — while `Alt+Up`/`Alt+Down` moves a focused row one
-slot (the keyboard equivalent of the bookmark grid's `Alt+Left`/`Alt+Right`).
-The active tab follows its own page through a reorder, and the new order is
-what "restore tabs on startup" remembers.
+toolbar, one favicon per tab at toolbar icon size; the active tab shows a
+surface pill and accent bar in the left gutter.
+
+- Hovering expands it to 248px as a floating overlay that never reflows the
+  page: favicon + title + close, plus pinned `+ New Tab` and `History` below it
+  at the bottom, toolbar-sized.
+- The expansion is a quintic ease-out width tween (fast start, gentle settle,
+  mirrored on close), clipped to the growing edge; titles and action labels wait
+  for width, then fade in while drifting their last pixels into column, each row
+  a beat after the one above.
+- It collapses only when the pointer enters the document area; moving to the
+  toolbar or leaving the window keeps it open. It merges with the toolbar (no
+  top seam), and only its right edge is elevated — a soft light penumbra, a dark
+  hairline — smaller and fainter while collapsed, strengthening with the panel.
+- Titles and action labels are regular chrome text; the rail never borrows the
+  document bold face (`theme::strong`), reserved for the reading surface.
+- A tab's title is the page's own (frontmatter `title`, else the first `#`
+  heading), the schemeless URL only as a last resort.
+- A loading tab shows an hourglass where the favicon will be; a cached favicon
+  stays with a small progress dot.
+- New tabs cap at `config::MAX_TABS` (128); one past the cap (`+ New Tab`, a
+  bookmark, `Ctrl/Cmd+T`) is refused with a "Tab limit reached" toast.
+- Rows reorder: a drag reorders the rail live (list follows pointer, dragged
+  row carries a primary ring, overlay stays open), `Alt+Up`/`Alt+Down` moves a
+  focused row one slot. The active tab follows its page; the new order is what
+  "restore tabs on startup" remembers.
 
 ## Favicons
 
-Favicons are probed per origin (`/favicon.ico`, then `/favicon.png`, then
-`/favicon.svg`) and served from the encrypted disk cache on repeat visits
-(probes persist across launches; `src/media/favicon.rs` holds the session
-per-origin textures); origins
-without one fall back to a home/globe icon.
+Favicons are probed per origin (`/favicon.ico`, `/favicon.png`, `/favicon.svg`)
+and served from the encrypted disk cache on repeat visits and persist across
+launches (`src/media/favicon.rs` holds the session per-origin textures). Origins
+without one get a home/globe icon.
 
 ## Home
 
-The new-tab page keeps exactly three elements: a display wordmark, one
-large address capsule (the same modern omnibox as the toolbar, schemeless
-hint) and the encrypted bookmark "quick access" grid — the only place
-bookmarks are LISTED. It lives at the internal `about:home` URL (typeable
-like `about:history`) and is a real back/forward entry: Back and Forward
-traverse it instead of losing it, while the capsule itself stays empty.
-No hint rows, feature lists or shortcut catalogs on
-the page. Each tile shows a stored custom glyph (letter or emoji) when one
-exists, else the site favicon when it resolves (drawn at the
-same size as the toolbar and rail icons), else the first letter of the
-title on a stable color.
-Clicking a tile opens the page here (its icon and its name alike),
-`Cmd/Ctrl+click` opens it in a new tab, and dragging a tile reorders the
-grid — as does `Alt+Left`/`Alt+Right` on a focused tile (keyboard-only
-reordering). Editing happens ON the tile, with no window: the hover pencil opens an
-inline rename field whose same spot becomes a check that saves; Enter saves
-too and Esc drops the draft, and the hover X removes the tile. Both action
-buttons are reachable with `Tab` once the tile has keyboard focus (the
-tile, its pencil and its X form one focus chain per grid cell).
-The toolbar bookmark ribbon (or `Ctrl/Cmd+D`) adds/removes the page you are reading.
+The new-tab page has three elements: a display wordmark, one large address
+capsule (the toolbar's omnibox, with a schemeless hint) and the encrypted
+bookmark "quick access" grid — the only place bookmarks are LISTED. `about:home`
+(typeable like `about:history`) is a real back/forward entry: Back and Forward
+traverse it, the capsule stays empty. No hint rows, feature lists or shortcut
+catalogs.
+
+Each tile shows a stored custom glyph (letter or emoji), else the site favicon
+when it resolves (at toolbar/rail size), else the title's first letter on a
+stable color. A tile click (icon or name) opens the page here;
+`Cmd/Ctrl+click` opens a new tab; dragging reorders the grid, as does
+`Alt+Left`/`Alt+Right` on a focused tile. Editing is ON the tile, no window:
+the hover pencil opens an inline rename field whose spot becomes a saving
+check; Enter saves, Esc drops the draft, the hover X removes. With keyboard
+focus, `Tab` reaches the pencil and X (tile, pencil, X: one focus chain per
+cell). The toolbar bookmark ribbon (or `Ctrl/Cmd+D`) adds or removes the page
+you are reading.
 
 ## Menu bar
 
-Windows and Linux have no menu at all: the toolbar is the whole chrome
-there. macOS always shows a system menu bar, so it is completed there
-(`src/app/menu.rs`, the `muda` crate): an Application menu (About MDowser,
-Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File
-(New Tab `Cmd+T`, Close Tab `Cmd+W`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
-Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Zoom In
-`Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show History
-`Cmd+Y`) and Window (Minimize, Zoom, Bring All to Front). Every item replays
-the same shortcut the keyboard does, so the menu and the keys share one
-handler; Paste reads the clipboard exactly like `Cmd+V` does. The bar shows
-only MDowser's commands: automatic window tabbing is opted out at startup
-(`app::menu::disable_automatic_tabbing`, which `main` calls before any window
-exists), so AppKit's own "Show Tab Bar"/"Show All Tabs" items never enter
-View — MDowser's tabs are the in-window rail — and the About MDowser panel
-carries the app's own icon (the embedded 256px raster), never AppKit's
-generic placeholder folder.
+Windows and Linux have no menu: the toolbar is the whole chrome. macOS always
+shows a system menu bar (`src/app/menu.rs`, `muda`): Application (About MDowser,
+Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File (New Tab
+`Cmd+T`, Close Tab `Cmd+W`), Edit (Copy `Cmd+C`, Paste `Cmd+V`, Select all
+`Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Zoom In `Cmd++`/`Cmd+=`,
+Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show History `Cmd+Y`), Window
+(Minimize, Zoom, Bring All to Front).
+
+Every item replays the keyboard's shortcut through one handler; Paste reads the
+clipboard exactly like `Cmd+V`. Only MDowser's commands appear: automatic window
+tabbing is opted out at startup (`app::menu::disable_automatic_tabbing`, called
+by `main` before any window exists), so AppKit's "Show Tab Bar"/"Show All Tabs"
+never enter View — tabs are the in-window rail — and About MDowser carries the
+app's own icon (the embedded 256px raster), not AppKit's placeholder folder.
 
 ## Toolbar
 
-`src/ui/navbar/mod.rs`: modern browser layout, no `Go`. Back / forward arrows,
-reload (5s cooldown + countdown in its tooltip, becomes a Stop X while
-loading; forces a cache revalidation instead of serving a fresh record),
-home (opens the new tab page; the page left behind stays on Back), zoom pill
-and the preferences gear. Circular hover fills; every icon is a monochrome
-vector glyph — muted at rest, easing to the accent and growing slightly on
-hover.
+`src/ui/navbar/mod.rs`: modern layout, no `Go`. Back/forward, reload (5s
+cooldown with a tooltip countdown, a Stop X while loading; it forces cache
+revalidation instead of serving a fresh record), home (opens the new-tab page;
+the page left behind stays on Back), zoom pill and Preferences gear. Circular
+hover fills; every icon is a monochrome vector glyph — muted at rest, easing to
+the accent and growing slightly on hover.
 
 ## Omnibox
 
-`src/ui/omnibox/mod.rs`: rounded capsule with a padlock security indicator (a
-page indicator for local files), the address (schemeless for web pages, the
-decoded path for files), an indeterminate loading sweep and ONE right slot
-that holds the clear `X` while editing or the bookmark ribbon otherwise
-(toolbar only): a filled ribbon when the shown page is bookmarked, an
-outline ribbon when it is not, and a disabled ribbon when there is nothing
-to bookmark
-(a shared slot, so editing or a load resolving never shifts the field).
-Enter navigates; `Esc` reverts to the shown page and leaves the field;
-a clean click (or keyboard focus) selects the whole address so typing
-replaces it, while a drag selects from the press point. Neither launching
-the app nor opening a new tab focuses an address field on its own (no popup
-over a fresh window or tab); only `Ctrl/Cmd+L` focuses it.
+`src/ui/omnibox/mod.rs`: a rounded capsule with a padlock indicator (a page
+indicator for local files), the address (schemeless for web, decoded path for
+files), an indeterminate loading sweep and ONE right slot: the clear `X` while
+editing, else the bookmark ribbon (toolbar only) — filled when the page is
+bookmarked, outline when not, disabled with nothing to bookmark. Sharing the
+slot keeps editing and load resolution from shifting the field.
 
-The left indicator is a button, not a field focus target: it names the page
-kind at a glance (padlock for HTTPS, page for a local file, globe/clock/info
-for the internal pages), and clicking it (or activating it from the
-keyboard) opens a small page-info card under the capsule with the facts of
-the page actually rendered — the kind, the document's own title when it has
-one (the frontmatter `title`, else the first `#` heading), the exact
-address WITH its scheme (the field hides `https://`), and one
-line on where the content came from (fetched over HTTPS, read from this
-device, or an internal page). The card is an overlay: it never shifts the
-capsule, its exact address stays bounded
-(`config::SITE_INFO_ADDRESS_CHARS`), and it closes on the next indicator
-click, on `Esc`, on a click outside it, on `Ctrl/Cmd+L` and on any
-navigation (it can never describe a page that is gone).
+`Enter` navigates; `Esc` reverts to the shown page and leaves the field; a clean
+click (or keyboard focus) selects the whole address so typing replaces it, a
+drag selects from the press point. Launching the app or opening a tab never
+focuses the field (no popup over a fresh window or tab); only `Ctrl/Cmd+L` does.
+
+The left indicator is a button, not a focus target. It names the page kind
+(padlock HTTPS, page for a local file, globe/clock/info internal), and clicking
+it (or keyboard activation) opens a page-info card under the capsule with the
+rendered page's facts: kind, the document's own title when it has one
+(frontmatter `title`, else the first `#` heading), the exact address WITH its
+scheme (the field hides `https://`), and one line on content origin (fetched
+over HTTPS, read from this device, or an internal page). The card is an overlay
+and never shifts the capsule; its address stays bounded
+(`config::SITE_INFO_ADDRESS_CHARS`), and it closes on the next indicator click,
+`Esc`, a click outside, `Ctrl/Cmd+L` or any navigation, never describing a gone
+page.
 
 ### Autocomplete
 
-Both address fields (toolbar and Home) offer suggestions in a popup under
-the capsule while the field is editing (`src/suggest.rs`), capped at
+Both address fields (toolbar and Home) offer suggestions in a popup under the
+capsule while the field is editing (`src/suggest.rs`), capped at
 `config::MAX_OMNIBOX_SUGGESTIONS` (8):
 
 - Bookmarks first (newest first), then local-history visits (newest first),
-  then the curated builtin list compiled in from `assets/builtin_sites.txt`
-  (`builtin_sites::builtin_suggestions()`; curated upstream in MDowser-Sites
-  and vendored with `make sync-sites`: one `<url> | <title>` line per
-  entry). Duplicates by exact URL keep the higher-priority source.
-- Matching is case-insensitive on the URL and the title; a schemeless query
+  then the curated builtin list from `assets/builtin_sites.txt`
+  (`builtin_sites::builtin_suggestions()`; curated upstream in MDowser-Sites,
+  vendored with `make sync-sites`: one `<url> | <title>` line per entry).
+  Exact-URL duplicates keep the higher-priority source.
+- Matching is case-insensitive on URL and title; a schemeless query
   (`ex.com/love`) matches the stored `https://` URL. An empty field offers
   recent bookmarks.
-- No row is highlighted until the user picks one: the first `Down` selects
-  the first row, the first `Up` the last, and later presses move through the
-  list. `Tab` completes the highlighted row into the field without
-  navigating (with nothing highlighted it completes the first row), `Enter`
-  navigates to the typed address (only an explicit `Down`/`Up` or a pointer
-  that MOVED onto a row routes `Enter` to a row — a pointer merely resting
-  over the popup never picks one), clicking a row navigates to it, and `Esc`
-  closes the popup first (a second `Esc` reverts the field). The popup is an
-  overlay: it never shifts the capsule or its neighbours. A row's accessible
-  name carries its URL as well as its title, so a screen reader can tell two
-  pages with the same title apart.
-- The list is cached per field in egui memory, rebuilt only when the query
-  or `HistoryStore`/`BookmarkStore` generations change, so typing filters
-  against history/bookmarks live without a per-frame rescan.
+- No row highlights until the user picks one: first `Down` selects the first
+  row, first `Up` the last, later presses move through the list. `Tab` completes
+  the highlighted row into the field without navigating (nothing highlighted:
+  the first row). `Enter` navigates to the typed address; only an explicit
+  `Down`/`Up` or a pointer that MOVED onto a row routes it there (resting over
+  the popup never picks one), clicking a row navigates, `Esc` closes the popup
+  first (a second `Esc` reverts the field). The popup is an overlay and never
+  shifts the capsule or neighbours. A row's accessible name carries URL and
+  title, letting a screen reader distinguish same-titled pages.
+- The list is cached per field in egui memory, rebuilt only when the query or
+  the `HistoryStore`/`BookmarkStore` generations change, so typing filters live
+  history and bookmarks without a per-frame rescan.
 
 ## Zoom
 
-Zoom pill: `-` / `%` / `+` segmented capsule (75-175%); clicking the readout
-resets to 100%. `Ctrl/Cmd+`/`=`/`-`/`0` drive the same factor. Responsive:
-compact (no readout) on narrow windows, hidden on very narrow ones so the
-omnibox keeps the space. Breakpoints use the unzoomed window width, so
-zooming in never hides the pill itself.
+Zoom pill: a `-` / `%` / `+` segmented capsule (75–175%); clicking the readout
+resets to 100%. `Ctrl/Cmd` with `+`/`=`/`-`/`0` drives the same factor.
+Responsive: compact (no readout) on narrow windows, hidden on very narrow ones
+so the omnibox keeps the space. Breakpoints use the unzoomed width, so zooming
+in never hides the pill.
 
 ## Preferences
 
-Gear icon, the last button in the toolbar, after the zoom pill and always
-visible. Opens a card-style dialog (custom header, tab bar, grouped cards,
-toggle switch) with a FIXED WIDTH and a content-sized height, top-anchored:
-each tab's cards hug their rows with no reserved bottom space, and arming a
-delete-confirmation note only pushes the cards below it (the inner scroll
-appears only when the armed stack exceeds the viewport). The selected tab
-is kept while the dialog stays open (never written to disk), and each tab
-keeps its own scroll position.
+Gear icon, the toolbar's last button, after the zoom pill and always visible. It
+opens a card-style dialog (custom header, tab bar, grouped cards, toggle switch)
+with a FIXED WIDTH, content-sized height and top anchor: each tab's cards hug
+their rows with no reserved bottom space, and arming a delete-confirmation note
+only pushes the cards below it (inner scroll only past the viewport). The
+selected tab and each tab's scroll position persist while the dialog stays open
+(never written to disk).
 
-- The General tab holds the appearance card — theme (System/Light/Dark),
-  default zoom (the same `- % +` pill as the toolbar; clicking the readout
-  resets to 100%) and "restore tabs on startup" (a caption under the switch
-  explains when it is off because of "Forget on exit") — plus a compact
-  footer line with the version and the app's own license (`MDowser <ver> ·
-  MPL-2.0`) and the "View third-party licenses" link, which opens
-  `about:licenses` in a new tab.
-- The Data tab holds the history card — the retention dropdown ("Forget on
-  exit", "Keep 1 month", "Keep 3 months (default)", "Keep 6 months", "Keep 1
-  year", "Keep forever"), the destructive "Delete history" action (two-click
-  confirmation) and the stored-count caption (the encrypted store location
-  shows as its tooltip); selecting "Forget on exit" also turns off "restore
-  tabs on startup" and deletes `session.bin`, because that encrypted snapshot
-  holds visited URLs and the mode promises nothing on disk — the cache card
-  (encrypted HTTP disk cache usage with one two-click "Clear …" action per
-  class: documents, images, favicons) — and the local data card with "Delete
-  all data and close" (two-click confirmation): deletes the whole data
-  directory (history, bookmarks, settings, session, cache and the shared
-  key) and exits immediately with `process::exit` without further saves. A
-  deletion that FAILS (a file still open elsewhere, permissions) does NOT
-  close the app and does not pretend the data is gone: the card shows the
-  error, writes resume and the next attempt can succeed.
-- The Shortcuts tab holds the read-only keyboard shortcut reference in
-  English (Tabs / Navigation / Page / Zoom), mirroring the table below.
+- **General** holds the appearance card — theme (System/Light/Dark), default
+  zoom (the toolbar's `- % +` pill; readout click resets to 100%) and "restore
+  tabs on startup" (a caption under the switch explains when it is off because
+  of "Forget on exit") — plus a compact footer with the version, the app's
+  license (`MDowser <ver> · MPL-2.0`) and the "View third-party licenses" link,
+  opening `about:licenses` in a new tab.
+- **Data** holds the history card — the retention dropdown ("Forget on exit",
+  "Keep 1 month", "Keep 3 months (default)", "Keep 6 months", "Keep 1 year",
+  "Keep forever"), the destructive "Delete history" action (two-click
+  confirmation) and the stored-count caption (the encrypted store location as
+  its tooltip). "Forget on exit" also turns off "restore tabs on startup" and
+  deletes `session.bin`, since the snapshot holds visited URLs. The tab also has
+  the cache card (encrypted HTTP disk cache usage, one two-click "Clear …" per
+  class: documents, images, favicons) and the local data card with "Delete all
+  data and close" (two-click confirmation): it deletes the whole data directory
+  (history, bookmarks, settings, session, cache, shared key) and exits
+  immediately with `process::exit`, without further saves. A FAILED deletion
+  (file open elsewhere, permissions) does NOT close the app or fake success: the
+  card shows the error, writes resume, and a retry can succeed.
+- **Shortcuts** holds the read-only keyboard shortcut reference in English
+  (Tabs / Navigation / Page / Zoom), mirroring the table below.
 
-Every control sits centered in its row — the dropdown fields, the zoom pill
-and the switches share one right edge — every dropdown row keeps its geometry
-on hover, so the controls never shift.
-Esc closes an open dropdown first, and the dialog on the next press.
+Every control sits centered — dropdowns, zoom pill and switches share one right
+edge — and every dropdown row keeps its geometry on hover, so nothing shifts.
+`Esc` closes an open dropdown first, the dialog on the next press.
 
 ## History
 
-Clock icon at the bottom of the tab rail: the internal `about:history`
-page, rendered in a tab like a document. A capsule search field (magnifier
-and clear X) filters by URL and title; the visits below are grouped into
-rolling date sections — Today / Yesterday / Previous 7 days / Previous 30
-days / Older — each row showing its favicon (the shared session cache; a
-globe for web pages and a file page for local ones while it resolves or
-when there is none), its title and relative age, and a remove X (the row's
-accessible name carries the URL too). The header prints the total and the
-active retention window, and the footer repeats the count ("N of M pages"
-while filtering) next to the two-click delete-all.
-The button (and `Ctrl+H` / `Cmd+Y`) opens it in a NEW tab right after the
-current one (which is never replaced); clicking a row then navigates that
-same history tab to the visit, so Back returns to the list.
+Clock icon at the bottom of the tab rail: `about:history`, rendered in a tab
+like a document. A capsule search field (magnifier, clear X) filters by URL and
+title. Visits group into rolling date sections — Today / Yesterday / Previous 7
+days / Previous 30 days / Older — each row with its favicon (shared session
+cache; a globe for web pages, a file page for local ones while it resolves or
+when absent), title, relative age and a remove X (the accessible name carries
+the URL). The header prints the total and retention window; the footer repeats
+the count ("N of M pages" while filtering) beside the two-click delete-all.
 
-History is stored encrypted on this device only: the standard per-user data
-directory (macOS `~/Library/Application Support/MDowser`, Linux
-`$XDG_DATA_HOME/mdowser`, Windows `%LOCALAPPDATA%\MDowser`), bounded to
-20 000 entries / 8 MiB, written atomically and pruned by the retention
-window. "Forget on exit" keeps visits in memory for the session only and
-wipes any leftovers.
+The button (and `Ctrl+H` / `Cmd+Y`) opens it in a NEW tab right after the
+current one, never replacing it; clicking a row navigates that same history tab
+to the visit, so Back returns to the list.
+
+History is stored encrypted on this device only: the per-user data directory
+(macOS `~/Library/Application Support/MDowser`, Linux `$XDG_DATA_HOME/mdowser`,
+Windows `%LOCALAPPDATA%\MDowser`), bounded to 20 000 entries / 8 MiB, written
+atomically, pruned by retention. "Forget on exit" keeps visits in memory for the
+session only and wipes leftovers.
 
 ## Third-party licenses
 
 "View third-party licenses" at the bottom of Preferences (or typing
-`about:licenses`) opens the licenses of the linked crates and bundled
-fonts: the exact `THIRD_PARTY_NOTICES.md` shipped in every release archive,
-embedded in the binary and rendered with the browser's own Markdown engine.
-Text selection, copy, the right-click menu and links behave like a document;
-relative links (to the repository's license files) are inert offline, while
-absolute `https:` links are live. The page opens in a new tab and session
-restore brings it back like `about:history`.
+`about:licenses`) opens the licenses of linked crates and bundled fonts: the
+exact `THIRD_PARTY_NOTICES.md` in every release archive, embedded in the binary
+and rendered with the browser's own Markdown engine. Selection, copy, the
+right-click menu and links work like a document; relative links (to the
+repository's license files) are inert offline, absolute `https:` links live. The
+page opens in a new tab and session restore brings it back like `about:history`.
 
 ## Bookmarks
 
-`Ctrl/Cmd+D` or the toolbar bookmark ribbon toggles the loaded page (a toast confirms;
-the ribbon fills while the shown page is bookmarked). The Home page shows them
-as a "quick access" tile grid (newest first, responsive columns): a stored
-custom glyph (a letter or emoji) when one exists, else the site favicon
-when it resolves, else the first letter of the title on a stable color. The
-name is up to two centered lines, elided with `…` by the layout when it
-does not fit (long paths and CJK included); the grid scrolls past three
-tile rows, and its floating scrollbar only appears once it actually does.
-The tile editor is inline (no
-window): the pencil renames (its check or Enter saves, Esc cancels), a drag
-reorders the grid (`Alt+Left`/`Alt+Right` on the focused tile moves it one
-display slot) and the X removes; any stored glyph or color keeps
-rendering. Stored
-encrypted on this device only (`bookmarks.bin` + shared `store.key`,
-ChaCha20-Poly1305, the same per-user data directory as History), kept until
-removed (no retention window), bounded to 2000 entries with an add at the
-cap refused instead of dropping an older bookmark. A first run starts with
-a curated default set of five (Markdown guides, an agent-readiness
-leaderboard and developer-service docs); the rest of the curated list lives
-only in the omnibox builtin suggestions. Deleting them never brings
-them back. Their favicons load through the usual tile pipeline (one probe
-per origin on first display). The grid is deliberately
-the only place the bookmarks themselves are listed.
+`Ctrl/Cmd+D` or the toolbar ribbon toggles the loaded page (a toast confirms;
+the ribbon fills when bookmarked). Home shows a "quick access" tile grid (newest
+first, responsive columns) whose interaction (glyph priority, rename, drag and
+keyboard reorder, remove) is under [Home](#home). Names get up to two centered
+lines, elided with `…` when they do not fit (long paths and CJK included); the
+grid scrolls past three tile rows, its floating scrollbar appearing only then.
+The editor is inline (no window): the pencil renames (check or Enter saves, Esc
+cancels), a drag reorders (`Alt+Left`/`Alt+Right` moves a focused tile one
+display slot), the X removes; any stored glyph or color keeps rendering.
+
+Bookmarks are encrypted on this device only (`bookmarks.bin` + shared
+`store.key`, ChaCha20-Poly1305, the same directory as History), kept until
+removed (no retention window), bounded to 2000 entries; an add at the cap is
+refused rather than dropping an older one. A first run starts with a curated set
+of five (Markdown guides, an agent-readiness leaderboard and developer-service
+docs); the rest lives only in the omnibox builtin suggestions, and deleting them
+never brings them back. Favicons load through the usual tile pipeline (one probe
+per origin on first display).
 
 ## Reading surface
 
-Content: fluid centered column (max 760px, 8/12/16px gutters),
-always-visible scrollbar (a border-tone handle at 0.75 dormant opacity, so
-the bar reads against both themes instead of blending into the chrome). A
-`spacing::PAGE_END` (24px) blank pad closes every scrolling page under its
-last element (documents, Home, the error view), so a page scrolled to its
-end keeps a small margin under the text instead of ending flush against the
-sheet's bottom edge. The
-previous page stays visible until the new one resolves (no white flash).
+Content: a fluid centered column (max 760px, 8/12/16px gutters) with an
+always-visible scrollbar (a border-tone handle at 0.75 dormant opacity, readable
+against both themes). A `spacing::PAGE_END` (24px) blank pad closes every
+scrolling page under its last element (documents, Home, the error view), so the
+end keeps a small margin. The previous page stays visible until the new one
+resolves (no white flash).
 
-Render: responsive H1-H6 in the README type scale with H1/H2 bottom rules,
-wrapping selectable paragraphs with README line height,
+Render: responsive H1–H6 in the README scale with H1/H2 bottom rules; selectable
+wrapping paragraphs at README line height.
 
-- one large `·` document bullet hugging the text column inside a fixed
-  24px gutter for every unordered item (whatever the source marker: `-`,
-  `*` or `+`, at every depth) with a hanging indent that keeps wrapped rows
-  in the text column and the bullet on the first text row,
-- compact item spacing, and `N.` lists with real read-only checkboxes for
-  tasks,
-- inline code pills at the body size (a `.2em .4em` pill padding as real
-  layout air on both
-  sides, body baseline, linked code included, and one tight pill per row
-  when a span wraps; the pill's height is capped at the body line minus 3px
-  so the bundled mono cut's tall em box cannot inflate it into a full line
-  box),
-- code cards (language chip + Copy button + lightweight per-line
-  highlighting, no line numbers, at the same body size as the prose),
-- striped bordered tables that fill the drawn card (leftover width
-  distributed proportionally), shrink and wrap long cells (links included)
-  instead of forcing a horizontal scrollbar (a table that still scrolls
-  keeps its columns at a readable width instead of collapsing them), unique
-  ids, per-column alignment, collapsed interior cell separators that reach
-  the card border and 5px/11px cell padding so text never touches a line,
-- muted quotes in a soft full-width box with ONE thick bar (neutral for
-  plain quotes, the alert accent for `> [!NOTE]`/`TIP`/`WARNING` callouts,
-  whose body keeps the normal text color) and vertical air between
-  consecutive boxes,
-- SVG badges/logos, emoji, CJK, RTL and the bundled script
-  faces, and real images (hourglass placeholder while loading, warning icon
-  with the reason as tooltip on failure, centered captions, natural-size
-  images clamped to the reading column; linked images draw the shared
-  keyboard focus ring like every other chrome control — in every load
-  state, placeholders included).
-- Footnote references render as small raised NUMBER markers (linked to the
-  note, numbered by first reference) and the notes themselves as a footnotes
-  section: one rule before the first note, one numbered entry per note whose
-  marker shares the first line with the note body (continuation blocks hang
-  under the text; a first block that cannot flow inline keeps the marker
-  above it, like a list item), and a back-arrow that closes the note text
-  (the last inline box, so it sits right after the final word on the same
-  line; a note ending in a block that cannot flow inline keeps it on a
-  small trailing row) and scrolls to the
-  reference. Definitions
-  the document never references still render. `Copy` keeps the source
-  `[^label]` spelling. See [`RENDERING.md`](RENDERING.md#footnotes).
+- One large `·` bullet hugging the text column inside a fixed 24px gutter for
+  every unordered item (any source marker, `-`, `*` or `+`, at every depth),
+  hanging-indented so wrapped rows stay in the text column and the bullet on the
+  first text row.
+- Compact item spacing, and `N.` lists with real read-only checkboxes for
+  tasks.
+- Inline code pills at body size: `.2em .4em` padding as layout air both sides,
+  body baseline, linked code included, one tight pill per row when a span wraps;
+  height capped at the body line minus 3px so the bundled mono cut's tall em box
+  cannot inflate it into a full line.
+- Code cards (language chip + Copy button + lightweight per-line highlighting,
+  no line numbers) at the same body size as the prose.
+- Striped bordered tables fill the drawn card (leftover width distributed
+  proportionally); long cells (links included) shrink and wrap instead of
+  forcing a horizontal scrollbar (a scrolling table keeps readable column
+  widths), with unique ids, per-column alignment, collapsed interior separators
+  reaching the card border and 5px/11px cell padding.
+- Muted quotes in a soft full-width box with ONE thick bar (neutral for plain
+  quotes, the alert accent for `> [!NOTE]`/`TIP`/`WARNING` callouts, whose body
+  keeps normal text color) and vertical air between consecutive boxes.
+- SVG badges/logos, emoji, CJK, RTL and bundled script faces, and real images
+  (hourglass placeholder while loading, a warning icon with the reason as
+  tooltip on failure, centered captions, natural-size images clamped to the
+  reading column). Linked images draw the shared keyboard focus ring like any
+  chrome control, in every load state, placeholders included.
+- Footnote references are small raised NUMBER markers (linked to the note,
+  numbered by first reference); notes form a footnotes section: one rule before
+  the first note, one numbered entry per note whose marker shares the first line
+  with the note body (continuation blocks hang under the text; a first block
+  that cannot flow inline keeps the marker above, like a list item), and a
+  back-arrow closing the note text and scrolling to the reference. Definitions
+  the document never references still render. `Copy` keeps the source `[^label]`
+  spelling. See [`RENDERING.md#footnotes`](RENDERING.md#footnotes).
 
-Every surface draws bundled Noto typefaces only: proportional text
-(document text, chrome, menus) draws the Noto Sans variable font, while
-inline code and code cards draw the bundled Noto Sans Mono CJK JP cut (face
-5 of the CJK collection) so code keeps true monospace alignment — at the
-BODY size, so code is exactly as wide as the prose around it (`theme::BODY_FONT_SIZE`
-backs both text styles; the code cards are tall for the body 24px line).
-Bold text
-is a real bold face (`theme::strong`): headings, `**strong**` runs, callout
-titles and footnote refs draw the same Noto Sans variable font pinned to
-`wght = 700`, so weight carries the emphasis instead of a color shift.
-Body text is the high-contrast `on_surface` token; muted H6 and plain
-quote bodies opt into the muted tone on purpose. Raw HTML is never painted
-as markup and never interpreted: every block-level or inline tag is a
-transparent wrapper (the tag disappears, its content renders as Markdown),
-so exported HTML-wrapped content reads normally. The one inert case left is
-`<pre>`/`<textarea>` (their bytes are not Markdown; they paint as muted
-monospace) and malformed/unbalanced markup, which also stays literal.
-HTML comments (`<!-- ... -->`) are invisible, block and
-inline alike: they never paint and `Copy` never includes them.
+Every surface draws bundled Noto typefaces only: proportional text (document,
+chrome, menus) uses Noto Sans variable; inline code and code cards use the
+bundled Noto Sans Mono CJK JP cut (face 5 of the CJK collection) at BODY size,
+so code is exactly as wide as the prose (`theme::BODY_FONT_SIZE` backs both;
+code cards are tall for the body 24px line). Bold is a real face
+(`theme::strong`): headings, `**strong**` runs, callout titles and footnote refs
+use Noto Sans variable pinned to `wght = 700`. Body text is the high-contrast
+`on_surface` token; muted H6 and plain quote bodies opt into the muted tone. Raw
+HTML is never painted or interpreted: every block-level or inline tag is a
+transparent wrapper (the tag disappears, its content renders as Markdown).
+Inert: `<pre>`/`<textarea>` (bytes are not Markdown; muted monospace) and
+malformed/unbalanced markup, also literal. HTML comments (`<!-- ... -->`) are
+invisible, block and inline: they never paint and `Copy` omits them.
 
 ## Error screen
 
-A failed load (or a local rejection) renders in the reading sheet as a
-styled error page instead of a raw log:
+A failed load (or local rejection) renders a styled error page in the reading
+sheet, not a raw log:
 
-- A colored status dot and a family title: No connection, Page not found,
-  No markdown here, Invalid address, Could not load (the family is
-  classified from the failure log; a local-file failure uses the local
-  wording). The dot is painted centered on the laid-out title (a flat
-  horizontal row top-clamps a shorter item, which used to park it visibly
-  high). An explanation line, the requested address with its scheme
-  hidden, a "What you can do" hint card and a Details section follow.
-- "No markdown here" (the target answered, it just did not serve Markdown)
-  offers a large accent "Open in your browser" action under the requested
-  address: it hands the resolved address to the OS default handler — the
-  default browser for web pages, the file's default app for local files
-  (local targets label the button "Open with the default app"). The address
-  goes back through the app's own navigability parser, so pasted
-  credentials are stripped before the OS ever sees it, and no other error
-  family offers the action.
-- Details is a bounded scroll of one monospace line per route candidate,
-  in the order they were tried, with `https://`/`file://` stripped and any
-  userinfo credentials removed; a "Copy log" button copies the same text
-  prefixed by `Requested: <address>`.
-- A Retry button re-runs the page. It honors the same 5s cooldown as
-  Refresh (anti-hammer): while cooling down it is disabled and its tooltip
-  counts the seconds; a local address rejection (invalid URL, non-https)
-  can never succeed by retrying and shows a "fix the address" hint instead
-  of a countdown.
+- A colored status dot and a family title: No connection, Page not found, No
+  markdown here, Invalid address, Could not load (classified from the failure
+  log; local-file failures use the local wording). The dot is centered on the
+  laid-out title. Then an explanation line, the requested address with its
+  scheme hidden, a "What you can do" hint card and a Details section.
+- "No markdown here" (the target answered but served no Markdown) offers a
+  large accent "Open in your browser" action under the requested address: it
+  hands the resolved address to the OS default handler — default browser for web
+  pages, the file's default app for local files (labeled "Open with the default
+  app"). The address passes back through the app's navigability parser, so
+  pasted credentials are stripped before the OS sees it; no other family offers
+  the action.
+- Details is a bounded scroll of one monospace line per route candidate, in
+  tried order, `https://`/`file://` stripped and userinfo removed. A "Copy log"
+  button copies that text prefixed by `Requested: <address>`.
+- A Retry button re-runs the page under the same 5s cooldown as Refresh
+  (anti-hammer): while cooling down it is disabled and its tooltip counts the
+  seconds. A local address rejection (invalid URL, non-`https`) can never
+  succeed by retrying and shows a "fix the address" hint instead of a countdown.
 
 ## Right-click menu
 
-Minimal: Copy (the drag selection when there is one, else the whole page),
-Select all and Find in page (which opens the find bar, same as `Ctrl/Cmd+F`,
-below a separator); over a link it adds Open link in new tab at the top.
-`Cmd/Ctrl+click` on a link opens it in a background tab directly (an
-in-page `#anchor` becomes its absolute URL plus the fragment). All
-body text is natively selectable (drag + Cmd/Ctrl+C) with readable selection
-colors. Right-clicking never disturbs an existing selection (its press is
-intercepted before egui, which would otherwise collapse it), so Copy from
-the menu copies exactly the selected text. Opening the menu with the pointer
-leaves NO row highlighted (only
-the keyboard lights one), a primary press outside it — including the start
-of a drag selection — closes it, and the menu is keyboard-navigable:
-`Down`/`Up` move focus into the rows (the first press lands on the first
-one), `Enter` activates the focused one and `Esc` closes it.
+Minimal: Copy (the drag selection when one exists, else the whole page), Select
+all and Find in page (opens the find bar, same as `Ctrl/Cmd+F`, below a
+separator); over a link it adds Open link in new tab at the top.
+`Cmd/Ctrl+click` on a link opens it in a background tab directly (an in-page
+`#anchor` becomes its absolute URL plus the fragment). All body text is natively
+selectable (drag + `Cmd/Ctrl+C`) with readable selection colors. Right-clicking
+preserves an existing selection (its press is intercepted before egui), so menu
+Copy copies exactly the selected text.
+
+Opening the menu with the pointer leaves NO row highlighted (only the keyboard
+lights one). A primary press outside it — including the start of a drag
+selection — closes it. The menu is keyboard-navigable: `Down`/`Up` move focus
+into the rows (the first press lands on the first), `Enter` activates the
+focused one, `Esc` closes.
 
 ## Keyboard shortcuts
 
-The global shortcuts; field/menu/grid keys live in their sections above.
-The Preferences Shortcuts tab carries them in English as a
-curated quick reference, leaving out the bare `Esc` rows and the keyboard
-reorders.
+The global shortcuts; field, menu and grid keys live in their sections above.
+The Preferences Shortcuts tab carries them in English as a curated quick
+reference, leaving out bare `Esc` rows and keyboard reorders.
 
 | Shortcut | Action |
 | --- | --- |
@@ -437,33 +380,29 @@ reorders.
 
 ## Find in page
 
-`Ctrl/Cmd+F` (or the right-click menu's "Find in page" row) opens a floating
-bar over a document page (a loaded document
-or the embedded licenses page; Home, history, loading and error views have
-nothing to search). It is built from the app's own chrome kit: an
+`Ctrl/Cmd+F` (or the right-click "Find in page" row) opens a floating bar over a
+document page (a loaded document or the embedded licenses page; Home, history,
+loading and error views have nothing to search). It uses the chrome kit: an
 omnibox-style capsule (soft chrome fill, magnifier glyph, frameless field
-that focuses with the accent ring), the `n/m` count in a fixed muted slot
-and circular icon buttons for previous/next/close, identical in hover
-fill, glyph animation and tooltips to the toolbar's (a lighter shadow than
-the menu popups, since the bar stays on screen). Matching is a
-case-insensitive substring over the rendered
-text — prose, headings, list items, quotes, tables and fenced code bodies —
-with every match washed amber and the current one in a stronger tone, inside
-code blocks and table cells included (a code block washes its matching rows
-and marks the current row with the stronger wash), and the sheet
-scrolls the current row into view even when it sits inside a code card or a
-table's horizontal scroll area.
-Searching never changes the layout — not even by a pixel: the matches ride
-on the very text the unsearched render lays out, with the wash painted
-behind it (a color emoji inside a matched paragraph keeps its color, with
-the wash behind it).
-`Enter` steps forward (`Shift+Enter` back; `F3` / `Shift+F3` work without
-the field focused) and the sheet scrolls the current match into view —
-down or up — retrying until it is on screen, unless the reader scrolls
-meanwhile (`Esc` closes the bar — unless a focused field, the page-info
-card, a popup/menu or a floating window owns that press, so one `Esc` never
-acts on two surfaces — and the bar keeps the query for reopening:
-`Ctrl/Cmd+F` focuses the field with that query SELECTED, so typing replaces
-it).
-The bar is an overlay (never shifts the document) and closes on navigation
-or tab switch with the rest of the overlay state.
+focusing with the accent ring), the `n/m` count in a fixed muted slot and
+circular previous/next/close buttons, identical in hover fill, glyph animation
+and tooltips to the toolbar's (lighter shadow than menu popups, since the bar
+stays on screen).
+
+Matching is a case-insensitive substring over rendered text — prose, headings,
+list items, quotes, tables and fenced code bodies — every match washed amber,
+the current one stronger, code blocks and table cells included (a code block
+washes its matching rows and marks the current row with the stronger wash); the
+sheet scrolls the current match into view even inside a code card or a table's
+horizontal scroll area.
+
+Searching never changes the layout, not by a pixel: matches ride on the text the
+unsearched render lays out, the wash painted behind it (color emoji keep their
+color, wash behind). `Enter` steps forward (`Shift+Enter` back; `F3`/`Shift+F3`
+work unfocused) and the sheet scrolls the match into view — down or up —
+retrying until on screen, unless the reader scrolls meanwhile. `Esc` closes the
+bar — unless a focused field, the page-info card, a popup/menu or a floating
+window owns that press, so one `Esc` never acts on two surfaces. The bar keeps
+its query for reopening: `Ctrl/Cmd+F` focuses the field with it SELECTED, so
+typing replaces it. The bar is an overlay (never shifts the document) and closes
+on navigation or tab switch with the rest of the overlay state.

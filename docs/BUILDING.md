@@ -1,62 +1,66 @@
 # Building MDowser
 
+See also: [`CONTRIBUTING.md`](CONTRIBUTING.md) for standards and
+[`SECURITY.md`](SECURITY.md#build-artifacts) for the release-artifact privacy
+contract.
+
 ## Requirements
 
-- Stable Rust toolchain ≥ 1.98 via `rustup` (provides `cargo`, `rustc`); the
-  floor comes from the pure-Rust AVIF decoder (`avif-decode`). Everything
+- Stable Rust toolchain ≥ 1.98 via `rustup` (provides `cargo` and `rustc`).
+  The floor comes from the pure-Rust AVIF decoder (`avif-decode`); everything
   else builds on older stable.
 - System C compiler: Xcode Command Line Tools on macOS
   (`xcode-select --install`), `build-essential` on Debian/Ubuntu, MSVC or
   MinGW on Windows.
 - NASM on x86/x86_64 hosts (Linux, Intel macOS, Windows): the AVIF decoder
   (`rav1d`) and the rustls crypto provider (`aws-lc-sys`) compile assembly.
-  `brew install nasm`, `sudo apt-get install nasm` or (Windows, used by
-  `windows.ps1`) `winget install NASM.NASM`. ARM64 hosts (Apple Silicon,
-  Linux arm64, Windows on ARM) use the system toolchain and need no NASM.
-- No `PATH` setup needed: the `Makefile` and `scripts/lib.sh` resolve the
-  toolchain from `$HOME`-relative locations (`~/.cargo/env`, `~/.cargo/bin`,
-  `rustup which cargo`, `brew --prefix`, toolchain glob) and keep cargo's own
-  directory on `PATH` so it always finds its sibling `rustc`. Nothing
-  machine-specific is committed. (Without `make`:
-  `export PATH="$HOME/.cargo/bin:$PATH"`.)
+  Install with `brew install nasm`, `sudo apt-get install nasm` or, on
+  Windows (used by `windows.ps1`), `winget install NASM.NASM`. ARM64 hosts
+  (Apple Silicon, Linux arm64, Windows on ARM) need no NASM.
+- No `PATH` setup: the `Makefile` and `scripts/lib.sh` resolve the toolchain
+  from `$HOME`-relative locations (`~/.cargo/env`, `~/.cargo/bin`,
+  `rustup which cargo`, `brew --prefix`, the toolchain glob) and keep cargo's
+  own directory on `PATH` for its sibling `rustc`. Nothing machine-specific is
+  committed. Without `make`, run `export PATH="$HOME/.cargo/bin:$PATH"`.
 - Crates are downloaded from crates.io into `~/.cargo/registry`, outside the
   repo.
 
-Only for multi-OS `make dist` from macOS (auto-installed by the script,
+Only for a multi-OS `make dist` from macOS (auto-installed by the script
 unless `SKIP_SETUP=1`):
 
-- macOS targets: `rustup target add x86_64-apple-darwin` on Apple Silicon
-  (and `aarch64-apple-darwin` on an Intel host); both are download-only and
-  the script installs whichever the host lacks.
-- x86_64 assembly for the AVIF decoder (`rav1d`): `brew install nasm`
-  (needed by every x86_64 target, Intel macOS included).
-- Linux (dockerless linker): `brew install zig` + `cargo install cargo-zigbuild`.
+- macOS targets: `rustup target add x86_64-apple-darwin` on Apple Silicon (and
+  `aarch64-apple-darwin` on an Intel host). Both are download-only; the script
+  installs whichever the host lacks.
+- x86_64 assembly for `rav1d`: `brew install nasm` (needed by every x86_64
+  target, Intel macOS included).
+- Linux (dockerless linker): `brew install zig` +
+  `cargo install cargo-zigbuild`.
 - Windows (GNU linker): `brew install mingw-w64`.
 - Packaging: `python3` for the `.deb` writer and the zip fallback (checked
-  when one of those is actually used, so RPM/Flatpak/macOS/Windows-only
-  runs do not need it), `tar`, and `shasum` or `sha256sum`; `zip` is used
-  when present and falls back to `ditto` (macOS) or python3.
+  when used, so RPM/Flatpak/macOS/Windows-only runs do not need it), `tar`,
+  and `shasum` or `sha256sum`. `zip` is used when present and falls back to
+  `ditto` (macOS) or python3.
 
-Native RPM and Flatpak (built only on Linux hosts; `make deps` attempts the
-tools there, best-effort):
+Native RPM and Flatpak builds run only on Linux hosts; `make deps` attempts
+their tools there, best-effort:
 
-- RPM: `rpmbuild` (`rpm-build` on Fedora). `make dist-rpm` builds the
-  package from the full source tree. Not cross-built from macOS.
+- RPM: `rpmbuild` (`rpm-build` on Fedora). `make dist-rpm` builds the package
+  from the full source tree. It is not cross-built from macOS.
 - Flatpak: `flatpak-builder` plus the `org.freedesktop.Platform` /
   `org.freedesktop.Sdk` 26.08 runtimes and the
-  `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`; the
+  `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`). The
   branch is the manifest's `runtime-version`, the single source of truth
-  `scripts/build-flatpak.sh` derives the refs from).
+  `scripts/build-flatpak.sh` derives the refs from.
 
 ## Installing dependencies
 
-`make deps` installs what the host can use, best-effort and idempotent:
-Rust (Homebrew's `rustup` + stable toolchain on macOS; on Linux the official
+`make deps` installs what the host can use, best-effort and idempotent: Rust
+(Homebrew's `rustup` + stable toolchain on macOS; on Linux the official
 installer only with `ALLOW_RUSTUP=1`, never silently), `nasm`, `python3`, the
 macOS cross tools (`zig`, `cargo-zigbuild`, `mingw-w64`, the rustup targets)
 and the packaging tools (`desktop-file-utils`, `appstream`, `appstream-glib`,
-`rpm`, `lintian`, PyYAML). Homebrew on macOS; `apt-get`/`dnf`/`pacman` on
-Linux (via `sudo`).
+`rpm`, `lintian`, PyYAML). It uses Homebrew on macOS and `apt-get`/`dnf`/
+`pacman` on Linux (via `sudo`).
 
 ```sh
 make deps                    # everything this host can use
@@ -64,16 +68,16 @@ make deps DEPS=packaging     # one group: toolchain | cross | packaging
 SKIP_SETUP=1 make deps       # report only, install nothing
 ```
 
-A tool already on `PATH` is left alone; anything that cannot be installed is a
-`SKIP` with the reason, never a failure. The Xcode Command Line Tools (the
-macOS C compiler) cannot come from Homebrew, so the target prints
-`xcode-select --install` instead. `make dist` already auto-installs the cross
-tools it needs (`SKIP_SETUP=1` opts out), so `make deps` matters mostly for
-Rust itself and the packaging/validation tools.
+A tool already on `PATH` is left alone; anything uninstallable is a `SKIP`
+with the reason, never a failure. The Xcode Command Line Tools (the macOS C
+compiler) cannot come from Homebrew, so the target prints
+`xcode-select --install`. `make dist` auto-installs the cross tools it needs
+(`SKIP_SETUP=1` opts out); `make deps` matters mostly for Rust itself and the
+  packaging/validation tools.
 
 ## Build, test and package
 
-`make` shortcuts (delegate to cargo and `scripts/`, POSIX sh):
+`make` shortcuts (delegating to cargo and `scripts/`, POSIX sh):
 
 ```sh
 make              # deps + host release + current-OS dist into dist/
@@ -98,53 +102,48 @@ make sync-sites   # sync curated omnibox list from MDowser-Sites (manual, networ
 make check-sites  # validate one builtin-sites list file (SITES_FILE, manual, network)
 ```
 
-`make doctor` prints the toolchain exactly as the Makefile sees it (the
-`PATH` fixup, the resolved `cargo`/`rustc`, whether `nasm` is present) and
-stays runnable even when `cargo` cannot be found — every other target fails
-at parse time with the hint that points at it.
+`make doctor` prints the toolchain as the Makefile sees it (the `PATH` fixup,
+the resolved `cargo`/`rustc`, whether `nasm` is present) and stays runnable
+even when `cargo` cannot be found; every other target fails at parse time with
+the hint that points at it.
 
-`make` (the default target) and `make dist` both run `make deps` first, so
-the widest possible toolchain is installed before building; `SKIP_SETUP=1
-make ...` keeps it to what is already present. Direct script invocations
-(`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that bootstrap.
-`make` then builds the current
-platform's artifact set only (macOS: the universal `.app.zip`; Linux:
-`.tar.gz` + `.deb`/`.rpm` + the Flatpak bundle; Windows: the `.exe` zip),
-while `make dist` builds every platform it can on the host.
+`make` (the default target) and `make dist` both run `make deps` first;
+`SKIP_SETUP=1 make ...` keeps it to what is already present. Direct script
+invocations (`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that
+bootstrap. `make` builds the current platform's set only (macOS: the universal
+`.app.zip`; Linux: `.tar.gz` + `.deb`/`.rpm` + the Flatpak bundle; Windows:
+the `.exe` zip), while `make dist` builds every platform the host can.
 
-`make icons` only forces a regeneration: the build itself generates
-`assets/icons/` from `assets/icon.svg` whenever the committed files are
-missing or outdated (`build.rs` + `build_support/gen_icons.rs`), so a fresh
-checkout needs no manual step.
+`make icons` forces a regeneration: the build generates `assets/icons/`
+from `assets/icon.svg` whenever the committed files are missing or outdated
+(`build.rs` + `build_support/gen_icons.rs`), so a fresh checkout needs no
+  manual step.
 
-The build also Brotli-compresses the two largest embedded fonts
-(`assets/fonts/NotoColorEmoji-Regular.ttf`, `assets/fonts/NotoSansCJK-Regular.ttc`)
-into `OUT_DIR` (`build_support/gen_fonts.rs`), saving ~26.5 MB in the
-installed binary (44.8 MB raw -> 18.3 MB at quality 10) with byte-identical
-rendering; the runtime decompresses
-each face once (CJK synchronously at startup, color emoji on the background
-`media::emoji::prewarm` thread `App::new` spawns, so no first emoji ever
-parses the face mid-frame). The result
-is cached with a hash stamp, so only the first build of a profile and
-target triple pays the ~90 s encoder pass (quality 10; `OUT_DIR` is keyed
-by both, so a full multi-target `make dist` pays it once per target).
-Build scripts run optimized
-(`[profile.*.build-override] opt-level = 3` in `Cargo.toml`) precisely for
-this: at the default `opt-level = 0` the encoder would take minutes. The
-same tables set `strip = "none"` to opt out of cargo's automatic debuginfo
-strip for build dependencies (since Rust 1.77, build scripts are built
-without debug info and cargo passes `-C strip=debuginfo`): on macOS that
-strip step invokes the toolchain's `rust-objcopy`, which is broken on some
-installs (missing `libLLVM.dylib` -> `SIGABRT` warning once per build
-script). Build scripts never ship, so keeping their debug info costs only
-disk in `target/`. No manual step and no extra tooling: the encoder is a
+The build Brotli-compresses the two largest embedded fonts
+(`assets/fonts/NotoColorEmoji-Regular.ttf`,
+`assets/fonts/NotoSansCJK-Regular.ttc`) into `OUT_DIR`
+(`build_support/gen_fonts.rs`), saving ~26.5 MB (44.8 MB raw → 18.3 MB at
+quality 10) with byte-identical rendering. The runtime decompresses each face
+once (CJK synchronously at startup, color emoji on the background
+`media::emoji::prewarm` thread `App::new` spawns), so no first emoji parses
+  the face mid-frame; a machine that never shows the window still pays the
+  one-time decompression on that thread. A hash stamp caches the
+result: only the first build per profile and target triple pays the ~90 s
+encoder pass; `OUT_DIR` is keyed by both. Build scripts run optimized
+(`[profile.*.build-override] opt-level = 3` in `Cargo.toml`, versus
+  `opt-level = 0` by default, at which the encoder would take minutes). Those
+  tables set
+`strip = "none"`: since Rust 1.77, build scripts are built without debug info
+and cargo passes `-C strip=debuginfo`, and on macOS that strip invokes the
+toolchain's `rust-objcopy`, which is broken on some installs (missing
+`libLLVM.dylib` → one `SIGABRT` warning per build script). Build scripts never
+ship, so their debug info costs only disk in `target/`. The encoder is a
 build-dependency (`brotli`, already in the app's graph).
 
 The Intel macOS build links `rav1d`'s NASM-assembled x86_64 objects, which
 carry no `LC_BUILD_VERSION`, so `ld` prints ~46 "no platform load command
-found, assuming macOS" notes. Benign upstream noise (the binary links and
-runs fine): `[lints.rust] linker_messages = "allow"` in `Cargo.toml`
-silences them until NASM/`rav1d` emit the load command.
+found, assuming macOS" notes. `[lints.rust] linker_messages = "allow"` in
+`Cargo.toml` silences it until NASM/`rav1d` emit the load command.
 
 Direct equivalents without make (the scripts alone skip the `make deps`
 bootstrap and, for dist, the host `cargo build --locked --release` that
@@ -162,68 +161,60 @@ bootstrap and, for dist, the host `cargo build --locked --release` that
 SKIP_SETUP=1 ./scripts/build-dist.sh --all  # without auto-installing toolchains
 ```
 
-`--host-only` generates just the current OS's artifact set with the same docs
-every artifact carries: on macOS the universal `.app.zip`; on Linux
-`mdowser-<ver>-linux-<arch>.tar.gz`, the matching `.deb` (and `.rpm` when
-`rpmbuild` is present) and the Flatpak bundle; on Windows
-`mdowser-<ver>-windows-<arch>.zip`. Plain `make` is the host binary in
-`target/release/mdowser` plus this.
+`--host-only` generates just the current OS's artifact set: on macOS the
+universal `.app.zip`; on Linux `mdowser-<ver>-linux-<arch>.tar.gz`, the
+matching `.deb` (and `.rpm` when `rpmbuild` is present) and the Flatpak
+bundle; on Windows `mdowser-<ver>-windows-<arch>.zip`. Plain `make` is the
+host binary in `target/release/mdowser` plus this.
 
 `dist/` semantics: the COMPLETE modes (`--all`, the default, and
-`--host-only`) rebuild `dist/` from scratch; a single-group flag
-(`--mac`, `--linux`, `--windows`, `--rpm`, `--flatpak`) ADDS its artifacts
-to whatever is already there, so a focused rerun never destroys the other
-platforms' output.
+`--host-only`) rebuild `dist/` from scratch; a single-group flag (`--mac`,
+`--linux`, `--windows`, `--rpm`, `--flatpak`) ADDS its artifacts to what is
+already there.
 
-`--all` generates all of the above plus (the version comes from `Cargo.toml`; shown here as `<ver>`):
+`--all` generates all of the above plus (the version comes from `Cargo.toml`;
+shown here as `<ver>`):
 
 - macOS: `MDowser-<ver>-macos-universal.app.zip` — the ONLY macOS artifact
-  (arm64+Intel universal binary via `lipo`, ad-hoc signature, app icon in
+  (arm64 + Intel universal binary via `lipo`, ad-hoc signature, app icon in
   `Contents/Resources`; no loose per-arch `.tar.gz`).
 - Linux x86_64/arm64: `mdowser-<ver>-linux-<arch>.tar.gz` +
-  `mdowser_<ver>_<amd64|arm64>.deb` (minimal deb with python3 stdlib, no
+  `mdowser_<ver>_<amd64|arm64>.deb` (minimal deb from the python3 stdlib, no
   `cargo-deb`; installs the binary, the hicolor icon ladder plus a scalable
-  SVG, AppStream metadata and a `.desktop` entry with
-  `Icon=`/`StartupWMClass=`, and the man page; its `Depends` derives
-  `libc6 (>= <x.y>)` from the binary's own required glibc symbols when an
-  ELF reader is available). When `rpmbuild` is present
-  (Fedora/RHEL/openSUSE host) the same run also builds the RPM from source
-  (copied verbatim from `rpmbuild`'s `RPMS/*/` output into `dist/`), and when
-  `flatpak-builder` is present it adds the `mdowser-<ver>.flatpak` bundle.
-- Windows x86_64: `mdowser-<ver>-windows-x86_64.zip` (with `.exe` at root;
-  the icon, the `VERSIONINFO` block and the DPI/version manifest are embedded
-  in the executable's resources, so the shell, the taskbar, Alt-Tab and
-  Explorer's Details tab all read them).
+  SVG, AppStream metadata, a `.desktop` entry with `Icon=`/`StartupWMClass=`
+  and the man page; `Depends` derives `libc6 (>= <x.y>)` from the binary's
+  glibc symbols when an ELF reader is available). With `rpmbuild` present
+  (Fedora/RHEL/openSUSE host) the same run builds the RPM from source (copied
+  verbatim from `RPMS/*/` into `dist/`), and `flatpak-builder` present adds
+  the `mdowser-<ver>.flatpak` bundle.
+- Windows x86_64: `mdowser-<ver>-windows-x86_64.zip` (the `.exe` at the root;
+  icon, `VERSIONINFO` block and the DPI/version manifest are embedded in its
+  resources).
 - Windows arm64: `mdowser-<ver>-windows-aarch64.zip`, the same `.exe` zip
-  built natively (MSVC) on a Windows on ARM host; it is not cross-built, so
+  built natively (MSVC) on a Windows on ARM host. It is not cross-built, so
   only such a host — or CI, on a `windows-11-arm` runner — produces it.
 
-Every Linux `.tar.gz` and Windows `.zip` archive carries `README.md`,
-`THIRD_PARTY_NOTICES.md` and `LICENSE`; the macOS `.app` (zipped as
-`...-macos-universal.app.zip`) bundles the notices and license under
-`Contents/Resources/` and the `.deb` under
-`/usr/share/doc/mdowser/` (the notices as `copyright`); a `SHA256SUMS.txt` is
-written next to the artifacts. Before the checksums, `scripts/check-dist.sh
---require` enforces the build-artifact privacy rules below — `--require`
-turns a missing inspector (no python3) into a hard failure, so a build can
-never be reported as ready unchecked.
+Every Linux `.tar.gz` and Windows `.zip` carries `README.md`,
+`THIRD_PARTY_NOTICES.md` and `LICENSE`; the macOS `.app` bundles the notices
+and license under `Contents/Resources/`, the `.deb` under
+`/usr/share/doc/mdowser/` (notices as `copyright`). A `SHA256SUMS.txt` sits
+next to the artifacts. Before the checksums, `scripts/check-dist.sh --require`
+enforces the privacy rules below.
 
 ### Native Windows
 
 On native Windows no `make` or `/bin/sh` is needed: `windows.ps1` (repo root)
 is the winget-only, idempotent equivalent of `make` (deps + host release +
-current-OS dist into `dist/`). It self-elevates via UAC unless `-NoElevate`
-is passed, installs what is missing (Rustup at the channel in
-`rust-toolchain.toml`, MSVC Build Tools + the C++
-workload, NASM, Git with Git Bash — the `sh`/`tar`/`sha256sum` runtime the
-packaging needs — Python 3.12 with a `python3` shim, LLVM for `llvm-strip`),
-runs `cargo build --locked --release`, then calls
-`scripts/build-dist.sh --host-only` through Git Bash for the `.exe` zip
-(`mdowser-<ver>-windows-<arch>.zip` — `x86_64`, or `aarch64` on Windows on
-ARM — plus `SHA256SUMS.txt`). `build-dist.sh` prefers
-`x86_64-w64-mingw32-strip` and falls back to `llvm-strip` (arm64 has no
-MinGW strip, so `llvm-strip` is used there); the `windows.ps1` path
-installs LLVM, so a native MSVC build strips with `llvm-strip`.
+current-OS dist into `dist/`). It self-elevates via UAC unless `-NoElevate` is
+passed, and installs what is missing: Rustup at the channel in
+`rust-toolchain.toml`, MSVC Build Tools + the C++ workload, NASM, Git with Git
+Bash (the `sh`/`tar`/`sha256sum` runtime packaging needs), Python 3.12 with a
+`python3` shim, and LLVM for `llvm-strip`. It then runs
+`cargo build --locked --release` and calls `scripts/build-dist.sh --host-only`
+through Git Bash for the `.exe` zip (`mdowser-<ver>-windows-<arch>.zip` —
+`x86_64`, or `aarch64` on Windows on ARM) plus `SHA256SUMS.txt`.
+`build-dist.sh` prefers `x86_64-w64-mingw32-strip` and falls back to
+`llvm-strip` (arm64 has no MinGW strip).
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File windows.ps1
@@ -231,22 +222,22 @@ powershell -ExecutionPolicy Bypass -File windows.ps1 -Test
 powershell -ExecutionPolicy Bypass -File windows.ps1 -SkipSetup   # use what is present, like SKIP_SETUP=1
 ```
 
-Flags: `-Test` (also run `scripts/build-test.sh`), `-Validate` (also run
+Flags: `-Test` (also run `scripts/build-test.sh`), `-Validate` (also
 `scripts/validate.sh`), `-SkipBuild` (deps + dist only), `-SkipDist` (deps +
 build only), `-SkipSetup` (install nothing, fail when a tool is missing),
-`-NoElevate` (no UAC self-elevation; installs may fail). With `-SkipBuild`
-and `-SkipDist` together (and neither `-Test` nor `-Validate`) it is
-setup-only: `-SkipDist` alone still runs the release build.
+`-NoElevate` (no UAC self-elevation; installs may fail). `-SkipBuild` with
+`-SkipDist` (and neither `-Test` nor `-Validate`) is setup-only; `-SkipDist`
+alone still runs the release build.
 
 ### Desktop integration and package formats
 
-Linux packaging is generated from ONE shared set of files, so the `.deb`, the
-`.rpm`, Flatpak and a manual install cannot drift (`packaging/README.md`):
+Linux packaging is generated from ONE shared set of files
+([`../packaging/README.md`](../packaging/README.md)):
 
-- `packaging/linux/mdowser.desktop` — the desktop entry (categories,
-  keywords, `StartupWMClass`, Markdown MIME types).
+- `packaging/linux/mdowser.desktop` — the desktop entry (categories, keywords,
+  `StartupWMClass`, Markdown MIME types).
 - `packaging/linux/dev.mdowser.app.metainfo.xml` — AppStream metadata: the
-  page GNOME Software / KDE Discover render (name, summary, description,
+  page GNOME Software and KDE Discover render (name, summary, description,
   links, icon, release). `scripts/packaging.sh` pins its `<release>` to the
   `Cargo.toml` version at package time.
 - `packaging/linux/mdowser.1` — man page.
@@ -258,83 +249,72 @@ and is the RPM spec's `%install`:
 `make install DESTDIR=/tmp/root PREFIX=/usr` stages a package tree.
 
 RPM: `packaging/rpm/mdowser.spec` builds the crate from the full source tree.
-`make dist-rpm` (or `./scripts/build-dist.sh --rpm`) creates the source
-tarball and runs `rpmbuild` with the version from `Cargo.toml`. Offline
-(no-network) builds need the crates vendored; a build host with network
-access (or a local `rpmbuild`) does.
+`make dist-rpm` (or `./scripts/build-dist.sh --rpm`) creates the source tarball
+and runs `rpmbuild` with the version from `Cargo.toml`. Offline builds need the
+crates vendored; a host with network access (or a local `rpmbuild`) can build
+directly.
 
 Flatpak: `packaging/flatpak/dev.mdowser.app.yaml` builds the same source into
-`dev.mdowser.app`; `make flatpak` / `make dist-flatpak` (and `make dist` when
+`dev.mdowser.app`. `make flatpak` / `make dist-flatpak` (and `make dist` when
 `flatpak-builder` is present) vendors the crates
-(`flatpak-cargo-generator.py`), runs `flatpak-builder` into a local repo and
-exports the DISTRIBUTABLE bundle `dist/mdowser-<ver>.flatpak` (install it
-with `flatpak install mdowser-<ver>.flatpak`). The freedesktop runtimes are
-pulled best-effort first.
+(`flatpak-cargo-generator.py`), runs `flatpak-builder` into a local repo, and
+exports `dist/mdowser-<ver>.flatpak` (install with
+`flatpak install mdowser-<ver>.flatpak`). The freedesktop runtimes are pulled
+best-effort first.
 
 Windows: the executable carries its identity in PE resources generated by
 `build.rs` — the icon, a `VERSIONINFO` block (description, version, copyright)
 and the application manifest (per-monitor DPI awareness, supported Windows
 versions, UTF-8 code page, long paths, segment heap) — and `main` sets
-`windows_subsystem = "windows"` so no console window opens behind the GUI.
-The distribution stays a portable zip (no installer): the shell reads the
-icon and version from the `.exe`.
+`windows_subsystem = "windows"`. The distribution is a portable zip (no
+installer).
 
 ### Build-artifact privacy
 
-Release artifacts must not identify the machine that built them. Rust bakes
-the source path of every panic location / `file!()` into a binary, including
-dependency sources under the Cargo registry, so an unmodified release binary
-ships the builder's home path (`/Users/<user>/.cargo/registry/src/...` on
-macOS, `/home/<user>/...` on Linux); `strip` cannot remove those strings
-(they are runtime data, not symbols). `scripts/lib.sh`
-`export_remap_rustflags` therefore sets `CARGO_ENCODED_RUSTFLAGS` with
-`--remap-path-prefix=$HOME=/build` (plus `USERPROFILE`, in both slash
-styles, on Windows) and the Cargo home to `/cargo` before every
-DISTRIBUTABLE build: `make build`, `make dist` /
+Release artifacts must not identify the builder. Rust bakes
+the source path of every panic location and `file!()` into a binary,
+dependency sources under the Cargo registry included, so an unmodified release
+binary ships the builder's home path (`/Users/<user>/.cargo/registry/src/...`
+on macOS, `/home/<user>/...` on Linux); `strip` cannot remove them: they are
+runtime data, not symbols. `scripts/lib.sh` `export_remap_rustflags` therefore
+sets `CARGO_ENCODED_RUSTFLAGS` with `--remap-path-prefix=$HOME=/build` (plus
+`USERPROFILE`, in both slash styles, on Windows) and the Cargo home to
+`/cargo` before every DISTRIBUTABLE build: `make build`, `make dist` /
 `scripts/build-dist.sh`, `windows.ps1`, the RPM spec's `%build` and the
 Flatpak manifest (which remaps the sandbox paths
-`/run/build/mdowser[/cargo]` the same way). Debug builds keep their real
-paths so debuggers still resolve sources.
+`/run/build/mdowser[/cargo]` the same way). Debug builds keep real paths for
+debuggers.
 
-The archives are cleaned too: `zip -X` drops the Info-ZIP Unix uid/gid extra
-field the macOS/Windows `.zip` would otherwise carry, and the staging trees
-are xattr-swept (`sweep_xattrs`) plus tarred with `--no-xattrs` where
-supported, so a macOS build does not embed its `com.apple.provenance` blob in
-the Linux `.tar.gz`/`.deb`. The macOS `.app` is swept right before packing
-too, and `ditto` runs with `--norsrc --noqtn --noextattr`, so no AppleDouble
-`._*` member enters the zip (the gate below fails one if it ever does). The
-RPM spec pins `%_buildhost` and
-`%defattr(-, root, root, -)` so the header and payload carry no host/user
-identity.
+The archives are cleaned: `zip -X` drops the Info-ZIP Unix uid/gid extra
+field, and the staging trees are xattr-swept (`sweep_xattrs`) plus tarred with
+`--no-xattrs` where supported, so a macOS build does not embed its
+`com.apple.provenance` blob in the Linux `.tar.gz`/`.deb`. The macOS `.app` is
+swept before packing, and `ditto` runs with `--norsrc --noqtn --noextattr`, so
+no AppleDouble `._*` member enters the zip. The RPM spec pins `%_buildhost`
+and `%defattr(-, root, root, -)`.
 
 `make check-dist` is the gate: it scans every file in `dist/` for the real
 `$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
 non-zero on any hit. `.tar.gz`, `.deb` and `.zip` are unpacked and their
-payload files inspected; AppleDouble `._*`/`__MACOSX/` members are a breach
-on their own (macOS metadata captured from the builder); the `.rpm`'s xz cpio
-payload and the ostree `.flatpak` bundle are byte-scanned only (their inner
-files are not extracted, so for those two the check is best-effort).
-`scripts/build-dist.sh` runs it with `--require` before writing
-`SHA256SUMS.txt`, so `make dist` fails instead of publishing a leaking build
-— and a machine without the inspector (no python3) fails too, rather than
-skipping (the app's intentional example paths such as `/Users/you/notes.md`
-are not matched); the two failures are reported separately (a gate that
-cannot run says so, instead of being blamed as a leak). The release
-workflow's `publish` job re-runs the gate over the merged artifact set from
-Linux, where the scan is needle-based on ITS `$HOME`/hostname: a macOS-only
-`/Users/runner` or Windows-only `C:\Users\…` leak is caught by each job's
-own gate (which runs inside `build-dist.sh` on the right OS), not by the
-merged one.
+payload files inspected; AppleDouble `._*`/`__MACOSX/` members are a breach.
+The `.rpm`'s xz cpio payload and the ostree `.flatpak` bundle are byte-scanned
+only (best-effort). `scripts/build-dist.sh` runs the gate with `--require`
+before writing `SHA256SUMS.txt`, so `make dist` fails instead of publishing,
+and no python3 fails instead of skipping. The app's example paths
+such as `/Users/you/notes.md` are not matched, and the two failure kinds are
+reported separately. The `publish` job re-runs the gate over the merged
+set from Linux (needle-based on ITS `$HOME`/hostname): macOS-only
+`/Users/runner` or Windows-only `C:\Users\…` leaks are caught by each job's
+own gate, not the merged one.
 
 ### Validating the packaging metadata
 
 `make validate` checks what the host can check and never fails on a missing
 tool (a SKIP names the install command): XML well-formedness of the AppStream
-metadata and of the version-rendered copy the packages install, `appstreamcli`
-or `appstream-util` for the metadata, `desktop-file-validate` for the desktop
-entry, `rpmspec -P` for the RPM spec and `rpmlint` when present, a YAML
-parse of the Flatpak manifest, and the `dist/` privacy gate
-(`scripts/check-dist.sh`) when a build is present.
+metadata and of the version-rendered copy the packages install,
+`appstreamcli` or `appstream-util`, `desktop-file-validate`, `rpmspec -P` and
+`rpmlint` when present, a YAML parse of the Flatpak manifest, and the `dist/`
+privacy gate when a build is present.
 
 On macOS everything except a real `.deb`/`.rpm` build and `flatpak-builder` is
 installable with Homebrew:
@@ -364,22 +344,20 @@ docker run --rm -v "$PWD:/w" -w /w fedora:latest bash -lc '
   rpmlint packaging/rpm/mdowser.spec'
 ```
 
-Cross from macOS self-installs any missing tooling (rustup target, `zig` +
-`cargo-zigbuild`, `mingw-w64`, `nasm`); any failing group is skipped with a
-reason and the script moves on. For fully reliable GUI artifacts, build
-natively on each target OS: this script is the best-effort single-machine
-equivalent.
+Cross-building from macOS self-installs any missing tooling (rustup target,
+`zig` + `cargo-zigbuild`, `mingw-w64`, `nasm`); any failing group is skipped
+with a reason and the script moves on. For reliable GUI artifacts, build
+natively on each target OS.
 
 ### Releases in CI (GitHub Actions)
 
 `.github/workflows/release.yml` builds every target and publishes ONE GitHub
 Release per tag (`v<version>`, which must match `Cargo.toml`). Each job runs
-on a fresh GitHub-hosted VM with NO Actions cache: every release compiles
-from scratch and only the packaged files travel between jobs (Actions
-artifacts, 1-day retention). The scripts do the building, so the privacy
-guarantees are the same as `make dist`: the publishing job re-runs
-`scripts/check-dist.sh` over the merged set and writes the single
-`SHA256SUMS.txt`.
+on a fresh GitHub-hosted VM with NO Actions cache: releases compile from
+scratch, and only packaged files travel between jobs (Actions artifacts,
+1-day retention). The scripts build, so privacy matches `make dist`: the
+publishing job re-runs `scripts/check-dist.sh` over the merged set and writes
+the single `SHA256SUMS.txt`.
 
 | Job | Runner | Builds |
 | --- | --- | --- |
@@ -391,47 +369,41 @@ guarantees are the same as `make dist`: the publishing job re-runs
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
 
-Artifact names are identical to `make dist`, so a CI release is the same
-set a local build produces, plus the Windows arm64 `.zip` (native MSVC on a
-Windows on ARM runner; it is not cross-built, so only CI — or a Windows on
-ARM host running `--host-only` — produces it). The two Ubuntu Linux jobs
-run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
-`rpmbuild`, and without the opt-out each job would also attach its own
-`.rpm` (a duplicate x86_64 package and an undocumented aarch64 one); the
-published RPM is always the Fedora job's. The Release is titled with
-the tag and its body
-is a fixed text (CHANGELOG link, per-platform first-run and install notes,
-assets pointer and the use-at-your-own-risk disclaimer); tags carrying `-alpha`/`-beta`/`-rc` are published as
-pre-releases. A manual run (`workflow_dispatch`) with
-`dry_run: true` compiles everything without publishing: use it to validate
-the pipeline before pushing a tag. Standard runners are free for public
-repositories; every job is capped with `timeout-minutes` and no cache is
-kept between runs.
+Artifact names are identical to `make dist`, plus the Windows arm64 `.zip`
+(native MSVC on a Windows on ARM runner; not cross-built, so only CI or a
+Windows on ARM host running `--host-only` produces it). The two Ubuntu Linux
+jobs run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
+`rpmbuild`, and without the opt-out each job would also attach its own `.rpm`
+(a duplicate x86_64 package and an undocumented aarch64 one); the published
+RPM is always Fedora's. The Release is titled with the tag and its
+body is fixed text (CHANGELOG link, per-platform first-run and install notes,
+assets pointer and the use-at-your-own-risk disclaimer); tags carrying
+`-alpha`/`-beta`/`-rc` are published as pre-releases. A manual run
+(`workflow_dispatch`) with `dry_run: true` compiles everything without
+publishing. Standard runners are free for public repositories; every job is
+capped with `timeout-minutes` and no cache is kept between runs.
 
-Publishing: push a `v<version>` tag matching `Cargo.toml` and the release
-workflow builds every target and attaches the files to one GitHub Release.
-A local `make dist` set can still be attached by hand as a fallback
+Push a `v<version>` tag matching `Cargo.toml`; the workflow attaches the
+files to one GitHub Release. A local `make dist` set can be attached by hand
 (`gh release create v<ver> dist/*`). Release assets are served directly
-(`…/releases/latest/download/<file>`), so `dist/` itself stays untracked
-and out of the repository history.
+(`…/releases/latest/download/<file>`), so `dist/` stays untracked.
 
 ## Runtime
 
-- macOS: macOS 13+ (the `.app` carries an ad-hoc signature, not a Developer
-  ID and no notarization: double-click once so Gatekeeper registers the
-  block, then allow it in System Settings > Privacy & Security >
-  `Open Anyway`; right-click > Open no longer bypasses this on current
-  macOS).
-- Linux: system graphics libraries (X11/Wayland, Mesa) and `ca-certificates`
-  for TLS verification; the `.deb` depends on `ca-certificates` plus the
-  `libc6` floor derived from the binary (see above), the `.rpm` on
-  `ca-certificates`, and both install with `sudo dpkg -i mdowser_*_amd64.deb`
-  or `sudo rpm -i mdowser-*.rpm`.
-- Windows x86_64: the GNU `.exe` needs nothing extra in practice (it is
-  unsigned: on the SmartScreen warning click `More info` > `Run anyway`); if
-  some old Windows asks for MinGW DLLs, build with the MSVC toolchain
-  instead. Windows on ARM64: use the MSVC `-windows-aarch64.zip` (Windows 11
-  on ARM); the x86_64 `.exe` also runs there under emulation.
+- **macOS 13+:** the `.app` carries an ad-hoc signature, not a Developer ID,
+  and is not notarized. Double-click once so Gatekeeper registers the block,
+  then allow it in System Settings > Privacy & Security > `Open Anyway`
+  (right-click > Open no longer bypasses this on current macOS).
+- **Linux:** system graphics libraries (X11/Wayland, Mesa) and
+  `ca-certificates` for TLS verification. The `.deb` depends on
+  `ca-certificates` plus the `libc6` floor derived from the binary; the `.rpm`
+  depends on `ca-certificates`. Install with
+  `sudo dpkg -i mdowser_*_amd64.deb` or `sudo rpm -i mdowser-*.rpm`.
+- **Windows x86_64:** the GNU `.exe` needs nothing extra. It is unsigned, so
+  on the SmartScreen warning click `More info` > `Run anyway`. If some old
+  Windows asks for MinGW DLLs, build with the MSVC toolchain instead.
+  **Windows on ARM64:** use the MSVC `-windows-aarch64.zip` (Windows 11 on
+  ARM); the x86_64 `.exe` also runs there under emulation.
 
 ## Development commands
 
