@@ -262,21 +262,32 @@ fn display_sanitizer_never_echoes_credentials() {
 fn finish_document_derives_the_first_h1_title() {
     let url = url::Url::parse("https://ex.com/a/").unwrap();
     let fetched =
-        super::finish_document("Intro.\n\n# Carla\n\nBody.", url.clone(), &url).expect("parse");
+        super::finish_document("Intro.\n\n# Carla\n\nBody.".to_string(), url.clone(), &url)
+            .expect("parse");
     assert_eq!(fetched.h1_title.as_deref(), Some("Carla"));
     assert_eq!(fetched.page_title(), Some("Carla"));
     assert!(fetched.meta.title.is_none());
+    // The raw body is kept as the export source, byte for byte.
+    assert_eq!(fetched.source, "Intro.\n\n# Carla\n\nBody.");
 
     // A frontmatter title wins; the heading still arrives as the fallback.
-    let fetched = super::finish_document("---\ntitle: Meta\n---\n# Carla\n", url.clone(), &url)
-        .expect("parse");
+    let fetched = super::finish_document(
+        "---\ntitle: Meta\n---\n# Carla\n".to_string(),
+        url.clone(),
+        &url,
+    )
+    .expect("parse");
     assert_eq!(fetched.meta.title.as_deref(), Some("Meta"));
     assert_eq!(fetched.page_title(), Some("Meta"));
     assert_eq!(fetched.h1_title.as_deref(), Some("Carla"));
 
     // `title: ""` is "no title": the heading names the page.
-    let fetched = super::finish_document("---\ntitle: \"\"\n---\n# Carla\n", url.clone(), &url)
-        .expect("parse");
+    let fetched = super::finish_document(
+        "---\ntitle: \"\"\n---\n# Carla\n".to_string(),
+        url.clone(),
+        &url,
+    )
+    .expect("parse");
     assert_eq!(fetched.page_title(), Some("Carla"));
 }
 

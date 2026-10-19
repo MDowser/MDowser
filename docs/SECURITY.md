@@ -55,8 +55,11 @@ minimal.
   context-menu hitboxes at 4096 per frame (navigation stays capped by the
   events/block budgets), in-page find at 256 query chars
   (`MAX_FIND_QUERY_CHARS`) and 2000 matches (`MAX_FIND_MATCHES`; extra hits
-  render normally with an `N+` count), and the history filter at 512 chars
-  (`MAX_HISTORY_FILTER_CHARS`).
+  render normally with an `N+` count), the outline at 2000 items / 120 title
+  chars (`MAX_OUTLINE_ITEMS`/`MAX_OUTLINE_TITLE_CHARS`) and the export
+  destination at 1024 chars (`MAX_EXPORT_PATH_CHARS`), with its default file
+  name capped at 80 chars (`MAX_EXPORT_NAME_CHARS`), and the history filter at
+  512 chars (`MAX_HISTORY_FILTER_CHARS`).
 - Redirects stop at 8 (`MAX_REDIRECTS`). Network concurrency is 6 fetches + 6
   local reads over 4 worker threads, with a 20s request timeout (60s per
   image, 15s per favicon, 5s image gate) and a 20s slot wait. Color-emoji
@@ -353,6 +356,16 @@ card and the bookmark/history stores.
   the cache entirely (neither read nor written, leftovers wiped); each class
   clears separately from Preferences and "Delete all data" removes the whole
   directory.
+- **Export.** The export card writes only where the user points it: the typed
+  destination is resolved (`~` expansion, relative names from home) and used
+  as-is — no directory is created and nothing is canonicalized. The DEFAULT
+  file name derives from the page, so it is slugified (alphanumerics, `-`, `_`)
+  and length-capped BEFORE it becomes a path component: a hostile title or URL
+  segment cannot add a separator or `..`, cannot leave the default directory
+  and cannot produce a name the filesystem refuses (a Windows device name such
+  as `aux` or `nul` gets a `-file` suffix). The write is one plain
+  `fs::write` of the captured document (bounded by `MAX_BODY_BYTES`) on the UI
+  thread, like the stores' own bounded writes.
 
 ### Credentials and URL sanitization
 

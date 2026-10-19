@@ -30,6 +30,9 @@ pub(crate) mod find;
 mod image;
 mod inline;
 mod markdown;
+// `pub(crate)` like `find`: `browser::tab` holds the per-tab state and
+// `app::shortcuts` drives its entry points.
+pub(crate) mod outline;
 // `pub(crate)` like `code`: the app-level tests drive the find bar's own
 // entry point (`overlays::find::show_find_bar`), the same one `show_content`
 // calls.
@@ -171,9 +174,6 @@ pub fn show_content(
         // the caller, like the context menu's "Open link in new tab" and
         // the bookmark tiles.
         let mut pending_new_tab: Option<String> = None;
-        // The notices carry no in-document anchors: a throwaway target is
-        // passed so `render_doc`'s signature stays shared with `Loaded`.
-        let mut no_anchor: Option<String> = None;
         let mut new_rect: Option<egui::Rect> = None;
         let selected = tab.selected_all;
         let doc = crate::licenses::document();
@@ -202,7 +202,10 @@ pub fn show_content(
                     &doc.display_url,
                     &doc.anchors,
                     &doc.dests,
-                    &mut no_anchor,
+                    // The notices page has a real outline (its `#` headings):
+                    // panel rows scroll it through the same `pending_anchor`
+                    // mechanism as a `#id` link.
+                    &mut tab.pending_anchor,
                     tab.id,
                     tab.doc_generation,
                     // Internal open clears the document flag: the notices
@@ -215,8 +218,14 @@ pub fn show_content(
                     &mut tab.emoji,
                     &mut tab.link_hits,
                     &mut tab.find,
+                    tab.outline.open.then_some(&mut tab.outline),
                     &mut on_link,
                 );
+                // Scrollspy: pick the section the reader is in from the
+                // heading rects this frame's walk just recorded.
+                if tab.outline.open {
+                    tab.outline.update_current(&doc.outline, viewport.top());
+                }
                 // Same hit rect as `Loaded`: backs the context menu and
                 // excludes the vertical scrollbar.
                 let bar = theme::scrollbar_width(ui);
@@ -230,6 +239,7 @@ pub fn show_content(
                 }
             });
         tab.doc_rect = new_rect;
+        overlays::outline::show_outline_panel(root, tab);
         overlays::show_toast(root, tab);
         if let Some(dest) = pending_link {
             tab.navigate_to_text(&dest, true);
@@ -288,6 +298,10 @@ pub fn show_content(
                         &mut tab.emoji,
                         &mut tab.link_hits,
                         &mut tab.find,
+                        // The backdrop belongs to the page being replaced:
+                        // its headings must not feed the new page's outline
+                        // cursor (and the panel itself is not drawn here).
+                        None,
                         &mut noop,
                     );
                 }
@@ -369,8 +383,17 @@ pub fn show_content(
                         &mut tab.emoji,
                         &mut tab.link_hits,
                         &mut tab.find,
+                        // Outline scrollspy: `Some` only while the panel is
+                        // open, so a closed panel costs the walk nothing.
+                        tab.outline.open.then_some(&mut tab.outline),
                         &mut on_link,
                     );
+                    // Scrollspy: pick the section the reader is in from the
+                    // heading rects this frame's walk just recorded. A frame
+                    // that painted no heading keeps the previous cursor.
+                    if tab.outline.open {
+                        tab.outline.update_current(&fetched.outline, viewport.top());
+                    }
                     // Shrink right edge for hit-testing so clicks on the
                     // vertical scrollbar never open the text menu (same
                     // width the fade overlay reserves).
@@ -389,6 +412,9 @@ pub fn show_content(
                 }
             });
         tab.doc_rect = new_rect;
+        // The outline panel draws over the document (after the walk, so its
+        // scrollspy cursor is this frame's), before the toast.
+        overlays::outline::show_outline_panel(root, tab);
         overlays::show_toast(root, tab);
         if let Some(id) = pending_anchor_click {
             // Applied on the next frame (this one is already rendered).
@@ -487,6 +513,11 @@ pub fn show_content(
 /// navigation to a possibly already-seen document whose saved offset must
 /// not be reused). A cross-page `#fragment` still wins: its
 /// `scroll_to_rect` runs during content layout, after the initial offset.
+///
+/// `outline` is the tab's outline panel state, `Some` while the panel is
+/// open: the walk then records every rendered heading's rect into it (keyed
+/// by the heading's own event index) and the caller recomputes the
+/// scrollspy cursor from those rects right after.
 #[allow(clippy::too_many_arguments)]
 fn render_doc(
     ui: &mut egui::Ui,
@@ -505,6 +536,7 @@ fn render_doc(
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
     find: &mut crate::viewer::find::FindState,
+    outline: Option<&mut crate::viewer::outline::OutlineState>,
     on_link: &mut dyn FnMut(&str),
 ) -> egui::Rect {
     // Link hitboxes are rebuilt from scratch every frame: stale rects from
@@ -579,6 +611,7 @@ fn render_doc(
                         links,
                         find,
                         doc_generation,
+                        outline,
                     );
                 });
             });
@@ -594,3 +627,5 @@ fn render_doc(
 mod tests;
 #[cfg(test)]
 mod tests_find;
+#[cfg(test)]
+mod tests_outline;

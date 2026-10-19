@@ -9,13 +9,19 @@
 use super::*;
 
 /// Renders a heading sized by level with extra air.
+///
+/// Returns the rect the heading's own content painted (text and the H1/H2
+/// rule, item indentation included): the outline scrollspy records it by the
+/// heading's `Start` event index. The air above (`spacing::XL`) is NOT part
+/// of it, so a heading scrolled exactly to the viewport top still reads as
+/// the current section.
 pub(super) fn render_heading(
     ui: &mut egui::Ui,
     mut frags: Vec<Frag<'_>>,
     level: HeadingLevel,
     anchor_id: Option<&str>,
     ctx: &mut RenderCtx,
-) {
+) -> egui::Rect {
     // A hostile ATX heading can carry megabytes of text: bound the label.
     frags = cap_block_text(frags);
     // Heading scale: 2em / 1.5em / 1.25em / 1em / .875em / .85em of the
@@ -63,6 +69,11 @@ pub(super) fn render_heading(
     let pad = begin_item_block(ui, ctx);
     let lines = visual_lines(&frags);
     let h_rule = matches!(level, HeadingLevel::H1 | HeadingLevel::H2);
+    // The heading's own content top, measured BEFORE layout: `render_indented`
+    // runs the content directly on this `Ui` when there is no item
+    // indentation, and `Ui::min_rect` would then start at the previous
+    // block's top instead of the heading's.
+    let top = ui.cursor().top();
     render_indented(ui, pad, |ui| {
         for line in lines {
             if line.is_empty() {
@@ -84,7 +95,12 @@ pub(super) fn render_heading(
             ui.separator();
         }
     });
+    // Cursor after the content (rule included), before the trailing
+    // `spacing::M` air.
+    let bottom = ui.cursor().top();
     ui.add_space(theme::spacing::M);
+    let left = ui.cursor().left();
+    egui::Rect::from_min_max(egui::pos2(left, top), egui::pos2(left, bottom.max(top)))
 }
 
 /// Precise find split for a plain heading fragment (at the heading size).

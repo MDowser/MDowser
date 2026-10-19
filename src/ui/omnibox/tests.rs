@@ -752,8 +752,10 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
         meta: crate::markdown::frontmatter::Meta::default(),
         h1_title: None,
         plain_text: String::new(),
+        source: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
+        outline: crate::markdown::outline::Outline::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
         stale_copy: None,
     };

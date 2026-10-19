@@ -34,6 +34,9 @@
 //!   theme, zoom, restore-tabs + version/licenses link; Data: retention and
 //!   data deletion; Shortcuts: keyboard reference); the history LIST
 //!   is the internal `about:history` page above.
+//! - `export`: the floating "Export…" card (Ctrl/Cmd+S or the document
+//!   context menu): the page on screen to a local file, as markdown source
+//!   or plain text, destination editable and defaulted in `~/Downloads`.
 //!
 //! Document rendering lives in the top-level `viewer` module; `ui` keeps
 //! only browser chrome.
@@ -160,6 +163,8 @@ pub(crate) fn forget_tab(ctx: &egui::Context, tab_id: usize) {
     // Document scroll offsets: one state per visited URL, all recorded by
     // `viewer::show_content` through `remember_scroll` and dropped here.
     forget_scroll_state(ctx, DOC_SCROLL_ID, tab_id);
+    // Outline panel row list (`viewer::overlays::outline`).
+    forget_scroll_state(ctx, OUTLINE_SCROLL_ID, tab_id);
 }
 
 /// Salts of the per-tab `ScrollArea`s whose state `forget_tab` drops.
@@ -171,6 +176,9 @@ pub(crate) const ERROR_SCROLL_ID: &str = "error-scroll";
 /// URL, registered through [`remember_scroll`] so a closed tab drops them
 /// all (it used to accumulate for the whole process).
 pub(crate) const DOC_SCROLL_ID: &str = "doc-scroll";
+/// Row list of the outline panel (`viewer::overlays::outline`), registered
+/// through [`remember_scroll`] like the document sheet.
+pub(crate) const OUTLINE_SCROLL_ID: &str = "outline-scroll";
 
 /// The real egui id of a per-tab `ScrollArea`, recorded by [`remember_scroll`]
 /// under a key of our own.
@@ -223,6 +231,7 @@ pub(crate) fn forget_scroll_state(ctx: &egui::Context, id_salt: &'static str, ta
 
 pub mod bookmarks;
 pub mod error_view;
+pub mod export;
 pub mod history_page;
 pub mod home;
 pub mod icons;

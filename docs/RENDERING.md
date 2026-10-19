@@ -116,6 +116,9 @@ STRUCTURE and never evaluates it:
   slug (or explicit `{#id}` / `[#id]` marker) matches; `[^N]` jumps to its
   footnote. A missing anchor renders as plain text. A
   `#fragment` on another document survives the load and scrolls when resolved.
+  A heading that slugs to nothing (punctuation/emoji only) reserves a
+  positional `heading-N` id, so `#heading-1` and its document-outline row still
+  reach it.
 
 ## Footnotes
 

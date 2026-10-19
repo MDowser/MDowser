@@ -33,6 +33,7 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         session_restore_enabled: false,
         window_geometry: WindowGeometryState::new(None),
         windows: PreferencesState::new(),
+        export: crate::ui::export::ExportState::new(),
         // The real bar is installed at startup (AppKit owns it); tests never
         // touch it, so the field stays `None` here.
         #[cfg(target_os = "macos")]
@@ -97,8 +98,10 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
         meta: crate::markdown::frontmatter::Meta::default(),
         h1_title: None,
         plain_text: String::new(),
+        source: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
+        outline: crate::markdown::outline::Outline::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
         stale_copy: None,
     };
@@ -396,8 +399,10 @@ fn markdown_tab(id: usize, md: &str) -> Tab {
             meta: crate::markdown::frontmatter::Meta::default(),
             h1_title: crate::markdown::document::first_h1_title(&events),
             plain_text: md.to_string(),
+            source: md.to_string(),
             events,
             anchors,
+            outline: crate::markdown::outline::Outline::default(),
             dests,
             stale_copy: None,
         },
@@ -752,4 +757,188 @@ fn find_shortcut_focuses_and_selects_the_query() {
         (0, 2),
         "the kept query comes up selected"
     );
+}
+
+/// The text painted by the export card over a few settled frames (the
+/// anchored `Area` lays out on its first ones).
+fn card_texts(ctx: &eframe::egui::Context, app: &mut MdowserApp) -> Vec<String> {
+    let mut texts = Vec::new();
+    for _ in 0..4 {
+        let input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(900.0, 700.0),
+            )),
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |root| {
+            let _ = app.export.show(root.ctx());
+        });
+        out.textures_delta.clear();
+        texts = out
+            .shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                eframe::egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+    }
+    texts
+}
+
+/// A loaded page whose body is non-trivial (the export tests read the
+/// default destination, not the bytes) and whose outline is real, so the
+/// outline panel can draw it.
+fn loaded_tab_with_outline(id: usize, url: &str, title: &str) -> Tab {
+    let mut tab = loaded_tab(id, url, Some(title));
+    let TabState::Loaded { fetched } = &mut tab.state else {
+        panic!("loaded_tab builds a Loaded tab");
+    };
+    fetched.source = "# Title\n\nBody\n".to_string();
+    fetched.plain_text = "Title\nBody\n".to_string();
+    let events = crate::markdown::document::parse_events("# Title\n").expect("parse");
+    fetched.outline =
+        crate::markdown::outline::build(&events, &crate::markdown::anchors::build(&events));
+    tab
+}
+
+/// `Ctrl/Cmd+S` (and the context menu's `Export…`, which shares `open_export`)
+/// captures the page ONCE: the card holds both renderings and a default
+/// destination named after the page, and a repeat request leaves that open
+/// card untouched — a navigation must never swap the captured document (or
+/// reset a destination the user is part-way through editing) under it.
+#[test]
+fn open_export_captures_the_page_once() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(
+        vec![loaded_tab_with_outline(
+            1,
+            "https://ex.com/guide/",
+            "Guía rápida",
+        )],
+        0,
+    );
+    app.open_export();
+    assert!(app.export.is_open(), "the loaded page opens the card");
+    let shown = card_texts(&ctx, &mut app);
+    assert!(
+        shown.iter().any(|t| t.ends_with("guía-rápida.md")),
+        "the default destination is named after the page: {shown:?}"
+    );
+    // The page changes under the open card (a navigation or a tab swap): a
+    // repeat request must keep the FIRST capture, destination included.
+    app.tabs[0] = loaded_tab_with_outline(1, "https://ex.com/other/", "Other");
+    app.open_export();
+    assert!(app.export.is_open(), "a repeat request is a no-op");
+    let shown = card_texts(&ctx, &mut app);
+    assert!(
+        shown.iter().any(|t| t.ends_with("guía-rápida.md")),
+        "the open card keeps its document and destination: {shown:?}"
+    );
+}
+
+/// Home (or any page that renders no document) has nothing to capture:
+/// `open_export` says so with a toast instead of opening an empty card.
+#[test]
+fn open_export_without_a_document_toasts() {
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    app.open_export();
+    assert!(!app.export.is_open(), "no document, no card");
+    assert_eq!(
+        app.active_tab_mut().toast_text.as_deref(),
+        Some("Nothing to export")
+    );
+}
+
+/// `Ctrl/Cmd+S` is the keyboard entry point of the same card (the context
+/// menu's `Export…` row is the pointer one), and a document page is its only
+/// target: on Home the key is not claimed and no card opens.
+#[test]
+fn export_shortcut_opens_the_card_on_document_pages_only() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let key = || eframe::egui::Event::Key {
+        key: eframe::egui::Key::S,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: eframe::egui::Modifiers::COMMAND,
+    };
+    let frame = |ctx: &eframe::egui::Context, app: &mut MdowserApp| {
+        let input = eframe::egui::RawInput {
+            screen_rect: Some(eframe::egui::Rect::from_min_size(
+                eframe::egui::Pos2::ZERO,
+                eframe::egui::vec2(900.0, 700.0),
+            )),
+            events: vec![key()],
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |_root| {
+            app.handle_shortcuts(ctx);
+        });
+        out.textures_delta.clear();
+    };
+    let mut page = app_with(
+        vec![loaded_tab_with_outline(1, "https://ex.com/a/", "A")],
+        0,
+    );
+    frame(&ctx, &mut page);
+    assert!(page.export.is_open(), "Ctrl/Cmd+S opens the card");
+    let mut home = app_with(vec![Tab::new(1)], 0);
+    frame(&ctx, &mut home);
+    assert!(!home.export.is_open(), "Home has nothing to export");
+}
+
+/// Esc ownership of the reading surfaces: with the export card, the find bar
+/// and the outline panel all up, one press closes exactly one surface — the
+/// card first (it holds the captured document), then the bar, then the panel.
+#[test]
+fn esc_closes_one_reading_surface_per_press() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(
+        vec![loaded_tab_with_outline(1, "https://ex.com/a/", "A")],
+        0,
+    );
+    let generation = app.tabs[0].doc_generation;
+    app.tabs[0].find.show(generation);
+    app.tabs[0].outline.show();
+    app.open_export();
+    assert!(app.export.is_open());
+    let escape = || eframe::egui::Event::Key {
+        key: eframe::egui::Key::Escape,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: eframe::egui::Modifiers::NONE,
+    };
+    let frame =
+        |ctx: &eframe::egui::Context, app: &mut MdowserApp, events: Vec<eframe::egui::Event>| {
+            let input = eframe::egui::RawInput {
+                screen_rect: Some(eframe::egui::Rect::from_min_size(
+                    eframe::egui::Pos2::ZERO,
+                    eframe::egui::vec2(900.0, 700.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |root| {
+                app.handle_shortcuts(ctx);
+                let active = app.active;
+                crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
+                crate::viewer::overlays::outline::show_outline_panel(root, &mut app.tabs[active]);
+            });
+            out.textures_delta.clear();
+        };
+    frame(&ctx, &mut app, vec![escape()]);
+    assert!(!app.export.is_open(), "the card owned the first press");
+    assert!(app.tabs[0].find.open, "the find bar waited for its press");
+    assert!(app.tabs[0].outline.open, "the panel waited for its press");
+    frame(&ctx, &mut app, vec![escape()]);
+    assert!(!app.tabs[0].find.open, "the bar owned the second press");
+    assert!(app.tabs[0].outline.open, "the panel still waited");
+    frame(&ctx, &mut app, vec![escape()]);
+    assert!(!app.tabs[0].outline.open, "the panel owned the third press");
 }

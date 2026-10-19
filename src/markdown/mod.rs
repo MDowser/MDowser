@@ -9,6 +9,8 @@
 //! - `document`: parser options, body normalization (including `:::`/`!!!`
 //!   admonitions and structural `:::` custom containers) and utilities.
 //! - `anchors`: heading/footnote targets for in-document navigation.
+//! - `outline`: the document's heading outline (the reading-aid panel's
+//!   source), built from the same events and reserved ids.
 //! - `emoji`: `:shortcode:` expansion for text nodes.
 //! - `autolink`: GFM-style bare-URL (`www.…`, `http(s)://…`) linkification of
 //!   text nodes, so plain text URLs render like markdown links, plus bare
@@ -25,4 +27,5 @@ pub mod document;
 pub mod emoji;
 pub mod frontmatter;
 pub mod highlight;
+pub mod outline;
 pub mod tld;

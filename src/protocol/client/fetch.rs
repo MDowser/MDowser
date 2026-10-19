@@ -175,8 +175,15 @@ async fn fetch_one_attempt(
 /// and a remote one produce identical parsed events, copy text, anchors and
 /// normalized display URL. `error_url` names the attempt in the YAML error
 /// line (the loaded URL may differ after a redirect).
-pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Result<Fetched, String> {
-    let (meta, body) = markdown::frontmatter::split(text).map_err(|e| {
+///
+/// `text` is TAKEN ownership of: the raw body becomes `Fetched::source`
+/// ("Export…"), so callers move the buffer instead of copying it once more.
+pub(crate) fn finish_document(
+    text: String,
+    landed: Url,
+    error_url: &Url,
+) -> Result<Fetched, String> {
+    let (meta, body) = markdown::frontmatter::split(&text).map_err(|e| {
         // `serde_norway` details can echo input snippets: callers bound the
         // line like every other document-influenced log entry.
         BrowserError::BadFrontmatter {
@@ -204,6 +211,9 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
     // Anchor targets for in-document navigation, collected from the same
     // owned events (bounded).
     let anchors = crate::markdown::anchors::build(&events);
+    // Heading outline for the reading-aid panel: also from the same events,
+    // using the reserved heading ids `anchors` just assigned (bounded).
+    let outline = crate::markdown::outline::build(&events, &anchors);
     // Display URL (what the omnibox shows and what relative links resolve
     // against) is derived once here.
     let display_url = resolver::normalized_display(&landed);
@@ -215,8 +225,10 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
         meta,
         h1_title,
         plain_text,
+        source: text,
         events,
         anchors,
+        outline,
         dests,
         // Set only by the stale-copy fallback (`serve_stale_copy`): a body
         // freshly finished here is never marked.
@@ -275,13 +287,16 @@ pub async fn fetch_with_fallback(
                     cand.clone()
                 };
                 // Validate YAML/parse BEFORE declaring success: when
-                // malformed, try the next route (requirement).
-                match finish_document(&text, landed.clone(), &cand) {
+                // malformed, try the next route (requirement). The body is
+                // MOVED into `finish_document` (it becomes the document's
+                // export source); the cache stores the same string from the
+                // finished document.
+                match finish_document(text, landed.clone(), &cand) {
                     Ok(fetched) => {
                         // Store under BOTH the asked key and the landed key:
                         // the next navigation may type either spelling, and
                         // both are the same canonical page.
-                        store_doc_in_cache(start, &landed, &cand, &text, &headers);
+                        store_doc_in_cache(start, &landed, &cand, &fetched.source, &headers);
                         return Ok(fetched);
                     }
                     Err(line) => {
@@ -353,13 +368,10 @@ fn stale_cause(any_response: bool) -> StaleCopy {
 /// longer parses (a hand-edited cache file, decoder drift), so it is never
 /// served and its key goes back for cleanup.
 fn mark_stale_copy(record: DocRecord, start: &Url, cause: StaleCopy) -> Result<Fetched, String> {
-    match rebuild_cached(&record, start) {
-        Some(mut fetched) => {
-            fetched.stale_copy = Some(cause);
-            Ok(fetched)
-        }
-        None => Err(record.key),
-    }
+    rebuild_cached(record, start).map(|mut fetched| {
+        fetched.stale_copy = Some(cause);
+        fetched
+    })
 }
 
 /// Serves the asked page from the cache's STALE record when no fresh copy
@@ -561,10 +573,10 @@ fn try_serve_cached(
             }
             // A stored body that no longer parses (hand-edited cache file,
             // decoder drift) is dropped, never served: fall to the network.
-            match rebuild_cached(&record, start) {
-                Some(fetched) => Some(Ok(fetched)),
-                None => {
-                    cache.clear_docs_for_key(&record.key);
+            match rebuild_cached(record, start) {
+                Ok(fetched) => Some(Ok(fetched)),
+                Err(poisoned_key) => {
+                    cache.clear_docs_for_key(&poisoned_key);
                     None
                 }
             }
@@ -580,12 +592,25 @@ fn try_serve_cached(
 }
 
 /// Rebuilds a `Fetched` from a fresh cache record.
-fn rebuild_cached(record: &DocRecord, error_url: &Url) -> Option<Fetched> {
-    let landed: Url = record.final_url.parse().ok()?;
+///
+/// Takes the record BY VALUE: its body is moved into the document
+/// (`Fetched::source`), so a cache hit never copies a 10 MiB body once more.
+/// On failure the record's cache key comes back, so the caller clears the
+/// poisoned entry without holding the body.
+fn rebuild_cached(record: DocRecord, error_url: &Url) -> Result<Fetched, String> {
+    let DocRecord {
+        key,
+        final_url,
+        body,
+        ..
+    } = record;
+    let Ok(landed) = final_url.parse::<Url>() else {
+        return Err(key);
+    };
     if landed.scheme() != "https" {
-        return None;
+        return Err(key);
     }
-    finish_document(&record.body, landed, error_url).ok()
+    finish_document(body, landed, error_url).map_err(|_| key)
 }
 
 /// One conditional request for a stale record. 304 refreshes the record
@@ -681,11 +706,11 @@ fn revalidate_cached(
             if let Some(cache) = global() {
                 cache.doc_refresh(&record.key, fresh_until, &headers);
             }
-            match rebuild_cached(&record, &start_clone) {
-                Some(fetched) => Some(Ok(fetched)),
-                None => {
+            match rebuild_cached(record, &start_clone) {
+                Ok(fetched) => Some(Ok(fetched)),
+                Err(poisoned_key) => {
                     if let Some(cache) = global() {
-                        cache.clear_docs_for_key(&record.key);
+                        cache.clear_docs_for_key(&poisoned_key);
                     }
                     None
                 }
@@ -704,9 +729,15 @@ fn revalidate_cached(
             } else {
                 fetched_url.clone()
             };
-            match finish_document(&text, landed.clone(), &start_clone) {
+            match finish_document(text, landed.clone(), &start_clone) {
                 Ok(fetched) => {
-                    store_doc_in_cache(&start_clone, &landed, &fetched_url, &text, &headers);
+                    store_doc_in_cache(
+                        &start_clone,
+                        &landed,
+                        &fetched_url,
+                        &fetched.source,
+                        &headers,
+                    );
                     Some(Ok(fetched))
                 }
                 // A 200 that no longer parses is a server change, not a
@@ -747,7 +778,7 @@ mod tests {
 
     /// The stale fallback rebuilds the stored body and stamps the marker the
     /// address bar reads; the rebuilt document is otherwise identical to a
-    /// fetched one (same display URL and title).
+    /// fetched one (same display URL, title and export source).
     #[test]
     fn stale_fallback_marks_the_rebuilt_copy() {
         let start = Url::parse("https://ex.com/page/").unwrap();
@@ -756,6 +787,7 @@ mod tests {
         assert_eq!(offline.stale_copy, Some(StaleCopy::Offline));
         assert_eq!(offline.display_url.as_str(), "https://ex.com/page/");
         assert_eq!(offline.page_title(), Some("Hello"));
+        assert_eq!(offline.source, body);
 
         let saved = mark_stale_copy(record(body), &start, StaleCopy::Saved).expect("rebuild");
         assert_eq!(saved.stale_copy, Some(StaleCopy::Saved));

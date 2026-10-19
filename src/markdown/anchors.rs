@@ -10,6 +10,9 @@
 //! - Explicit heading attributes (`# Title {#custom-id}`) are honored.
 //! - Otherwise the heading text is slugified (lowercase, drop punctuation,
 //!   spaces to hyphens), with `-1`, `-2` suffixes for repeats.
+//! - A heading with no usable slug (`###`, emoji-only) reserves a generated
+//!   id (`heading-N`, its 1-based ordinal), so the outline panel can still
+//!   jump to it.
 //! - Footnote definitions register `fn-<label>`, so `[^N]` references can
 //!   jump to their definition.
 //!
@@ -25,8 +28,10 @@ use std::collections::{HashMap, HashSet};
 /// the viewer can attach a scroll target to each heading it draws.
 #[derive(Debug, Clone, Default)]
 pub struct AnchorIndex {
-    /// One id per heading, in document order. Empty string when the heading
-    /// had no usable slug (still keeps the per-heading order aligned).
+    /// One id per heading, in document order. Empty string only when the
+    /// document passed `config::MAX_ANCHORS_PER_DOC` (the per-heading order
+    /// stays aligned); a heading whose text has no usable slug gets a
+    /// reserved generated id instead (`heading-N`).
     pub heading_ids: Vec<String>,
     /// Event index of each heading, parallel to [`Self::heading_ids`]. The
     /// viewer looks a heading's id up BY the index of its `Start` event, so
@@ -63,7 +68,8 @@ impl AnchorIndex {
     }
 
     /// The id of the heading whose `Start` event sits at `event_index`, or
-    /// `None` when no heading starts there or it had no usable slug.
+    /// `None` when no heading starts there or the heading had no id (only
+    /// possible past `config::MAX_ANCHORS_PER_DOC`).
     ///
     /// Keyed by the EVENT index instead of a render-order counter: the
     /// viewer skips content (`<Tabs>` panels render only the selected one,
@@ -115,7 +121,12 @@ fn canonical_fragment(fragment: &str) -> String {
 
 /// Percent-decodes `fragment` (`%C3%A9` -> `é`). Invalid escapes and
 /// invalid UTF-8 are kept literally instead of failing.
-fn percent_decode(value: &str) -> String {
+///
+/// `pub(crate)` for the two callers that must read a URL's own text the way
+/// the reader sees it: fragment matching here, and the export card's default
+/// file name (`ui::export::url_stem`), where a percent-encoded segment used
+/// to become a `%C3%A9`-littered file name.
+pub(crate) fn percent_decode(value: &str) -> String {
     fn hex(b: u8) -> Option<u8> {
         match b {
             b'0'..=b'9' => Some(b - b'0'),
@@ -189,7 +200,19 @@ pub fn build(events: &[Event<'static>]) -> AnchorIndex {
                 }
                 let base = explicit.unwrap_or_else(|| slugify(&text));
                 index.heading_at.push(i);
-                if base.is_empty() || index.set.len() >= cap {
+                // A heading with no usable slug (`###`, `—`, emoji-only) has
+                // no natural id: reserve a generated one (its 1-based
+                // `heading-N` ordinal) instead of leaving the slot empty, so
+                // the outline panel can still jump to it. `reserve` dedupes
+                // it like any other target, so a document that really
+                // contains `# Heading 1` (slug `heading-1`) keeps both ids
+                // distinct.
+                let base = if base.is_empty() {
+                    format!("heading-{}", index.heading_at.len())
+                } else {
+                    base
+                };
+                if index.set.len() >= cap {
                     // Keep the per-heading slot so later ids stay aligned.
                     index.heading_ids.push(String::new());
                 } else {
@@ -283,13 +306,19 @@ mod tests {
         assert_eq!(idx.heading_id_at(99), None, "past the end");
     }
 
-    /// A heading with no usable slug keeps its slot (empty string) and
-    /// reports no id; the headings after it keep their own.
+    /// A heading with no usable slug reserves a generated id (`heading-N`,
+    /// its 1-based ordinal) instead of an empty slot: the outline can jump
+    /// to every heading. The headings after it keep their own ids, and a
+    /// later heading claiming the generated candidate is deduped against it.
     #[test]
-    fn slugless_headings_keep_their_slot() {
+    fn slugless_headings_get_reserved_ids() {
         let events = parse_events("# ###\n\n## Two\n").expect("parse");
         let idx = build(&events);
-        assert_eq!(idx.heading_ids, vec![String::new(), "two".to_string()]);
+        assert_eq!(
+            idx.heading_ids,
+            vec!["heading-1".to_string(), "two".to_string()]
+        );
+        assert!(idx.contains("heading-1"), "the reserved id is a target");
         let two_at = events
             .iter()
             .enumerate()
@@ -298,7 +327,15 @@ mod tests {
             .map(|(i, _)| i)
             .expect("second heading");
         assert_eq!(idx.heading_id_at(two_at), Some("two"));
-        assert_eq!(idx.heading_id_at(0), None, "slugless heading has no id");
+        assert_eq!(idx.heading_id_at(0), Some("heading-1"));
+        // `# Heading 1` slugifies to `heading-1`, the reserved candidate:
+        // the reservations dedupe and both stay navigable.
+        let events = parse_events("# ###\n\n# Heading 1\n").expect("parse");
+        let idx = build(&events);
+        assert_eq!(
+            idx.heading_ids,
+            vec!["heading-1".to_string(), "heading-1-1".to_string()]
+        );
     }
 
     #[test]

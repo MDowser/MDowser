@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cached images and favicons fall back to their stored bytes as well.
   (`src/protocol/client/`, `src/media/fetch.rs`, `src/browser/tab/`,
   `src/ui/omnibox/`, `src/ui/icons/`, `docs/`.)
+- Reading aids. A **document outline panel** (`Ctrl/Cmd+Shift+O`, or the
+  right-click menu's "Document outline" row; disabled when the document has no
+  headings) docks to the reading sheet's right edge — a bottom sheet on narrow
+  windows — never reflows the document, highlights the current section while
+  scrolling, indents levels from the document's shallowest one, elides long
+  titles (the full text stays in the tooltip) and scrolls its own list. The
+  right-click menu's arrow keys skip the row when it is disabled. And
+  **Export…** (`Ctrl/Cmd+S`, or the menu row) opens a floating card that
+  writes the page on screen as Markdown source or plain text to an editable
+  path (defaulted to `~/Downloads/<page title>`, `~` expansion, two-click
+  confirmation before replacing an existing file, inline error on failure),
+  with no native dialog and no new dependency. (`src/markdown/outline.rs`,
+  `src/markdown/anchors.rs`, `src/viewer/outline.rs`,
+  `src/viewer/overlays/outline.rs`, `src/ui/export.rs`, `src/app/`,
+  `docs/`.)
 
 ## [0.6.0] - 2026-10-19
 

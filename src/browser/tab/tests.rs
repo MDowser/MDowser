@@ -269,8 +269,10 @@ pub(super) fn fetched_for(url: &str) -> Fetched {
         meta: crate::markdown::frontmatter::Meta::default(),
         h1_title: None,
         plain_text: String::new(),
+        source: String::new(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
+        outline: crate::markdown::outline::Outline::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
         stale_copy: None,
     }
@@ -322,14 +324,17 @@ pub(super) fn fetched_from_md(url: &str, md: &str) -> Fetched {
     let normalized = crate::markdown::document::normalize_body(md);
     let events = crate::markdown::document::parse_events(&normalized).expect("parse");
     let anchors = crate::markdown::anchors::build(&events);
+    let outline = crate::markdown::outline::build(&events, &anchors);
     let dests = crate::protocol::rewrite::DestCache::build(&base, &anchors, &events);
     Fetched {
         display_url: base,
         meta: crate::markdown::frontmatter::Meta::default(),
         h1_title: crate::markdown::document::first_h1_title(&events),
         plain_text: String::new(),
+        source: md.to_string(),
         events,
         anchors,
+        outline,
         dests,
         stale_copy: None,
     }

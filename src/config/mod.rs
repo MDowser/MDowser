@@ -552,6 +552,38 @@ pub const MAX_FIND_QUERY_CHARS: usize = 256;
 ///   bar shows the capped total with a `+`.
 pub const MAX_FIND_MATCHES: usize = 2_000;
 
+/// Max outline entries (headings) kept per document.
+/// - The outline panel lays out rows from this list and the scrollspy keeps
+///   one rect slot per entry; past the cap the remaining headings keep their
+///   anchors and render normally, the panel simply lists the first entries.
+/// - The cap is `MAX_ANCHORS_PER_DOC / 10`: a document can carry far more
+///   headings than a reader could ever use as a table of contents, and the
+///   outline copies every title into per-tab state.
+pub const MAX_OUTLINE_ITEMS: usize = 2_000;
+
+/// Max chars of one outline title.
+/// - Author-controlled and unbounded: a single huge heading would otherwise
+///   be copied whole into the outline and laid out on every panel frame.
+///   The panel elides the row to its actual width anyway; the full heading
+///   stays in the document.
+pub const MAX_OUTLINE_TITLE_CHARS: usize = 120;
+
+/// Max indent steps of the outline panel (`#` under `######` is 5).
+/// - Bounds the left inset so a deep heading list cannot push its labels out
+///   of a narrow panel.
+pub const MAX_OUTLINE_INDENT_STEPS: u8 = 5;
+
+/// Max chars accepted in the export card's file-path field.
+/// - One path line, used verbatim for one file write; the field itself is a
+///   single-line `TextEdit` capped here.
+pub const MAX_EXPORT_PATH_CHARS: usize = 1_024;
+
+/// Max chars of the exported file's name stem.
+/// - Derived from the page title (author-controlled) or the URL's last path
+///   segment: a hostile title must not build a file name past every
+///   filesystem's limit.
+pub const MAX_EXPORT_NAME_CHARS: usize = 80;
+
 // ---------------------------------------------------------------------------
 // Local browsing history (encrypted at rest, see `history.rs`)
 // ---------------------------------------------------------------------------
@@ -679,9 +711,10 @@ pub const FETCH_SLOT_WAIT_SECS: u64 = 20;
 pub const FETCH_SLOT_POLL_MS: u64 = 20;
 
 /// Max simultaneous tabs.
-/// - Every `Loaded` tab keeps its document body + parsed events in memory
-///   (up to ~2 x `MAX_BODY_BYTES`); an unbounded tab list is an unbounded
-///   memory leak. New tabs beyond this show a toast instead of allocating.
+/// - Every `Loaded` tab keeps its document in memory: the raw source, the
+///   copy text and the parsed events (up to ~3 x `MAX_BODY_BYTES`); an
+///   unbounded tab list is an unbounded memory leak. New tabs beyond this
+///   show a toast instead of allocating.
 /// - 128 leaves room for a power user's whole session; the tab list itself
 ///   costs almost nothing until a tab actually loads a document.
 pub const MAX_TABS: usize = 128;

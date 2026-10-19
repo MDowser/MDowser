@@ -93,6 +93,8 @@ For the URL-routing sequence, redirects and local-file rules, see [Navigation](d
 | `Ctrl/Cmd+L` | Focus the address field |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+F` | Find in page |
+| `Ctrl/Cmd+Shift+O` | Document outline |
+| `Ctrl/Cmd+S` | Export the page as Markdown or plain text |
 | `Ctrl+H` (Windows/Linux) · `Cmd+Y` (macOS) | Open history in a new tab |
 | `Ctrl/Cmd+D` | Bookmark the current page |
 | `Ctrl/Cmd` `+`/`=` / `-` / `0` | Zoom in / out / reset |

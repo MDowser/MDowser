@@ -43,6 +43,9 @@ impl MdowserApp {
         let mut want_find = false;
         let mut want_find_next = false;
         let mut want_find_prev = false;
+        let mut want_outline = false;
+        let mut want_export = false;
+        let mut want_close_export = false;
         // Select-all / whole-page copy only when no TEXT FIELD owns the
         // keyboard: focused fields keep their own Cmd+A/Cmd+C. `focused()`
         // alone is too broad (a focused button used to swallow the keys);
@@ -63,6 +66,12 @@ impl MdowserApp {
         // With the find bar open, Esc belongs to the bar's own ownership slot
         // in the cascade below (it closes there, never stops the load).
         let find_open = self.tabs.get(self.active).is_some_and(|t| t.find.open);
+        // Same for the outline panel: it closes itself, so Stop must not
+        // steal the press.
+        let outline_open = self.tabs.get(self.active).is_some_and(|t| t.outline.open);
+        // The export card is app-owned (it holds the captured document
+        // payload), so it takes its Esc here instead of in a surface.
+        let export_open = self.export.is_open();
         // egui clears keyboard focus on Esc BEFORE `App::ui` runs, so
         // `no_text_focus` is already true on that frame: ask the tab whether
         // an address field owned the keyboard last frame (ui::omnibox
@@ -91,6 +100,10 @@ impl MdowserApp {
             tab.address_focused = false;
             tab.tile_editing = false;
             tab.find.esc_elsewhere = esc_elsewhere;
+            // The find bar wins the first press when BOTH reading aids are
+            // open (each closes itself from the same key): the panel waits
+            // for its own press instead of closing next to the bar.
+            tab.outline.esc_elsewhere = esc_elsewhere || find_open;
         }
         let mut want_select_all = false;
         // In-page find is a document action (Loaded/Licenses only): read here,
@@ -99,6 +112,12 @@ impl MdowserApp {
             .tabs
             .get(self.active)
             .is_some_and(|t| matches!(t.state, TabState::Loaded { .. } | TabState::Licenses));
+        // The outline shortcut is a document action with a real outline: on
+        // a document without headings the panel would be an empty card.
+        let outline_ready = self.tabs.get(self.active).is_some_and(|t| {
+            t.document_outline()
+                .is_some_and(|outline| !outline.is_empty())
+        });
         ctx.input_mut(|i| {
             want_new = i.consume_key(cmd, egui::Key::T);
             want_close = i.consume_key(cmd, egui::Key::W);
@@ -109,6 +128,13 @@ impl MdowserApp {
                 // Like zoom: works even while a field is focused (a browser
                 // moves focus into its own find box instead of typing `f`).
                 want_find = i.consume_key(cmd, egui::Key::F);
+                // Export is a document action too, and like find it must not
+                // type an `s` into a focused field.
+                want_export = i.consume_key(cmd, egui::Key::S);
+            }
+            if outline_ready {
+                // `Ctrl/Cmd+Shift+O`: the classic "document outline" chord.
+                want_outline = i.consume_key(cmd | egui::Modifiers::SHIFT, egui::Key::O);
             }
             // macOS uses Cmd+Y (`Cmd+H` hides the app); Ctrl+H elsewhere,
             // matching desktop browsers.
@@ -139,7 +165,8 @@ impl MdowserApp {
             // Esc ownership cascade: exactly one surface acts per press. A
             // focused text field keeps the key (handled above and by the
             // omnibox); a popup consumes it; a floating window closes; the
-            // context menu and the find bar own it through their own
+            // export card closes next (it is app-owned); the context menu,
+            // the find bar and the outline panel own it through their own
             // handlers; anything else stops the load.
             if no_text_focus && !menu_open && !address_focused && !tile_editing {
                 if windows_open {
@@ -147,7 +174,12 @@ impl MdowserApp {
                         want_close_windows =
                             i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                     }
-                } else if !find_open && !site_info_open {
+                } else if export_open {
+                    // The card owns the first press after the windows: it
+                    // holds the captured payload, so it is the surface the
+                    // reader just opened.
+                    want_close_export = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+                } else if !find_open && !site_info_open && !outline_open {
                     want_stop = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
                 }
             }
@@ -168,6 +200,20 @@ impl MdowserApp {
         }
         if want_close_windows {
             self.windows.close_windows();
+        }
+        if want_close_export {
+            self.export.close();
+        }
+        if want_outline {
+            if let Some(tab) = self.tabs.get_mut(self.active) {
+                tab.outline.toggle();
+            }
+        }
+        if want_export {
+            // The payload is captured from the page on screen NOW (see
+            // `open_export`), so a navigation later in the frame cannot swap
+            // the document out from under the card.
+            self.open_export();
         }
         // Captured before ANY tab mutation: a same-frame Ctrl+W must close the
         // tab that was active when the keys were read, not one just opened by

@@ -216,6 +216,13 @@ struct RenderCtx<'a> {
     /// the query is empty). Assigns match ordinals in document order while
     /// painting; the total is handed back to `FindState` after the walk.
     find: Option<crate::viewer::find::FindRender>,
+    /// Outline panel state this frame (`None` while the panel is closed:
+    /// the walk then records no heading rects at all). Every rendered
+    /// heading pushes its own rect through
+    /// [`crate::viewer::outline::OutlineState::record_rect`], keyed by the
+    /// heading's `Start` event index; the scrollspy reads them after the
+    /// walk.
+    outline: Option<&'a mut crate::viewer::outline::OutlineState>,
 }
 
 impl<'a> RenderCtx<'a> {
@@ -259,6 +266,9 @@ impl<'a> RenderCtx<'a> {
 /// - `find`: in-page find state (query/current/scroll in, total/capped out).
 /// - `doc_generation`: per-tab document generation (stale find totals are
 ///   dropped when the visible document is replaced).
+/// - `outline`: outline panel state, `Some` while the panel is open. Its
+///   frame starts here (stale heading rects are dropped) and every rendered
+///   heading records its rect into it; `None` records nothing.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn show_markdown_with_find(
     ui: &mut egui::Ui,
@@ -277,6 +287,7 @@ pub(crate) fn show_markdown_with_find(
     links: &mut Vec<LinkHit>,
     find: &mut crate::viewer::find::FindState,
     doc_generation: u64,
+    mut outline: Option<&mut crate::viewer::outline::OutlineState>,
 ) {
     // A replaced document invalidates the last count (it belongs to the old
     // page); the fresh walk below recounts it before the bar reads it.
@@ -295,6 +306,12 @@ pub(crate) fn show_markdown_with_find(
     } else {
         None
     };
+    // Outline scrollspy: the frame's heading rects are rebuilt from zero
+    // (a skipped page's stale rects would otherwise leave the cursor lit on
+    // a section that is no longer on screen).
+    if let Some(outline) = outline.as_deref_mut() {
+        outline.begin_frame();
+    }
     let mut ctx = RenderCtx {
         anchors,
         dests,
@@ -323,6 +340,7 @@ pub(crate) fn show_markdown_with_find(
         unreferenced_footnotes: 0,
         pending_back_arrow: None,
         find: find_render,
+        outline,
     };
     let mut i = 0usize;
     // Footnote-reference memo generation: bumped only when the DOCUMENT
@@ -451,6 +469,7 @@ pub(crate) fn show_markdown(
         links,
         &mut find,
         doc_salt,
+        None,
     );
 }
 

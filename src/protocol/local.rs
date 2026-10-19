@@ -379,7 +379,7 @@ pub(crate) fn fetch_blocking(start: &Url, cancel: &AtomicBool) -> Result<Fetched
                 if cancel.load(Ordering::Relaxed) {
                     return Err(BrowserError::Cancelled);
                 }
-                match super::client::finish_document(&text, url.clone(), &url) {
+                match super::client::finish_document(text, url.clone(), &url) {
                     Ok(fetched) => return Ok(fetched),
                     Err(line) => {
                         lines

@@ -370,6 +370,16 @@ impl eframe::App for MdowserApp {
             self.open_url_in_new_tab(&url);
         }
 
+        // The context menu's "Export…" row only ASKS (`export_asked`): the
+        // card needs the document's payload, which lives in the tab the
+        // viewer just drew. Read and clear the request here, after that draw
+        // (the row and Ctrl/Cmd+S share `open_export`, so both reach the same
+        // card).
+        if self.tabs.get(active).is_some_and(|t| t.export_asked) {
+            self.tabs[active].export_asked = false;
+            self.open_export();
+        }
+
         // Floating Preferences window LAST so it draws over the page. A
         // changed "Default zoom" applies to the current view immediately;
         // "View third-party licenses" opens the embedded notices in a new
@@ -386,6 +396,14 @@ impl eframe::App for MdowserApp {
         }
         if prefs_actions.open_licenses {
             self.open_licenses();
+        }
+
+        // The export card is app-owned (`Foreground`, so its own layer is
+        // above the Preferences window whatever the draw order), and a
+        // confirmed save is reported on the page the reader is looking at.
+        let export_actions = self.export.show(ui.ctx());
+        if let Some(name) = export_actions.saved {
+            self.active_tab_mut().set_toast(&format!("Saved {name}"));
         }
 
         // Jobs registered while drawing this frame (image `ensure`, favicon

@@ -60,6 +60,10 @@ pub(super) enum MenuAction {
     ZoomOut,
     /// Reset the zoom to 100% (`Ctrl/Cmd+0`).
     ZoomReset,
+    /// Toggle the document outline panel (`Ctrl/Cmd+Shift+O`).
+    Outline,
+    /// Export the page on screen to a local file (`Ctrl/Cmd+S`).
+    Export,
     /// Copy the selection (`Ctrl/Cmd+C`).
     Copy,
     /// Paste from the clipboard (`Ctrl/Cmd+V`).
@@ -68,16 +72,22 @@ pub(super) enum MenuAction {
     SelectAll,
 }
 
-/// A `Cmd+<key>` press event, built exactly as `egui-winit` builds one, so
-/// `App::handle_shortcuts` and every `TextEdit` react to it identically.
-fn command_key(key: egui::Key) -> egui::Event {
+/// A `<modifiers>+<key>` press event, built exactly as `egui-winit` builds
+/// one, so `App::handle_shortcuts` and every `TextEdit` react to it
+/// identically.
+fn key_event(modifiers: egui::Modifiers, key: egui::Key) -> egui::Event {
     egui::Event::Key {
         key,
         physical_key: Some(key),
         pressed: true,
         repeat: false,
-        modifiers: egui::Modifiers::COMMAND,
+        modifiers,
     }
+}
+
+/// [`key_event`] for the `Cmd`-only chord, the shape of most shortcuts.
+fn command_key(key: egui::Key) -> egui::Event {
+    key_event(egui::Modifiers::COMMAND, key)
 }
 
 impl MenuAction {
@@ -97,6 +107,11 @@ impl MenuAction {
             Self::ZoomIn => command_key(egui::Key::Equals),
             Self::ZoomOut => command_key(egui::Key::Minus),
             Self::ZoomReset => command_key(egui::Key::Num0),
+            Self::Outline => key_event(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::O,
+            ),
+            Self::Export => command_key(egui::Key::S),
         })
     }
 }
@@ -114,6 +129,8 @@ fn action_for(id: &MenuId) -> Option<MenuAction> {
         "zoom-in" => MenuAction::ZoomIn,
         "zoom-out" => MenuAction::ZoomOut,
         "zoom-reset" => MenuAction::ZoomReset,
+        "outline" => MenuAction::Outline,
+        "export" => MenuAction::Export,
         "copy" => MenuAction::Copy,
         "paste" => MenuAction::Paste,
         "select-all" => MenuAction::SelectAll,
@@ -144,12 +161,12 @@ fn menu_events(actions: impl IntoIterator<Item = MenuAction>) -> Vec<egui::Event
 
 /// The native menu item title (mnemonics are Windows-only; `&` would show).
 fn item(id: &str, text: &str, code: Code) -> MenuItem {
-    MenuItem::with_id(
-        id,
-        text,
-        true,
-        Some(Accelerator::new(Modifiers::META, code)),
-    )
+    item_with(Modifiers::META, id, text, code)
+}
+
+/// [`item`] for a chord that carries more than `Cmd` (`Cmd+Shift+O`).
+fn item_with(modifiers: Modifiers, id: &str, text: &str, code: Code) -> MenuItem {
+    MenuItem::with_id(id, text, true, Some(Accelerator::new(modifiers, code)))
 }
 
 /// Opts the process out of AppKit's automatic window tabbing.
@@ -210,6 +227,10 @@ fn build() -> muda::Result<Menu> {
         &[
             &item("new-tab", "New Tab", Code::KeyT),
             &item("close-tab", "Close Tab", Code::KeyW),
+            &PredefinedMenuItem::separator(),
+            // The export card asks for a destination itself, so this is not
+            // AppKit's "Save Page As…" sheet: same command as Ctrl/Cmd+S.
+            &item("export", "Export…", Code::KeyS),
         ],
     )?;
     // Edit is deliberately minimal: Copy / Paste / Select all and nothing else.
@@ -232,6 +253,15 @@ fn build() -> muda::Result<Menu> {
             &item("zoom-in", "Zoom In", Code::Equal),
             &item("zoom-out", "Zoom Out", Code::Minus),
             &item("zoom-reset", "Actual Size", Code::Digit0),
+            &PredefinedMenuItem::separator(),
+            // Reading aid, next to the zoom block where a browser keeps its
+            // view-level switches.
+            &item_with(
+                Modifiers::META | Modifiers::SHIFT,
+                "outline",
+                "Document Outline",
+                Code::KeyO,
+            ),
         ],
     )?;
     let history = Submenu::with_items(
@@ -331,6 +361,8 @@ mod tests {
             ("zoom-in", MenuAction::ZoomIn),
             ("zoom-out", MenuAction::ZoomOut),
             ("zoom-reset", MenuAction::ZoomReset),
+            ("outline", MenuAction::Outline),
+            ("export", MenuAction::Export),
             ("copy", MenuAction::Copy),
             ("paste", MenuAction::Paste),
             ("select-all", MenuAction::SelectAll),
@@ -346,18 +378,48 @@ mod tests {
         assert_eq!(MenuAction::Copy.shortcut(), Some(egui::Event::Copy));
         // Paste reads the clipboard, so its event is built separately.
         assert_eq!(MenuAction::Paste.shortcut(), None);
-        for (action, key) in [
-            (MenuAction::SelectAll, egui::Key::A),
-            (MenuAction::NewTab, egui::Key::T),
-            (MenuAction::CloseTab, egui::Key::W),
-            (MenuAction::Reload, egui::Key::R),
-            (MenuAction::Preferences, egui::Key::Comma),
-            (MenuAction::History, egui::Key::Y),
-            (MenuAction::ZoomIn, egui::Key::Equals),
-            (MenuAction::ZoomOut, egui::Key::Minus),
-            (MenuAction::ZoomReset, egui::Key::Num0),
+        for (action, modifiers, key) in [
+            (
+                MenuAction::SelectAll,
+                egui::Modifiers::COMMAND,
+                egui::Key::A,
+            ),
+            (MenuAction::NewTab, egui::Modifiers::COMMAND, egui::Key::T),
+            (MenuAction::CloseTab, egui::Modifiers::COMMAND, egui::Key::W),
+            (MenuAction::Reload, egui::Modifiers::COMMAND, egui::Key::R),
+            (
+                MenuAction::Preferences,
+                egui::Modifiers::COMMAND,
+                egui::Key::Comma,
+            ),
+            (MenuAction::History, egui::Modifiers::COMMAND, egui::Key::Y),
+            (
+                MenuAction::ZoomIn,
+                egui::Modifiers::COMMAND,
+                egui::Key::Equals,
+            ),
+            (
+                MenuAction::ZoomOut,
+                egui::Modifiers::COMMAND,
+                egui::Key::Minus,
+            ),
+            (
+                MenuAction::ZoomReset,
+                egui::Modifiers::COMMAND,
+                egui::Key::Num0,
+            ),
+            (MenuAction::Export, egui::Modifiers::COMMAND, egui::Key::S),
+            (
+                MenuAction::Outline,
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::O,
+            ),
         ] {
-            assert_eq!(action.shortcut(), Some(command_key(key)), "{action:?}");
+            assert_eq!(
+                action.shortcut(),
+                Some(key_event(modifiers, key)),
+                "{action:?}"
+            );
         }
     }
 

@@ -94,6 +94,7 @@ pub(super) fn render_block(
             // The id is only CONSUMED to satisfy a pending anchor (see
             // `render_heading`), so settled frames clone nothing: the
             // per-heading `String` clone used to run on every frame.
+            let heading_at = *i;
             let heading_id = ctx
                 .pending_anchor
                 .is_some()
@@ -104,7 +105,15 @@ pub(super) fn render_block(
             if *i < events.len() {
                 *i += 1; // End(Heading)
             }
-            render_heading(ui, frags, level, heading_id.as_deref(), ctx);
+            let rect = render_heading(ui, frags, level, heading_id.as_deref(), ctx);
+            // Outline scrollspy: the panel needs to know where each heading
+            // landed this frame. Keyed by the heading's OWN event index, the
+            // same key the anchor index uses, so a heading dropped by the
+            // block budget (or one inside an unselected `<Tabs>` panel) is
+            // simply absent rather than shifting its neighbours.
+            if let Some(outline) = ctx.outline.as_deref_mut() {
+                outline.record_rect(heading_at, rect);
+            }
         }
         Event::Start(Tag::BlockQuote(_)) => {
             // The block's OWN event index keys its inner indent (see
