@@ -250,10 +250,11 @@ pub struct Tab {
     /// rendered total. Per tab; cleared on navigation/tab switch with the
     /// rest of the overlay state.
     pub find: crate::viewer::find::FindState,
-    /// Document outline panel state (reading aid): open flag, scrollspy
-    /// cursor and the frame's heading rects. Per tab (each tab keeps its own
-    /// section cursor); cleared on navigation/tab switch with the rest of
-    /// the overlay state, since the cursor belongs to the page on screen.
+    /// Document outline sidebar state (reading aid): scrollspy cursor,
+    /// measured row heights and the frame's heading rects. Per tab (each tab
+    /// keeps its own section cursor); cleared on navigation/tab switch with
+    /// the rest of the overlay state, since the cursor belongs to the page on
+    /// screen.
     pub outline: crate::viewer::outline::OutlineState,
     /// Set by the context menu's "Export…" row (the menu has no access to
     /// the app's export card): `App::ui` reads it right after
@@ -444,7 +445,7 @@ impl Tab {
         // Find never leaks across documents: a stale query would highlight
         // the wrong page (and its count belongs to that page).
         self.find.reset();
-        // The outline panel describes the page that was on screen, and its
+        // The outline sidebar describes the page that was on screen, and its
         // scrollspy cursor belongs to that page's headings.
         self.outline.reset();
         self.export_asked = false;
@@ -675,18 +676,6 @@ impl Tab {
     pub fn stale_copy(&self) -> Option<client::StaleCopy> {
         match &self.state {
             TabState::Loaded { fetched } => fetched.stale_copy,
-            _ => None,
-        }
-    }
-
-    /// The outline of the document on screen (its `#` headings in document
-    /// order, with the reserved anchor ids the panel jumps through). `None`
-    /// on every page that draws no document (Home / Loading / History /
-    /// Failed): the panel and its entry points stay disabled there.
-    pub fn document_outline(&self) -> Option<&crate::markdown::outline::Outline> {
-        match &self.state {
-            TabState::Loaded { fetched } => Some(&fetched.outline),
-            TabState::Licenses => crate::licenses::document().map(|doc| &doc.outline),
             _ => None,
         }
     }

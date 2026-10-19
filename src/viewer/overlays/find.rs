@@ -57,8 +57,15 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
     let edit_id = egui::Id::new(("find-query", tab_id));
     let mut step: Option<i8> = None;
     let mut close = false;
+    // Dock just left of the permanent outline sidebar when the page has one,
+    // instead of covering it. `panel_rect` is this frame's (the viewer draws
+    // the sidebar before this bar); a page without an outline keeps the
+    // sheet-edge offset.
+    let right_inset = tab.outline.panel_rect.map_or(12.0, |panel| {
+        (ctx.content_rect().right() - panel.left() + 12.0).max(12.0)
+    });
     egui::Area::new(egui::Id::new(("find-bar", tab_id)))
-        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 48.0))
+        .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-right_inset, 48.0))
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
             // An `Area`'s FIRST frame runs as an invisible sizing pass with a

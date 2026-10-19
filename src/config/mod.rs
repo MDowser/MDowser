@@ -553,9 +553,10 @@ pub const MAX_FIND_QUERY_CHARS: usize = 256;
 pub const MAX_FIND_MATCHES: usize = 2_000;
 
 /// Max outline entries (headings) kept per document.
-/// - The outline panel lays out rows from this list and the scrollspy keeps
-///   one rect slot per entry; past the cap the remaining headings keep their
-///   anchors and render normally, the panel simply lists the first entries.
+/// - The outline sidebar lays out rows from this list and the scrollspy
+///   keeps one rect slot per entry; past the cap the remaining headings keep
+///   their anchors and render normally, the sidebar simply lists the first
+///   entries.
 /// - The cap is `MAX_ANCHORS_PER_DOC / 10`: a document can carry far more
 ///   headings than a reader could ever use as a table of contents, and the
 ///   outline copies every title into per-tab state.
@@ -563,14 +564,14 @@ pub const MAX_OUTLINE_ITEMS: usize = 2_000;
 
 /// Max chars of one outline title.
 /// - Author-controlled and unbounded: a single huge heading would otherwise
-///   be copied whole into the outline and laid out on every panel frame.
-///   The panel elides the row to its actual width anyway; the full heading
-///   stays in the document.
+///   be copied whole into the outline and laid out on every sidebar frame.
+///   The row wraps within the sidebar; the full heading stays in the
+///   document.
 pub const MAX_OUTLINE_TITLE_CHARS: usize = 120;
 
-/// Max indent steps of the outline panel (`#` under `######` is 5).
+/// Max indent steps of the outline sidebar (`#` under `######` is 5).
 /// - Bounds the left inset so a deep heading list cannot push its labels out
-///   of a narrow panel.
+///   of a narrow sidebar.
 pub const MAX_OUTLINE_INDENT_STEPS: u8 = 5;
 
 /// Max chars accepted in the export card's file-path field.

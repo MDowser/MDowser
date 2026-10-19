@@ -12,7 +12,7 @@
 //!   The card owns the whole write: destination resolution, the two-click
 //!   overwrite confirmation and the inline error all live here.
 //! - A floating `Area` in `Order::Foreground` (the find bar's layer), anchored
-//!   to the top center: above the document, the outline panel and the
+//!   to the top center: above the document, the outline sidebar and the
 //!   Preferences window, never draggable and never a layout participant.
 //! - `Esc` closes it through `app::shortcuts` ([`ExportState::close`]), like
 //!   the other app-owned surface; the primary action (its button, or `Enter`
@@ -244,9 +244,9 @@ impl ExportState {
         };
         egui::Area::new(egui::Id::new("export-card"))
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, TOP_MARGIN))
-            // The find bar's layer: above the document, the outline panel
-            // (both `Middle`) and the Preferences window, below the context
-            // menu and the toasts it opened from and reports back through.
+            // The find bar's layer: above the document and the outline
+            // sidebar and the Preferences window, below the context menu and
+            // the toasts it opened from and reports back through.
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 frame.show(ui, |ui| {

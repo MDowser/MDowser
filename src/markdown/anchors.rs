@@ -11,7 +11,7 @@
 //! - Otherwise the heading text is slugified (lowercase, drop punctuation,
 //!   spaces to hyphens), with `-1`, `-2` suffixes for repeats.
 //! - A heading with no usable slug (`###`, emoji-only) reserves a generated
-//!   id (`heading-N`, its 1-based ordinal), so the outline panel can still
+//!   id (`heading-N`, its 1-based ordinal), so the outline sidebar can still
 //!   jump to it.
 //! - Footnote definitions register `fn-<label>`, so `[^N]` references can
 //!   jump to their definition.
@@ -203,7 +203,7 @@ pub fn build(events: &[Event<'static>]) -> AnchorIndex {
                 // A heading with no usable slug (`###`, `—`, emoji-only) has
                 // no natural id: reserve a generated one (its 1-based
                 // `heading-N` ordinal) instead of leaving the slot empty, so
-                // the outline panel can still jump to it. `reserve` dedupes
+                // the outline sidebar can still jump to it. `reserve` dedupes
                 // it like any other target, so a document that really
                 // contains `# Heading 1` (slug `heading-1`) keeps both ids
                 // distinct.

@@ -789,7 +789,7 @@ fn card_texts(ctx: &eframe::egui::Context, app: &mut MdowserApp) -> Vec<String> 
 
 /// A loaded page whose body is non-trivial (the export tests read the
 /// default destination, not the bytes) and whose outline is real, so the
-/// outline panel can draw it.
+/// outline sidebar can draw it.
 fn loaded_tab_with_outline(id: usize, url: &str, title: &str) -> Tab {
     let mut tab = loaded_tab(id, url, Some(title));
     let TabState::Loaded { fetched } = &mut tab.state else {
@@ -891,9 +891,10 @@ fn export_shortcut_opens_the_card_on_document_pages_only() {
     assert!(!home.export.is_open(), "Home has nothing to export");
 }
 
-/// Esc ownership of the reading surfaces: with the export card, the find bar
-/// and the outline panel all up, one press closes exactly one surface — the
-/// card first (it holds the captured document), then the bar, then the panel.
+/// Esc ownership of the reading surfaces: with the export card and the find
+/// bar up, one press closes exactly one surface — the card first (it holds
+/// the captured document), then the bar. The permanent outline sidebar is
+/// layout, not a dismissible overlay, so it never owns the key.
 #[test]
 fn esc_closes_one_reading_surface_per_press() {
     let ctx = eframe::egui::Context::default();
@@ -904,7 +905,6 @@ fn esc_closes_one_reading_surface_per_press() {
     );
     let generation = app.tabs[0].doc_generation;
     app.tabs[0].find.show(generation);
-    app.tabs[0].outline.show();
     app.open_export();
     assert!(app.export.is_open());
     let escape = || eframe::egui::Event::Key {
@@ -928,17 +928,12 @@ fn esc_closes_one_reading_surface_per_press() {
                 app.handle_shortcuts(ctx);
                 let active = app.active;
                 crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
-                crate::viewer::overlays::outline::show_outline_panel(root, &mut app.tabs[active]);
             });
             out.textures_delta.clear();
         };
     frame(&ctx, &mut app, vec![escape()]);
     assert!(!app.export.is_open(), "the card owned the first press");
     assert!(app.tabs[0].find.open, "the find bar waited for its press");
-    assert!(app.tabs[0].outline.open, "the panel waited for its press");
     frame(&ctx, &mut app, vec![escape()]);
     assert!(!app.tabs[0].find.open, "the bar owned the second press");
-    assert!(app.tabs[0].outline.open, "the panel still waited");
-    frame(&ctx, &mut app, vec![escape()]);
-    assert!(!app.tabs[0].outline.open, "the panel owned the third press");
 }

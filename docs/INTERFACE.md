@@ -81,9 +81,9 @@ Windows and Linux have no menu: the toolbar is the whole chrome. macOS always
 shows a system menu bar (`src/app/menu.rs`, `muda`): Application (About MDowser,
 Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File (New Tab
 `Cmd+T`, Close Tab `Cmd+W`, Export… `Cmd+S`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
-Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Document
-Outline `Cmd+Shift+O`, Zoom In `Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size
-`Cmd+0`), History (Show History `Cmd+Y`), Window
+Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Zoom In
+`Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show
+History `Cmd+Y`), Window
 (Minimize, Zoom, Bring All to Front).
 
 Every item replays the keyboard's shortcut through one handler; Paste reads the
@@ -343,21 +343,19 @@ sheet, not a raw log:
 ## Right-click menu
 
 Minimal: Copy (the drag selection when one exists, else the whole page), Select
-all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`), Document outline
-(`Ctrl/Cmd+Shift+O`) and Export… (`Ctrl/Cmd+S`, the two reading aids), below a
-separator; over a link it adds Open link in new tab at the top. `Cmd/Ctrl+click`
-on a link opens it in a background tab directly (an in-page
-`#anchor` becomes its absolute URL plus the fragment). All body text is natively
-selectable (drag + `Cmd/Ctrl+C`) with readable selection colors. Right-clicking
-preserves an existing selection (its press is intercepted before egui), so menu
-Copy copies exactly the selected text.
+all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`) and Export…
+(`Ctrl/Cmd+S`), below a separator; over a link it adds Open link in new tab at
+the top. `Cmd/Ctrl+click` on a link opens it in a background tab directly (an
+in-page `#anchor` becomes its absolute URL plus the fragment). All body text is
+natively selectable (drag + `Cmd/Ctrl+C`) with readable selection colors.
+Right-clicking preserves an existing selection (its press is intercepted before
+egui), so menu Copy copies exactly the selected text.
 
 Opening the menu with the pointer leaves NO row highlighted (only the keyboard
 lights one). A primary press outside it — including the start of a drag
 selection — closes it. The menu is keyboard-navigable: `Down`/`Up` move focus
-into the rows (the first press lands on the first; the disabled "Document
-outline" row of a headingless document is skipped, like a native menu), `Enter`
-activates the focused one, `Esc` closes.
+into the rows (the first press lands on the first), `Enter` activates the
+focused one, `Esc` closes.
 
 ## Keyboard shortcuts
 
@@ -371,9 +369,8 @@ reference, leaving out bare `Esc` rows and keyboard reorders.
 | `Ctrl/Cmd+W` | Close tab |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+L` | Focus address field (selects the URL) |
-| `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the export card, the find bar or the outline panel, or Stop loading |
+| `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the export card, the find bar, or Stop loading |
 | `Ctrl/Cmd+F` | Find in page (document pages only) |
-| `Ctrl/Cmd+Shift+O` | Document outline (document pages with headings only) |
 | `Ctrl/Cmd+S` | Export the page (document pages only) |
 | `Enter` / `Shift+Enter` (field focused) · `F3` / `Shift+F3` (anywhere) | Next / previous find match |
 | `Ctrl/Cmd+A` | Select all (page text; when no text field is focused) |
@@ -396,7 +393,8 @@ omnibox-style capsule (soft chrome fill, magnifier glyph, frameless field
 focusing with the accent ring), the `n/m` count in a fixed muted slot and
 circular previous/next/close buttons, identical in hover fill, glyph animation
 and tooltips to the toolbar's (lighter shadow than menu popups, since the bar
-stays on screen).
+stays on screen). On a document with an outline sidebar, the bar docks just
+left of the sidebar instead of covering it.
 
 Matching is a case-insensitive substring over rendered text — prose, headings,
 list items, quotes, tables and fenced code bodies — every match washed amber,
@@ -418,25 +416,26 @@ on navigation or tab switch with the rest of the overlay state.
 
 ## Document outline
 
-`Ctrl/Cmd+Shift+O` (or the right-click "Document outline" row) toggles a
-floating panel with the document's headings in document order, at the depth the
-document wrote them: every heading starts one indent step below the shallowest
-level present (a document whose headings start at `##` wastes no step), titles
-are elided to the row (full text in the hover tooltip and the accessible name)
-and a heading that slugs to nothing still gets a navigable row (anchors reserve
-a positional id for it). The row of the section being read carries the accent
-bar and the panel follows the page while the reader scrolls, keeping that row
-in its own view. A row click scrolls its heading to the top of the sheet through
-the same mechanism as a `#anchor` link click.
+Every document with headings carries an **always-visible outline sidebar** on
+the right: narrow (176-240px, proportional to the window), part of the reading
+layout so the sheet reflows beside it, and full height. It lists the document's
+headings in document order at the depth the document wrote them: every heading
+starts one indent step below the shallowest level present (a document whose
+headings start at `##` wastes no step), long titles WRAP onto as many lines as
+they need (the full text also stays in the hover tooltip and the accessible
+name), and a heading that slugs to nothing still gets a navigable row (anchors
+reserve a positional id for it). The row of the section being read carries the
+accent bar; the list keeps that row in view as the reader scrolls and scrolls
+on its own when the outline is long.
 
-It is an overlay, never a layout participant: docked below the find bar at the
-sheet's right edge on ordinary windows, a bottom sheet (same rows, one column)
-below 640px of window width, with its own scroll once the list reaches 60% of
-the window height. `Esc` (exactly one surface per press; with the find bar open
-too, the bar takes the first press and the panel the next) or a primary press
-outside closes it; navigation and tab switches close it with the rest of the
-overlay state. The row and the shortcut are disabled on a document without
-headings.
+A row click scrolls its heading to the top of the sheet through the same
+mechanism as a `#anchor` link click. The scrollspy accounts for the page END:
+a heading near the bottom that cannot reach the top (there is not enough
+content below it) still becomes current, and a just-clicked row stays selected
+until the reader scrolls by hand. The sidebar has no close control and does not
+own `Esc`; navigation and tab switches reset its cursor with the rest of the
+page state. A document without headings gets no empty sidebar. The find bar
+docks just left of the sidebar instead of covering it.
 
 ## Export
 

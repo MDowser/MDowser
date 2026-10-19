@@ -45,19 +45,6 @@ fn loaded_tab(context_link: Option<&str>) -> Tab {
     tab
 }
 
-/// [`loaded_tab`] whose document HAS an outline: the heading of its body
-/// parsed and indexed exactly like `finish_document` does it, so the menu's
-/// `Document outline` row is live.
-fn loaded_tab_with_headings(context_link: Option<&str>) -> Tab {
-    let mut tab = loaded_tab(context_link);
-    if let TabState::Loaded { fetched } = &mut tab.state {
-        let events = crate::markdown::document::parse_events("# Hi\n\nbody text\n").expect("parse");
-        fetched.outline =
-            crate::markdown::outline::build(&events, &crate::markdown::anchors::build(&events));
-    }
-    tab
-}
-
 /// Screen position of the painted menu row labelled `label`.
 fn row_position(ctx: &egui::Context, tab: &mut Tab, label: &str) -> egui::Pos2 {
     render_menu_positions(ctx, tab, Vec::new())
@@ -551,12 +538,11 @@ fn render_menu_texts(ctx: &egui::Context, tab: &mut Tab) -> Vec<String> {
 
 /// The minimal menu renders `Open link in new tab` (only over a link), the
 /// two clipboard actions and the document actions (`Find in page`,
-/// `Document outline`, `Export…`), each with its shortcut hint; no
-/// navigation items remain.
+/// `Export…`), each with its shortcut hint; no navigation items remain.
 #[test]
 fn menu_renders_the_minimal_actions() {
     let ctx = egui::Context::default();
-    let mut tab = loaded_tab_with_headings(Some("https://ex.com/other/"));
+    let mut tab = loaded_tab(Some("https://ex.com/other/"));
     let texts = render_menu_texts(&ctx, &mut tab);
     let joined = texts.join("|");
     for item in [
@@ -564,97 +550,28 @@ fn menu_renders_the_minimal_actions() {
         "Copy",
         "Select all",
         "Find in page",
-        "Document outline",
         "Export…",
     ] {
         assert!(joined.contains(item), "{item:?} missing: {joined}");
     }
     // The hints are painted next to the labels, so a reader learns the
     // shortcut without opening the menu bar.
-    for hint in ["Cmd+C", "Cmd+A", "Cmd+F", "Cmd+Shift+O", "Cmd+S"] {
+    for hint in ["Cmd+C", "Cmd+A", "Cmd+F", "Cmd+S"] {
         assert!(joined.contains(hint), "{hint:?} missing: {joined}");
     }
-    for gone in ["Back", "Forward", "Refresh", "Server home", "Share"] {
+    for gone in [
+        "Back",
+        "Forward",
+        "Refresh",
+        "Server home",
+        "Share",
+        "Document outline",
+    ] {
         assert!(
             !texts.iter().any(|t| t == gone),
             "removed item {gone:?} still rendered: {joined}"
         );
     }
-}
-
-/// The `Document outline` row is the context-menu entry point for the panel
-/// (same toggle as `Ctrl/Cmd+Shift+O`): a click opens it on a document with
-/// headings. On a document without headings the row is DISABLED — the panel
-/// would be an empty card — so the click runs nothing and the menu stays up,
-/// exactly like a greyed row in a native menu.
-#[test]
-fn outline_row_toggles_the_panel_and_is_disabled_without_headings() {
-    let ctx = egui::Context::default();
-    crate::ui::theme::apply(&ctx);
-    let mut tab = loaded_tab_with_headings(None);
-    settle_menu(&ctx, &mut tab);
-    let pos = row_position(&ctx, &mut tab, "Document outline");
-    click_row(&ctx, &mut tab, pos);
-    assert!(!tab.context_open, "the action closes the menu");
-    assert!(tab.outline.open, "the row opened the panel");
-    assert!(!tab.export_asked, "no other action rode along");
-    // Without headings: disabled (hover-only sense, no action).
-    let mut tab = loaded_tab(None);
-    settle_menu(&ctx, &mut tab);
-    let pos = row_position(&ctx, &mut tab, "Document outline");
-    click_row(&ctx, &mut tab, pos);
-    assert!(!tab.outline.open, "no headings, no panel");
-    assert!(tab.context_open, "a disabled row runs no action");
-}
-
-/// The keyboard skips a disabled row exactly like a native menu: on a
-/// headingless document the fourth `Down` jumps from `Find in page` straight
-/// to `Export…` and never parks on the greyed `Document outline` row — which
-/// could not hold focus anyway (egui surrenders it on a hover-only row in
-/// the frame that creates it, so a request there silently unseated the
-/// keyboard and the next `Down` restarted at the top).
-#[test]
-fn keyboard_navigation_skips_the_disabled_outline_row() {
-    use super::next_enabled_row;
-    // Rows without a link: Copy, Select all, Find in page, [outline],
-    // Export….
-    let gapped = [true, true, true, false, true];
-    assert_eq!(next_enabled_row(None, true, &gapped), 0);
-    assert_eq!(next_enabled_row(Some(2), true, &gapped), 4, "skips forward");
-    assert_eq!(next_enabled_row(Some(4), false, &gapped), 2, "skips back");
-    assert_eq!(next_enabled_row(Some(4), true, &gapped), 0, "wraps");
-    assert_eq!(next_enabled_row(None, false, &gapped), 4);
-    // A disabled run that reaches the ends still lands on a live row.
-    let edges = [false, true, true, false];
-    assert_eq!(next_enabled_row(None, true, &edges), 1);
-    assert_eq!(next_enabled_row(None, false, &edges), 2);
-
-    use egui::Key;
-    let ctx = egui::Context::default();
-    crate::ui::theme::apply(&ctx);
-    let mut tab = loaded_tab(None);
-    let tab_id = tab.id;
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
-    let key = |key: Key| egui::Event::Key {
-        key,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: egui::Modifiers::NONE,
-    };
-    settle_menu(&ctx, &mut tab);
-    for _ in 0..3 {
-        menu_frame(&ctx, &mut tab, vec![key(Key::ArrowDown)]);
-    }
-    assert!(ctx.memory(|m| m.has_focus(row_id(2))), "parked on Find");
-    menu_frame(&ctx, &mut tab, vec![key(Key::ArrowDown)]);
-    assert!(
-        ctx.memory(|m| m.has_focus(row_id(4))),
-        "the arrows skip the greyed outline row"
-    );
-    menu_frame(&ctx, &mut tab, vec![key(Key::Enter)]);
-    assert!(!tab.context_open, "Enter ran the live row");
-    assert!(tab.export_asked, "Export… asked for the card");
 }
 
 /// The `Export…` row only ASKS for the card (`Tab::export_asked`): the
@@ -671,7 +588,6 @@ fn export_row_asks_the_app_for_the_card() {
     click_row(&ctx, &mut tab, pos);
     assert!(!tab.context_open, "the action closes the menu");
     assert!(tab.export_asked, "the viewer flagged the request");
-    assert!(!tab.outline.open, "no other action rode along");
 }
 
 /// Without a link under the cursor the menu has no "Open link" row.

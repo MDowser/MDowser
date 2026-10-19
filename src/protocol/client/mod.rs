@@ -87,7 +87,7 @@ pub struct Fetched {
     /// collected from the same events. `#id` links resolve against this.
     pub anchors: markdown::anchors::AnchorIndex,
     /// Document outline (headings in document order, with their reserved
-    /// anchor ids): the reading-aid panel and the scrollspy render from it.
+    /// anchor ids): the reading-aid sidebar and the scrollspy render from it.
     /// Built from the same events, bounded by `config::MAX_OUTLINE_ITEMS`.
     pub outline: markdown::outline::Outline,
     /// Every link/image destination resolved ONCE here, so the per-frame

@@ -24,8 +24,7 @@
 //!   Ctrl/Cmd+R / F5 (refresh), Ctrl/Cmd+L (focus address),
 //!   Ctrl/Cmd+F (find in page on document pages; Enter/Shift+Enter or
 //!   F3/Shift+F3 step through matches, Esc closes the bar),
-//!   Ctrl/Cmd+Shift+O (document outline panel), Ctrl/Cmd+S (export the page
-//!   to a local file),
+//!   Ctrl/Cmd+S (export the page to a local file),
 //!   Ctrl/Cmd+D (bookmark/unbookmark the loaded page),
 //!   Ctrl/Cmd+1..9 (select tab N), Ctrl/Cmd `+`/`=`/`-`/`0` (zoom in/out,
 //!   reset), Ctrl+H / Cmd+Y (history, in a new tab),

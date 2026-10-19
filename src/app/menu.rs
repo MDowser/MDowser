@@ -60,8 +60,6 @@ pub(super) enum MenuAction {
     ZoomOut,
     /// Reset the zoom to 100% (`Ctrl/Cmd+0`).
     ZoomReset,
-    /// Toggle the document outline panel (`Ctrl/Cmd+Shift+O`).
-    Outline,
     /// Export the page on screen to a local file (`Ctrl/Cmd+S`).
     Export,
     /// Copy the selection (`Ctrl/Cmd+C`).
@@ -107,10 +105,6 @@ impl MenuAction {
             Self::ZoomIn => command_key(egui::Key::Equals),
             Self::ZoomOut => command_key(egui::Key::Minus),
             Self::ZoomReset => command_key(egui::Key::Num0),
-            Self::Outline => key_event(
-                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                egui::Key::O,
-            ),
             Self::Export => command_key(egui::Key::S),
         })
     }
@@ -129,7 +123,6 @@ fn action_for(id: &MenuId) -> Option<MenuAction> {
         "zoom-in" => MenuAction::ZoomIn,
         "zoom-out" => MenuAction::ZoomOut,
         "zoom-reset" => MenuAction::ZoomReset,
-        "outline" => MenuAction::Outline,
         "export" => MenuAction::Export,
         "copy" => MenuAction::Copy,
         "paste" => MenuAction::Paste,
@@ -161,12 +154,12 @@ fn menu_events(actions: impl IntoIterator<Item = MenuAction>) -> Vec<egui::Event
 
 /// The native menu item title (mnemonics are Windows-only; `&` would show).
 fn item(id: &str, text: &str, code: Code) -> MenuItem {
-    item_with(Modifiers::META, id, text, code)
-}
-
-/// [`item`] for a chord that carries more than `Cmd` (`Cmd+Shift+O`).
-fn item_with(modifiers: Modifiers, id: &str, text: &str, code: Code) -> MenuItem {
-    MenuItem::with_id(id, text, true, Some(Accelerator::new(modifiers, code)))
+    MenuItem::with_id(
+        id,
+        text,
+        true,
+        Some(Accelerator::new(Modifiers::META, code)),
+    )
 }
 
 /// Opts the process out of AppKit's automatic window tabbing.
@@ -253,15 +246,6 @@ fn build() -> muda::Result<Menu> {
             &item("zoom-in", "Zoom In", Code::Equal),
             &item("zoom-out", "Zoom Out", Code::Minus),
             &item("zoom-reset", "Actual Size", Code::Digit0),
-            &PredefinedMenuItem::separator(),
-            // Reading aid, next to the zoom block where a browser keeps its
-            // view-level switches.
-            &item_with(
-                Modifiers::META | Modifiers::SHIFT,
-                "outline",
-                "Document Outline",
-                Code::KeyO,
-            ),
         ],
     )?;
     let history = Submenu::with_items(
@@ -361,7 +345,6 @@ mod tests {
             ("zoom-in", MenuAction::ZoomIn),
             ("zoom-out", MenuAction::ZoomOut),
             ("zoom-reset", MenuAction::ZoomReset),
-            ("outline", MenuAction::Outline),
             ("export", MenuAction::Export),
             ("copy", MenuAction::Copy),
             ("paste", MenuAction::Paste),
@@ -409,11 +392,6 @@ mod tests {
                 egui::Key::Num0,
             ),
             (MenuAction::Export, egui::Modifiers::COMMAND, egui::Key::S),
-            (
-                MenuAction::Outline,
-                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
-                egui::Key::O,
-            ),
         ] {
             assert_eq!(
                 action.shortcut(),

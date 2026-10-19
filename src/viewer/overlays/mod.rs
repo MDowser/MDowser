@@ -6,18 +6,15 @@
 //! `viewer::overlays`: floating UI over the document.
 //!
 //! - `content_menu`: minimal right-click menu over the page: `Copy`,
-//!   `Select all`, `Find in page`, `Document outline` and `Export…`, plus
+//!   `Select all`, `Find in page` and `Export…`, plus
 //!   `Open link in new tab` when the click landed on a
 //!   link. Uses a global secondary-click detector + a foreground `Area`, so
 //!   right-click works on text too without ever eating link clicks.
 //!   A gesture whose press was intercepted before egui (a text selection
 //!   was alive: see `MdowserApp::raw_input_hook`) opens the menu from
 //!   `Tab::pending_context_click` instead of `secondary_clicked`.
-//! - `find`: floating in-page find bar (`Ctrl/Cmd+F`).
-//! - `outline`: floating document-outline panel (`Ctrl/Cmd+Shift+O` or the
-//!   context menu): a reading aid docked to the sheet's right edge (a bottom
-//!   sheet on narrow windows), with the current section tracked by the
-//!   document walk's scrollspy.
+//! - `find`: floating in-page find bar (`Ctrl/Cmd+F`), docked left of the
+//!   permanent outline sidebar when the document has one.
 //! - `show_toast`: transient confirmation (copy, export), auto-dismissed.
 //!
 //! ORDER MATTERS: the document calls `content_menu` BEFORE rendering the
@@ -31,7 +28,6 @@
 //! itself to the window, so the popup never spawns off-screen.
 
 pub(crate) mod find;
-pub(crate) mod outline;
 
 use super::{has_label_selection, LinkHit};
 use crate::browser::tab::{Tab, TabState};
@@ -54,8 +50,6 @@ enum MenuAction {
     SelectAll,
     /// Open the in-page find bar (same as `Ctrl/Cmd+F`).
     FindPage,
-    /// Toggle the document outline panel (same as `Ctrl/Cmd+Shift+O`).
-    Outline,
     /// Open the export card (same as `Ctrl/Cmd+S`).
     Export,
 }
@@ -70,8 +64,6 @@ enum MenuAction {
 /// - `Copy`: the drag selection when there is one, else the whole page text.
 /// - `Select all`: whole-page highlight; `Ctrl/Cmd+C` then copies it.
 /// - `Find in page`: opens the find bar (same as `Ctrl/Cmd+F`).
-/// - `Document outline`: toggles the outline panel (disabled when the
-///   document has no headings; same as `Ctrl/Cmd+Shift+O`).
 /// - `Export…`: opens the export card (same as `Ctrl/Cmd+S`).
 ///
 /// egui has no cross-widget selection model that can be driven from the
@@ -189,41 +181,21 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     } else {
         "Ctrl+F"
     };
-    let outline_hint: &str = if cfg!(target_os = "macos") {
-        "Cmd+Shift+O"
-    } else {
-        "Ctrl+Shift+O"
-    };
     let export_hint: &str = if cfg!(target_os = "macos") {
         "Cmd+S"
     } else {
         "Ctrl+S"
     };
-    // The outline row is disabled when there is nothing to list (a document
-    // without headings): the panel would be an empty card. The export row is
-    // always live on a document page (the source and the text are derived at
-    // fetch time, whatever the body).
-    let outline_enabled = tab
-        .document_outline()
-        .is_some_and(|outline| !outline.is_empty());
     let mut action: Option<MenuAction> = None;
     let mut open_new: Option<String> = None;
     // Keyboard navigation: Up/Down move focus between the rows, Enter
     // activates the focused one. Opening the menu with the pointer leaves NO
     // row focused: the ring lit "Copy" (without a link under the cursor) on
     // every open, which read as a pre-selected entry. The rows are real
-    // widgets with explicit ids, so the keys still reach them. Disabled rows
-    // are SKIPPED like in a native menu: egui surrenders the focus of a
-    // hover-only row in the frame that creates it, so a request on the
-    // greyed outline row of a headingless document would silently unseat the
-    // keyboard (the next Down would restart at the top).
+    // widgets with explicit ids, so the keys still reach them.
     let has_link = tab.context_link.is_some();
-    let row_count = if has_link { 6 } else { 5 };
-    // Row order: [link], Copy, Select all, Find in page, Document outline,
-    // Export…. Every row is live except the outline one on a headingless
-    // document (an empty panel is worse than a dead row).
-    let mut row_enabled = [true; 6];
-    row_enabled[3 + usize::from(has_link)] = outline_enabled;
+    // Row order: [link], Copy, Select all, Find in page, Export….
+    let row_count = if has_link { 5 } else { 4 };
     let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab.id, index));
     let (menu_up, menu_down, menu_enter) = ctx.input(|i| {
         (
@@ -234,7 +206,12 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     });
     if !reopened && (menu_up || menu_down) {
         let focused = ctx.memory(|m| (0..row_count).find(|&i| m.has_focus(row_id(i))));
-        let next = next_enabled_row(focused, !menu_up, &row_enabled[..row_count]);
+        let next = match focused {
+            None if menu_down => 0,
+            None => row_count - 1,
+            Some(index) if menu_down => (index + 1) % row_count,
+            Some(index) => (index + row_count - 1) % row_count,
+        };
         ctx.memory_mut(|m| {
             // Cancel egui's own arrow-key focus traversal for this frame: it
             // would move PAST the row this code just requested (the old menu
@@ -286,12 +263,6 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
                 let find_row = row(ui, "Find in page", Some(find_hint), true);
                 if find_row.clicked() || (menu_enter && find_row.has_focus()) {
                     action = Some(MenuAction::FindPage);
-                }
-                let outline_row = row(ui, "Document outline", Some(outline_hint), outline_enabled);
-                if outline_row.clicked()
-                    || (outline_enabled && menu_enter && outline_row.has_focus())
-                {
-                    action = Some(MenuAction::Outline);
                 }
                 let export_row = row(ui, "Export…", Some(export_hint), true);
                 if export_row.clicked() || (menu_enter && export_row.has_focus()) {
@@ -359,13 +330,6 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
             tab.find.show(tab.doc_generation);
             None
         }
-        Some(MenuAction::Outline) => {
-            tab.context_open = false;
-            // The panel draws later in this same frame (`show_content` draws
-            // it after the document walk), so the toggle lands immediately.
-            tab.outline.toggle();
-            None
-        }
         Some(MenuAction::Export) => {
             tab.context_open = false;
             // The export card needs the document payload, which only `App`
@@ -380,13 +344,13 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
 
 /// Drops any menu-row keyboard focus left in egui memory when the menu is
 /// closed, so a rebuilt row cannot ring itself on the next open.
-/// Max 6 rows (`Open link in new tab` + `Copy` + `Select all` +
-/// `Find in page` + `Document outline` + `Export…`).
+/// Max 5 rows (`Open link in new tab` + `Copy` + `Select all` +
+/// `Find in page` + `Export…`).
 fn surrender_menu_focus(ctx: &egui::Context, tab_id: usize) {
     let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
     if let Some(id) = ctx
         .memory(|m| m.focused())
-        .filter(|id| (0..6).any(|index| row_id(index) == *id))
+        .filter(|id| (0..5).any(|index| row_id(index) == *id))
     {
         ctx.memory_mut(|m| m.surrender_focus(id));
     }
@@ -400,37 +364,6 @@ fn link_at(hits: &[LinkHit], pos: egui::Pos2) -> Option<&str> {
         .rev()
         .find(|h| h.rect.contains(pos))
         .map(|h| h.url.as_ref())
-}
-
-/// Row the arrows move to from the focused one (or from no focus at all):
-/// the next ENABLED row, wrapping, DOWN for a forward move and UP for a
-/// backward one. A menu opened with the pointer has no focused row, so
-/// forward starts at the first live row and backward at the last.
-///
-/// At most one wrap: a disabled run longer than the whole menu would return
-/// its last index instead of looping forever (the menu disables the outline
-/// row only, so the loop always ends on a live row in practice).
-fn next_enabled_row(from: Option<usize>, down: bool, row_enabled: &[bool]) -> usize {
-    let count = row_enabled.len();
-    let step = |index: usize| {
-        if down {
-            (index + 1) % count
-        } else {
-            (index + count - 1) % count
-        }
-    };
-    let mut index = match (from, down) {
-        (None, true) => 0,
-        (None, false) => count - 1,
-        (Some(i), _) => step(i.min(count - 1)),
-    };
-    for _ in 0..count {
-        if row_enabled[index] {
-            break;
-        }
-        index = step(index);
-    }
-    index
 }
 
 /// One compact, full-width menu row: label left, optional shortcut hint
