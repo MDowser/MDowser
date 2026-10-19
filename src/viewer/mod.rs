@@ -16,8 +16,10 @@
 //! - Loading keeps the previous document as backdrop
 //!   (stale-while-revalidate): no white flash when following a link.
 //! - Links navigate internally (never open an external browser).
-//! - Document pages with headings carry the always-visible outline sidebar
-//!   (`outline_panel`, layout) on the right.
+//! - Document pages carry the always-visible outline sidebar
+//!   (`outline_panel`, layout) on the right; pages without headings keep the
+//!   slot with an empty state, and a loading page keeps it over its backdrop,
+//!   so navigation never reflows the sheet.
 //! - Right-click menu + toasts + the find bar live in `overlays`.
 //! - Document text may carry emoji or non-Latin scripts (complete
 //!   monochrome Noto Emoji + CJK + Latin + one face per bundled script;
@@ -278,6 +280,12 @@ pub fn show_content(
         tab.state,
         TabState::Loading { .. } | TabState::Settling { .. }
     ) {
+        // Keep the sidebar slot while the previous page is still on screen:
+        // the reader clicked a link, not a different layout, so the sheet
+        // must not widen (and then narrow again on resolve). The panel shows
+        // a short loading state; the backdrop's own outline belongs to the
+        // page being replaced.
+        show_document_sidebar(root, tab);
         egui::CentralPanel::default()
             .frame(theme::content_frame(root))
             .show(root, |ui| {
@@ -462,6 +470,9 @@ pub fn show_content(
     // retrying: the button shows disabled with a fix-the-address hint
     // instead of a pointless countdown.
     if let TabState::Failed { lines, .. } = &tab.state {
+        // A failed navigation replaced any loading backdrop: the sidebar slot
+        // (and its panel rect) belongs to document pages only.
+        tab.outline.panel_rect = None;
         let kind = crate::ui::error_view::classify(lines);
         let local_error = kind == crate::ui::error_view::ErrorKind::BadAddress;
         let mut retry_asked: Option<String> = None;
@@ -528,12 +539,14 @@ pub fn show_content(
     None
 }
 
-/// Draws the always-visible outline sidebar for the document on screen.
+/// Draws the always-visible outline sidebar for the page on screen.
 ///
 /// Called BEFORE the reader's central panel: the sidebar is layout, not an
-/// overlay. A page without headings has no sidebar (the document keeps the
-/// full width). A clicked row asks for the same anchor scroll a `#id` link
-/// does; the state was already updated by the panel for immediate feedback.
+/// overlay. Every document page keeps the slot, including one without
+/// headings and the backdrop still visible while the next page loads, so
+/// navigation never widens the sheet. A clicked row asks for the same anchor
+/// scroll a `#id` link does; the state was already updated by the panel for
+/// immediate feedback.
 fn show_document_sidebar(root: &mut egui::Ui, tab: &mut Tab) {
     // Field access keeps the borrow of `tab.state` disjoint from the mutable
     // sidebar state below.
@@ -546,16 +559,40 @@ fn show_document_sidebar(root: &mut egui::Ui, tab: &mut Tab) {
                 return;
             }
         },
+        TabState::Loading {
+            backdrop: Some(_), ..
+        }
+        | TabState::Settling {
+            backdrop: Some(_), ..
+        } => {
+            // The old document is still visible as the backdrop but its
+            // outline state was reset by the navigation. Reserve the slot
+            // with a placeholder instead of reusing rows that no longer own
+            // the cursor.
+            let empty = crate::markdown::outline::Outline::default();
+            let _ = outline_panel::show(
+                root,
+                &empty,
+                &mut tab.outline,
+                tab.id,
+                tab.doc_generation,
+                "Loading...",
+            );
+            return;
+        }
         _ => {
             tab.outline.panel_rect = None;
             return;
         }
     };
-    if outline.is_empty() {
-        tab.outline.panel_rect = None;
-        return;
-    }
-    let response = outline_panel::show(root, outline, &mut tab.outline, tab.id, tab.doc_generation);
+    let response = outline_panel::show(
+        root,
+        outline,
+        &mut tab.outline,
+        tab.id,
+        tab.doc_generation,
+        "No headings",
+    );
     if let Some(id) = response.clicked {
         tab.pending_anchor = Some(id);
     }

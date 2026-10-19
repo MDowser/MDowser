@@ -10,8 +10,9 @@
 //! state the sidebar and the scrollspy read:
 //!
 //! - The sidebar is a permanent right-hand panel (`outline_panel`) on every
-//!   document with headings. It is part of the layout, narrow, and wraps long
-//!   titles instead of eliding them.
+//!   document page. It is part of the layout, narrow, and wraps long titles
+//!   instead of eliding them; a page without headings keeps the slot and
+//!   shows a short empty state, so navigation never reflows the sheet.
 //! - SCROLLSPY: the document walk records each rendered heading's rect keyed
 //!   by the heading's own `Start` event index
 //!   ([`OutlineState::record_rect`], into the state's reusable scratch
@@ -19,9 +20,11 @@
 //!   item whose heading top reached the viewport top. Rects, not offsets: a
 //!   heading inside an unselected `<Tabs>` panel (or one dropped by the
 //!   block budget) simply renders no rect, so it can never shift another
-//!   heading's position. When the document is scrolled to its END, the last
-//!   rendered heading wins even though it never reached the top: a heading
-//!   near the page end cannot scroll further.
+//!   heading's position. At the page END the cursor points at the on-screen
+//!   heading nearest the reading line instead of jumping to the deepest
+//!   visible row: a cluster of headings near the foot of the page is thereby
+//!   walked row by row while scrolling, and only a heading that truly cannot
+//!   be reached keeps the cursor.
 //! - Row clicks scroll through the SAME mechanism as a `#id` link
 //!   (`Tab::pending_anchor`), so the sidebar needs no scroll code of its own.
 //!   A clicked row becomes current immediately and the scrollspy keeps it
@@ -121,9 +124,11 @@ impl OutlineState {
     /// Recomputes [`Self::current`] from this frame's recorded rects: the
     /// last item whose heading top sits at or above `viewport_top + PAD`.
     ///
-    /// `at_bottom` says the sheet has reached its maximum offset: the last
-    /// rendered heading is then the reader's section even if it could not
-    /// scroll all the way to the top (short tail, heading near the end).
+    /// `at_bottom` says the sheet has reached its maximum offset: the
+    /// on-screen heading nearest the reading line then wins instead of the
+    /// deepest visible one, so a dense cluster of headings at the page end is
+    /// not skipped in one jump (a heading that truly cannot reach the line
+    /// still has a chance when it is the one on screen).
     ///
     /// Keeps the previous cursor when the walk recorded NO heading (the
     /// document was skipped whole by a `<Tabs>` selection or the block
@@ -188,8 +193,14 @@ fn heading_rect(
 /// `rects` holds one `(event index, rect)` pair per heading the frame
 /// actually painted, in document order; `outline.items` is in document order
 /// too, so the two run through one merge pass. Items with no rect (skipped
-/// content) neither qualify nor end the scan. At the end of the document the
-/// last rendered item wins (see [`OutlineState::update_current`]).
+/// content) neither qualify nor end the scan.
+///
+/// While the sheet can still scroll, the last heading above the reading line
+/// wins. At the page END the sheet cannot put every heading on that line, so
+/// the on-screen heading closest to it wins: in a cluster of headings near
+/// the foot of the page the cursor then visits the rows one by one instead of
+/// leaping straight to the deepest visible one (which made the intermediate
+/// rows impossible to select by scrolling).
 pub(crate) fn current_section(
     outline: &Outline,
     rects: &[(usize, egui::Rect)],
@@ -201,9 +212,10 @@ pub(crate) fn current_section(
         return None;
     }
     let line = viewport_top + SPY_PAD;
+    let visible_bottom = viewport_bottom + SPY_PAD;
     let mut painted = 0usize;
     let mut current: Option<usize> = None;
-    let mut last_visible: Option<usize> = None;
+    let mut nearest: Option<(usize, f32)> = None;
     let mut next_rect = 0usize;
     for (index, item) in outline.items.iter().enumerate() {
         while next_rect < rects.len() && rects[next_rect].0 < item.at {
@@ -216,18 +228,24 @@ pub(crate) fn current_section(
             continue;
         }
         painted += 1;
-        if rect.top() <= viewport_bottom + SPY_PAD {
-            last_visible = Some(index);
+        let on_screen = rect.bottom() > viewport_top && rect.top() <= visible_bottom;
+        if on_screen {
+            let distance = (rect.top() - line).abs();
+            if nearest.is_none_or(|(_, best)| distance < best) {
+                nearest = Some((index, distance));
+            }
         }
         if rect.top() <= line {
             current = Some(index);
         }
     }
     if at_bottom {
-        // The sheet is at its maximum offset: the deepest rendered heading
-        // is the section the reader reached. This is what makes a heading
-        // near the page end selectable at all.
-        return last_visible.or(current);
+        // The sheet cannot scroll further. The deepest visible heading is
+        // NOT the answer: with many headings together that jumped over every
+        // intermediate row at once. Stay on the row nearest the reading line
+        // instead; when no heading is on screen (a long tail after the last
+        // one) keep the last heading that did cross the line.
+        return nearest.map(|(index, _)| index).or(current);
     }
     // No heading passed the line yet: the reader is above the first section,
     // which is the one the sidebar should point at.
@@ -328,10 +346,10 @@ mod tests {
     }
 
     /// At the END of the page a heading that never reached the viewport top
-    /// must still become current: the last heading in the page tail is the
-    /// section the reader selected and can see.
+    /// must still become current: a heading in the page tail that is the one
+    /// on screen is the section the reader can see.
     #[test]
-    fn scrollspy_selects_the_last_heading_at_the_page_end() {
+    fn scrollspy_selects_a_visible_heading_at_the_page_end() {
         let (outline, rects) = outline_and_rects(
             "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nTail\n",
             &[-2_000.0, -900.0, 300.0],
@@ -342,18 +360,39 @@ mod tests {
             current_section(&outline, &rects, -500.0, 300.0, false),
             Some(1)
         );
-        // At the bottom the same rects pick the last RENDERED heading, even
+        // At the bottom the same rects pick the only heading on screen, even
         // though its top never crossed the spy line.
         assert_eq!(
             current_section(&outline, &rects, -500.0, 300.0, true),
             Some(2)
         );
-        // A skipped last heading (no rect) never wins: the deepest RENDERED
-        // heading does.
+        // A skipped last heading (no rect) never wins: the last RENDERED
+        // heading that crossed the line does.
         assert_eq!(
             current_section(&outline, &rects[..2], -500.0, 300.0, true),
             Some(1)
         );
+    }
+
+    /// Many headings together at the page end used to make the cursor leap
+    /// straight to the deepest visible row, so the intermediate rows could
+    /// never be selected by scrolling (the sheet cannot move further at the
+    /// bottom). It must stay on the row nearest the reading line instead.
+    #[test]
+    fn scrollspy_does_not_skip_a_heading_cluster_at_the_page_end() {
+        let md = "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nBody\n\n## Four\n\nBody\n\n## Five\n\nTail\n";
+        let (outline, rects) = outline_and_rects(md, &[-4.0, 40.0, 84.0, 128.0, 172.0]);
+        // The first heading sits on the line and is on screen: the deepest
+        // visible row (the fifth) must NOT win.
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(0));
+        // Scrolled a little further, the first heading has left the viewport:
+        // the next row (40) is closest to the line (12), still not the last.
+        let (outline, rects) = outline_and_rects(md, &[-60.0, 20.0, 60.0, 100.0, 140.0]);
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(1));
+        // Halfway through the cluster, the row approaching the line takes the
+        // cursor: scrolling through the group walks the intermediate rows.
+        let (outline, rects) = outline_and_rects(md, &[-260.0, -180.0, -100.0, -20.0, 60.0]);
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(3));
     }
 
     /// A skipped heading (an unselected `<Tabs>` panel, the block budget)

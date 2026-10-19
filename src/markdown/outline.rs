@@ -57,7 +57,8 @@ pub struct Outline {
 }
 
 impl Outline {
-    /// True when the document has no headings (no outline sidebar is drawn).
+    /// True when the document has no headings (the sidebar keeps its slot
+    /// with an empty state).
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }

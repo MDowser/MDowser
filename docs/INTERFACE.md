@@ -416,8 +416,8 @@ on navigation or tab switch with the rest of the overlay state.
 
 ## Document outline
 
-Every document with headings carries an **always-visible outline sidebar** on
-the right: narrow (176-240px, proportional to the window), part of the reading
+Every document page carries an **always-visible outline sidebar** on the
+right: narrow (176-240px, proportional to the window), part of the reading
 layout so the sheet reflows beside it, and full height. It lists the document's
 headings in document order at the depth the document wrote them: every heading
 starts one indent step below the shallowest level present (a document whose
@@ -428,14 +428,21 @@ reserve a positional id for it). The row of the section being read carries the
 accent bar; the list keeps that row in view as the reader scrolls and scrolls
 on its own when the outline is long.
 
+The slot stays on every document page, including one without headings (a short
+"No headings" state replaces the rows) and the page still visible while the
+next one loads ("Loading..."), so navigation never widens or narrows the
+reading column.
+
 A row click scrolls its heading to the top of the sheet through the same
 mechanism as a `#anchor` link click. The scrollspy accounts for the page END:
-a heading near the bottom that cannot reach the top (there is not enough
-content below it) still becomes current, and a just-clicked row stays selected
-until the reader scrolls by hand. The sidebar has no close control and does not
-own `Esc`; navigation and tab switches reset its cursor with the rest of the
-page state. A document without headings gets no empty sidebar. The find bar
-docks just left of the sidebar instead of covering it.
+the heading nearest the reading line among those on screen wins, so a cluster
+of headings at the foot of the page is walked row by row instead of the cursor
+leaping to the deepest visible row, and a heading that truly cannot reach the
+line still becomes current when it is the one on screen. A just-clicked row
+stays selected until the reader scrolls by hand. The sidebar has no close
+control and does not own `Esc`; navigation and tab switches reset its cursor
+with the rest of the page state. The find bar docks just left of the sidebar
+instead of covering it.
 
 ## Save page
 

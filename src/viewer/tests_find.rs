@@ -309,11 +309,18 @@ fn chevron_buttons_step_matches() {
         .find(|(t, _)| t.contains("/2"))
         .cloned()
         .unwrap_or_else(|| panic!("count painted: {texts:?}"));
-    // The bar is anchored to the sheet's right edge: the row is capsule,
-    // count, previous, next, close, so the NEXT chevron's center sits a
-    // fixed offset left of the right edge (12 anchor + 6 frame margin +
-    // 32 close + 4 spacing + half of 32).
-    let down_x = screen().width() - 12.0 - 6.0 - 32.0 - 4.0 - 16.0;
+    // The bar is anchored left of the permanent outline sidebar: the row is
+    // capsule, count, previous, next, close, so the NEXT chevron's center
+    // sits a fixed offset left of the bar's right edge (6 frame margin + 32
+    // close + 4 spacing + half of 32).
+    let panel_left = tab
+        .outline
+        .panel_rect
+        .expect("the document keeps the sidebar slot")
+        .left();
+    let right_inset = (screen().width() - panel_left + 12.0).max(12.0);
+    let bar_right = screen().width() - right_inset;
+    let down_x = bar_right - 6.0 - 32.0 - 4.0 - 16.0;
     let down = egui::Event::PointerButton {
         pos: egui::pos2(down_x, count_y + 8.0),
         button: egui::PointerButton::Primary,

@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The document outline sidebar keeps its slot on every document page: a page
+  without headings shows a short "No headings" state, and the page still on
+  screen while the next one loads shows "Loading...", so navigating between
+  pages never widens or narrows the reading column. (`src/viewer/`,
+  `docs/INTERFACE.md`, `docs/ARCHITECTURE.md`.)
 - Accordion headers use the themed monochrome vector chevron set
   (`ui::icons`: right when collapsed, down when expanded) in a fixed slot
   instead of the `▸`/`▾` text characters, so the title column never shifts
@@ -69,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The outline scrollspy no longer jumps to the deepest visible heading at the
+  page end: with many headings together, the intermediate rows could never be
+  selected by scrolling because the sheet cannot move further. It now points at
+  the on-screen heading nearest the reading line, walking a dense cluster row
+  by row. (`src/viewer/outline.rs`, `docs/INTERFACE.md`,
+  `docs/ARCHITECTURE.md`.)
 - The in-page find highlight keeps the `on_surface` text it sits behind at
   WCAG AA in dark mode: the current match was a bright amber at ~2.7:1 while
   the darker ordinary match was easier to read, so the match being read was
@@ -94,7 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - The document-outline toggle: its right-click row, the
   `Ctrl/Cmd+Shift+O` shortcut and the macOS View item are gone. The outline
-  sidebar is part of every document page with headings instead.
+  sidebar is part of every document page instead.
   (`src/viewer/overlays/`, `src/app/`, `src/ui/preferences/`, `docs/`.)
 
 ## [0.6.0] - 2026-10-19

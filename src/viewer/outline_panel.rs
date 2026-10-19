@@ -7,9 +7,12 @@
 //!
 //! A reading aid that is part of the layout, never an overlay and never a
 //! context-menu entry:
-//! - It docks to the right of the reading sheet on every document that has
-//!   headings. It is intentionally narrow (176-240px depending on the
-//!   window) and titles WRAP: a long heading takes as many lines as it
+//! - It docks to the right of the reading sheet on every document page, even
+//!   one without headings (a short empty state replaces the rows). Keeping
+//!   the slot on every page means navigation never reflows the reading
+//!   column, and the page that is still visible while the next one loads
+//!   keeps the slot with a short loading state. It is intentionally narrow (176-240px depending on
+//!   the window) and titles WRAP: a long heading takes as many lines as it
 //!   needs instead of being elided.
 //! - Rows come from the document's own outline (`Fetched.outline`, built
 //!   once per fetch), the current row from the scrollspy the caller ran
@@ -74,17 +77,17 @@ pub(crate) fn panel_width(available: f32) -> f32 {
 /// Draws the sidebar and returns a clicked row, if any. The caller draws it
 /// BEFORE its central panel, so the document lays out in the remaining
 /// width; the title rows never join the document's text selection.
+///
+/// `empty_label` is shown when the page has no headings, so the slot never
+/// disappears (and the reading column never widens) between pages.
 pub(crate) fn show(
     ui: &mut egui::Ui,
     outline: &Outline,
     state: &mut OutlineState,
     tab_id: usize,
     doc_generation: u64,
+    empty_label: &str,
 ) -> OutlinePanelResponse {
-    if outline.is_empty() {
-        state.panel_rect = None;
-        return OutlinePanelResponse::default();
-    }
     let available = ui.available_width();
     let width = panel_width(available);
     if width < PANEL_MIN_W * 0.5 {
@@ -109,7 +112,11 @@ pub(crate) fn show(
         .frame(frame)
         .show(ui, |ui| {
             header(ui);
-            clicked = list(ui, outline, state, tab_id, doc_generation);
+            if outline.is_empty() {
+                empty_state(ui, empty_label);
+            } else {
+                clicked = list(ui, outline, state, tab_id, doc_generation);
+            }
         });
     let rect = response.response.rect;
     state.panel_rect = Some(rect);
@@ -130,6 +137,17 @@ fn header(ui: &mut egui::Ui) {
             .color(s.on_surface_variant),
     );
     ui.add_space(theme::spacing::XS);
+}
+
+/// Placeholder for a page with no headings (or for the previous page while
+/// the next one loads): the panel keeps its width so the sheet never reflows.
+fn empty_state(ui: &mut egui::Ui, label: &str) {
+    let s = theme::scheme_ref(ui);
+    ui.label(
+        egui::RichText::new(label)
+            .size(theme::typography::UI_SMALL)
+            .color(s.on_surface_variant),
+    );
 }
 
 /// The virtualized row list. Returns the clicked row index, if any.

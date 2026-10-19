@@ -332,6 +332,58 @@ fn the_cursor_follows_the_reader_scrolling() {
     );
 }
 
+/// A cluster of headings with little text between them must still be walked
+/// row by row while scrolling: the spy may not leap from the first to the
+/// last just because the sections are short.
+#[test]
+fn dense_headings_are_selected_one_by_one_while_scrolling() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body = |n: usize| -> String { (0..n).map(|i| format!("body {i:03}\n\n")).collect() };
+    let mut md = format!("# Top\n\n{}", body(80));
+    for i in 0..6 {
+        md.push_str(&format!("## Close {i}\n\nline {i}\n\n"));
+    }
+    md.push_str(&format!("{}tail\n", body(80)));
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let _ = run(
+        &mut tab,
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 350.0))],
+    );
+    let mut seen = vec![tab.outline.current];
+    for _ in 0..600 {
+        let _ = run(&mut tab, vec![wheel(-30.0)]);
+        if *seen.last().unwrap() != tab.outline.current {
+            seen.push(tab.outline.current);
+        }
+        if tab.outline.current == 6 {
+            break;
+        }
+    }
+    assert_eq!(
+        seen,
+        (0..=6).collect::<Vec<_>>(),
+        "every dense heading became current in order"
+    );
+}
+
 /// A heading at the very end of the document cannot scroll to the top (there
 /// is no content left below it). Clicking its row must still select it, and
 /// the page end must keep it current instead of falling back to an earlier
@@ -474,9 +526,11 @@ fn escape_and_outside_presses_leave_the_sidebar_open() {
     );
 }
 
-/// A document without headings never draws an empty sidebar.
+/// A document without headings keeps the sidebar slot (with a short empty
+/// state) so navigating to it from a page with headings does not widen the
+/// reading column.
 #[test]
-fn a_headingless_document_draws_no_sidebar() {
+fn a_headingless_document_keeps_an_empty_sidebar() {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let mut tab = loaded_tab("Just one paragraph, no headings at all.\n");
@@ -504,8 +558,91 @@ fn a_headingless_document_draws_no_sidebar() {
         Vec::new(),
     );
     assert!(
-        panel_text_at(&texts, "Outline", screen()).is_none(),
-        "no headings, no sidebar"
+        panel_text_at(&texts, "Outline", screen()).is_some(),
+        "the headingless page keeps the sidebar header"
+    );
+    assert!(
+        panel_text_at(&texts, "No headings", screen()).is_some(),
+        "the empty panel explains why it has no rows"
+    );
+    let left = panel_left(screen());
+    let body = document_text_at(&texts, "Just one paragraph", screen())
+        .expect("the document still paints its paragraph");
+    assert!(
+        body.x < left,
+        "the reading column stays left of the reserved slot: {body:?}"
+    );
+    assert!(
+        tab.outline.panel_rect.is_some(),
+        "the empty panel still publishes its rect (the find bar docks left of it)"
+    );
+}
+
+/// Navigating away keeps the sidebar slot over the stale backdrop while the
+/// next page loads: the reader clicked a link, not a narrower layout.
+#[test]
+fn a_loading_page_keeps_the_sidebar_slot() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = loaded_tab("# One\n\nbody\n\n## Two\n\nbody\n");
+    let lines: String = (0..200).map(|i| format!("line {i:03}\n\n")).collect();
+    let backdrop = loaded_tab(&format!("# Old\n\n{lines}"));
+    let backdrop = match backdrop.state {
+        TabState::Loaded { fetched } => fetched,
+        _ => unreachable!(),
+    };
+    tab.state = TabState::Loading {
+        promise: poll_promise::Promise::from_ready(Err(crate::error::BrowserError::Cancelled)),
+        asked: "https://ex.com/b/".to_string(),
+        address_at_start: String::new(),
+        started: std::time::Instant::now(),
+        backdrop: Some(Box::new(backdrop)),
+        saved_back: Vec::new(),
+        saved_forward: Vec::new(),
+        pushed_history: false,
+        cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    };
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    for _ in 0..3 {
+        let _ = frame(
+            &ctx,
+            screen(),
+            &mut tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            Vec::new(),
+        );
+    }
+    let texts = frame(
+        &ctx,
+        screen(),
+        &mut tab,
+        &mut store,
+        &mut bookmarks,
+        &mut favicons,
+        Vec::new(),
+    );
+    assert!(
+        panel_text_at(&texts, "Outline", screen()).is_some(),
+        "the loading page keeps the sidebar"
+    );
+    assert!(
+        panel_text_at(&texts, "Loading...", screen()).is_some(),
+        "the stale outline is replaced by a loading placeholder"
+    );
+    let left = panel_left(screen());
+    let body = document_text_at(&texts, "line 000", screen())
+        .expect("the stale backdrop is still visible");
+    assert!(
+        body.x < left,
+        "the backdrop keeps the narrower reading column: {body:?}"
+    );
+    assert!(
+        tab.outline.panel_rect.is_some(),
+        "the loading panel still publishes its rect"
     );
 }
 

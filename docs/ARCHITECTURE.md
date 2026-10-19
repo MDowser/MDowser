@@ -120,7 +120,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │    │   wrapped virtualized rows) with `inline/tests_find.rs`,
   │    │   `tests_find.rs` (fragment highlight + layout/scroll contract) and
   │    │   `tests_outline.rs` (outline sidebar end-to-end: wrapped rows, row
-  │    │   click, scrollspy cursor, page end, responsive width)
+  │    │   click, scrollspy cursor, dense heading clusters, page end,
+  │    │   headingless slot, responsive width)
   └─ ui (browser chrome: `theme/` document styling + widget kit, icons,
           tabs (`TabsResponse`, `rows`) with the live drag reorder, navbar,
           omnibox, home (with the
@@ -1129,17 +1130,21 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 - `viewer::outline` is the scrollspy state: the document walk records each
   rendered heading's screen rect by that event index, `current_section` merges
   the heading list and the recorded rects in ONE ordered pass (the last heading
-  above the viewport top, with a small pad). At the page end it picks the
-  deepest RENDERED heading instead, so a heading that cannot scroll further
-  still becomes current; a clicked row is pinned until the spy reaches it or
-  the reader scrolls by hand. `reveal_offset` computes the sidebar list offset
-  from the measured variable row heights.
+  above the viewport top, with a small pad). At the page end, where the sheet
+  cannot put every heading on that line, it picks the on-screen heading nearest
+  the line instead of the deepest visible one, so a dense cluster at the foot
+  of the page is walked row by row rather than skipped in one jump; a clicked
+  row is pinned until the spy reaches it or the reader scrolls by hand.
+  `reveal_offset` computes the sidebar list offset from the measured variable
+  row heights.
 - `viewer::outline_panel` draws the permanent sidebar BEFORE the central
   panel, so it is layout, not an overlay: `Panel::right`, proportional width
-  176-240px, full height, on every document with headings. Titles WRAP (the
-  complete heading stays in the tooltip and the accessible name); row heights
-  are measured once per panel width/document and cached in `OutlineState`, and
-  only the visible rows are laid out on each frame. The current row carries the
+  176-240px, full height, on every document page (a headingless page or the
+  backdrop while the next one loads keeps the slot with a short empty/loading
+  state, so navigation never reflows the sheet). Titles WRAP (the complete
+  heading stays in the tooltip and the accessible name); row heights are
+  measured once per panel width/document and cached in `OutlineState`, and only
+  the visible rows are laid out on each frame. The current row carries the
   accent bar. A row click selects the row at once and sets `Tab::pending_anchor`,
   the same request a `#id` link click makes; the sheet's own walk consumes it
   and scrolls. The sidebar publishes its screen rect so the find bar docks just
