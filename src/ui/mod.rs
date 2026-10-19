@@ -34,9 +34,6 @@
 //!   theme, zoom, restore-tabs + version/licenses link; Data: retention and
 //!   data deletion; Shortcuts: keyboard reference); the history LIST
 //!   is the internal `about:history` page above.
-//! - `export`: the floating "Export…" card (Ctrl/Cmd+S or the document
-//!   context menu): the page on screen to a local file, as markdown source
-//!   or plain text, destination editable and defaulted in `~/Downloads`.
 //!
 //! Document rendering lives in the top-level `viewer` module; `ui` keeps
 //! only browser chrome.
@@ -231,7 +228,6 @@ pub(crate) fn forget_scroll_state(ctx: &egui::Context, id_salt: &'static str, ta
 
 pub mod bookmarks;
 pub mod error_view;
-pub mod export;
 pub mod history_page;
 pub mod home;
 pub mod icons;

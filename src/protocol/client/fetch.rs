@@ -177,7 +177,7 @@ async fn fetch_one_attempt(
 /// line (the loaded URL may differ after a redirect).
 ///
 /// `text` is TAKEN ownership of: the raw body becomes `Fetched::source`
-/// ("Export…"), so callers move the buffer instead of copying it once more.
+/// ("Save page"), so callers move the buffer instead of copying it once more.
 pub(crate) fn finish_document(
     text: String,
     landed: Url,
@@ -289,7 +289,7 @@ pub async fn fetch_with_fallback(
                 // Validate YAML/parse BEFORE declaring success: when
                 // malformed, try the next route (requirement). The body is
                 // MOVED into `finish_document` (it becomes the document's
-                // export source); the cache stores the same string from the
+                // Markdown source); the cache stores the same string from the
                 // finished document.
                 match finish_document(text, landed.clone(), &cand) {
                     Ok(fetched) => {
@@ -778,7 +778,7 @@ mod tests {
 
     /// The stale fallback rebuilds the stored body and stamps the marker the
     /// address bar reads; the rebuilt document is otherwise identical to a
-    /// fetched one (same display URL, title and export source).
+    /// fetched one (same display URL, title and Markdown source).
     #[test]
     fn stale_fallback_marks_the_rebuilt_copy() {
         let start = Url::parse("https://ex.com/page/").unwrap();

@@ -25,14 +25,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scrolling, indents levels from the document's shallowest one, elides long
   titles (the full text stays in the tooltip) and scrolls its own list. The
   right-click menu's arrow keys skip the row when it is disabled. And
-  **Export…** (`Ctrl/Cmd+S`, or the menu row) opens a floating card that
-  writes the page on screen as Markdown source or plain text to an editable
-  path (defaulted to `~/Downloads/<page title>`, `~` expansion, two-click
-  confirmation before replacing an existing file, inline error on failure),
-  with no native dialog and no new dependency. (`src/markdown/outline.rs`,
+  **Save page** (`Ctrl/Cmd+S`, or the menu row) writes the page on screen as
+  Markdown straight into the system downloads folder — the Downloads known
+  folder on Windows (a Windows-only `known-folders` dependency, so a location
+  the user relocated in Explorer is honored), the XDG `XDG_DOWNLOAD_DIR` when
+  configured and present, else `~/Downloads`, else home — never overwriting an
+  existing file (the first free browser-style copy name, `notes (1).md`, is
+  picked instead), falling back to home with a toast when the downloads folder
+  denies the write (a denied macOS permission prompt, a read-only folder), and
+  reporting the outcome by toast: no dialog and no plain-text format.
+  (`src/app/save.rs`, `Cargo.toml`, `src/markdown/outline.rs`,
   `src/markdown/anchors.rs`, `src/viewer/outline.rs`,
-  `src/viewer/overlays/outline.rs`, `src/ui/export.rs`, `src/app/`,
-  `docs/`.)
+  `src/viewer/overlays/outline.rs`, `src/app/`, `docs/`.)
 
 ### Changed
 
@@ -41,14 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the `▸`/`▾` text characters, so the title column never shifts
   and disclosure no longer depends on font glyph coverage. (`src/ui/icons/`,
   `src/viewer/markdown/components.rs`, `docs/RENDERING.md`.)
-- Export saves are atomic: the captured document is written to a unique
-  sibling temp file and renamed over the destination, so a failed or
-  interrupted save can never truncate the file being replaced. Replacing an
-  existing file keeps its permissions. (`src/ui/export.rs`, `docs/`.)
-- The floating cards share one dialog shadow and one hairline rule
-  (`theme::dialog_shadow` / `theme::hairline`) instead of duplicating the
-  recipe in Preferences and Export. (`src/ui/theme/`, `src/ui/preferences/`,
-  `src/ui/export.rs`.)
+- Page saves are atomic: the captured Markdown source is written to a unique
+  sibling temp file and renamed into place, so a failed or interrupted save
+  can never leave a truncated document; a replacement keeps the existing
+  file's permissions. (`src/app/save.rs`, `docs/`.)
+- The floating Preferences dialog shares one dialog shadow and one hairline
+  rule (`theme::dialog_shadow` / `theme::hairline`). (`src/ui/theme/`,
+  `src/ui/preferences/`.)
 - The shipped binary now denies `clippy::unwrap_used`, `expect_used`, `panic`
   and `unreachable` (the test harness is exempt); build-time embedded-asset
   guards carry a documented `#[allow]`. Failure paths stay typed or degrade
@@ -57,10 +60,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The export card no longer carries a production `expect` for a state it can
-  simply skip; the bookmark grid and the history list also use checked
-  indexing, so a mid-frame store change can never panic the UI thread.
-  (`src/ui/export.rs`, `src/ui/bookmarks/`, `src/ui/history_page/`.)
+- The bookmark grid and the history list use checked indexing, so a mid-frame
+  store change can never panic the UI thread. (`src/ui/bookmarks/`,
+  `src/ui/history_page/`.)
 - A local file read interrupted by a signal now retries instead of failing
   the document, and the bounded-record writer asserts its `u32` field length
   in debug builds. (`src/protocol/local.rs`, `src/cache/format.rs`.)

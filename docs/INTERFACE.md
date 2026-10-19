@@ -80,7 +80,7 @@ you are reading.
 Windows and Linux have no menu: the toolbar is the whole chrome. macOS always
 shows a system menu bar (`src/app/menu.rs`, `muda`): Application (About MDowser,
 Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File (New Tab
-`Cmd+T`, Close Tab `Cmd+W`, Export… `Cmd+S`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
+`Cmd+T`, Close Tab `Cmd+W`, Save Page `Cmd+S`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
 Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Document
 Outline `Cmd+Shift+O`, Zoom In `Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size
 `Cmd+0`), History (Show History `Cmd+Y`), Window
@@ -344,7 +344,7 @@ sheet, not a raw log:
 
 Minimal: Copy (the drag selection when one exists, else the whole page), Select
 all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`), Document outline
-(`Ctrl/Cmd+Shift+O`) and Export… (`Ctrl/Cmd+S`, the two reading aids), below a
+(`Ctrl/Cmd+Shift+O`) and Save page (`Ctrl/Cmd+S`, the two reading aids), below a
 separator; over a link it adds Open link in new tab at the top. `Cmd/Ctrl+click`
 on a link opens it in a background tab directly (an in-page
 `#anchor` becomes its absolute URL plus the fragment). All body text is natively
@@ -371,10 +371,10 @@ reference, leaving out bare `Esc` rows and keyboard reorders.
 | `Ctrl/Cmd+W` | Close tab |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+L` | Focus address field (selects the URL) |
-| `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the export card, the find bar or the outline panel, or Stop loading |
+| `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the find bar or the outline panel, or Stop loading |
 | `Ctrl/Cmd+F` | Find in page (document pages only) |
 | `Ctrl/Cmd+Shift+O` | Document outline (document pages with headings only) |
-| `Ctrl/Cmd+S` | Export the page (document pages only) |
+| `Ctrl/Cmd+S` | Save the page as Markdown (document pages only) |
 | `Enter` / `Shift+Enter` (field focused) · `F3` / `Shift+F3` (anywhere) | Next / previous find match |
 | `Ctrl/Cmd+A` | Select all (page text; when no text field is focused) |
 | `Ctrl/Cmd+C` | Copy (selection, or all while that highlight is active) |
@@ -438,26 +438,28 @@ outside closes it; navigation and tab switches close it with the rest of the
 overlay state. The row and the shortcut are disabled on a document without
 headings.
 
-## Export
+## Save page
 
-`Ctrl/Cmd+S` (or the right-click "Export…" row) captures the document page on
-screen and opens a floating **Export** card: choose **Markdown** (the source
-exactly as fetched, frontmatter included) or **Plain text** (the same string
-"Select all" copies), and an editable destination defaulted to
-`~/Downloads/<page title>.<ext>` (`~/Downloads` when it exists, else the home
-directory; the page title's slug, else the URL's last path segment, else
-`document`). Switching the format swaps only that format's own extension
-(`notes.md` ↔ `notes.txt`) and otherwise leaves a typed name exactly as it is;
-`~` and `~/…` expand against the home directory, and a relative name is taken
-from home.
+`Ctrl/Cmd+S` (or the right-click "Save page" row) writes the document page on
+screen as **Markdown** — the source exactly as fetched, frontmatter included —
+straight into the system downloads folder. There is no dialog and no format
+choice: the file is `<page title>.md` in the OS downloads folder — the
+Downloads known folder on Windows (so a location relocated in Explorer is
+honored), the XDG downloads folder when one is configured and present
+(`XDG_DOWNLOAD_DIR` in `user-dirs.dirs`, so a localized name like `Descargas` is
+honored on Linux/BSD), else `~/Downloads` when that exists, else the home
+directory. The name is the page title's slug, else the URL's last path
+segment, else `document`.
 
-The card owns the capture, so navigating, switching tabs or reloading while it
-is up can never change what a save writes, and a repeated `Ctrl/Cmd+S` leaves
-the open card exactly as the user has it, destination edits included. `Export`
-(or `Enter` in the field) writes the file; an existing destination is replaced
-only on a second press (`Replace`, armed for a few seconds), a failed write
-stays in the card as an inline error instead of failing silently, and a
-completed save names the file in a toast. The save is atomic: the file is
-written beside the destination and renamed into place, so an interrupted or
-failed save never leaves a truncated document. `Esc`, `Cancel` or the header's
-X closes the card. No native save dialog is involved.
+An existing file is never overwritten. A repeated save of the same page picks
+the first free browser-style copy name (`notes.md`, `notes (1).md`, …), so
+versions accumulate instead of replacing each other, and a completed save names
+the file in a toast (`Saved notes.md`). When the downloads folder refuses the
+write — the macOS "Downloads folder" permission prompt denied, a read-only
+folder, a filesystem policy — the save completes in the home directory instead
+and the toast says where (`Saved notes.md in home (Downloads needs
+permission)`), so a permission prompt never turns into a lost page. Any other
+failure reports itself in the same toast. The save is atomic: the file is
+written to a unique sibling temp file and renamed into place, so an interrupted
+or failed save never leaves a truncated document. No native save dialog and no
+new dependency are involved.

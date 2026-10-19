@@ -56,10 +56,9 @@ minimal.
   events/block budgets), in-page find at 256 query chars
   (`MAX_FIND_QUERY_CHARS`) and 2000 matches (`MAX_FIND_MATCHES`; extra hits
   render normally with an `N+` count), the outline at 2000 items / 120 title
-  chars (`MAX_OUTLINE_ITEMS`/`MAX_OUTLINE_TITLE_CHARS`) and the export
-  destination at 1024 chars (`MAX_EXPORT_PATH_CHARS`), with its default file
-  name capped at 80 chars (`MAX_EXPORT_NAME_CHARS`), and the history filter at
-  512 chars (`MAX_HISTORY_FILTER_CHARS`).
+  chars (`MAX_OUTLINE_ITEMS`/`MAX_OUTLINE_TITLE_CHARS`), the saved file's
+  default name capped at 80 chars (`MAX_EXPORT_NAME_CHARS`), and the history
+  filter at 512 chars (`MAX_HISTORY_FILTER_CHARS`).
 - Redirects stop at 8 (`MAX_REDIRECTS`). Network concurrency is 6 fetches + 6
   local reads over 4 worker threads, with a 20s request timeout (60s per
   image, 15s per favicon, 5s image gate) and a 20s slot wait. Color-emoji
@@ -356,20 +355,25 @@ card and the bookmark/history stores.
   the cache entirely (neither read nor written, leftovers wiped); each class
   clears separately from Preferences and "Delete all data" removes the whole
   directory.
-- **Export.** The export card writes only where the user points it: the typed
-  destination is resolved (`~` expansion, relative names from home) and used
-  as-is — no directory is created and nothing is canonicalized. The DEFAULT
-  file name derives from the page, so it is slugified (alphanumerics, `-`, `_`)
-  and length-capped BEFORE it becomes a path component: a hostile title or URL
-  segment cannot add a separator or `..`, cannot leave the default directory
-  and cannot produce a name the filesystem refuses (a Windows device name such
-  as `aux` or `nul` gets a `-file` suffix). The write is ATOMIC: the bounded
-  document (at most `MAX_BODY_BYTES`) goes to a unique sibling temp file
-  (`create_new`, never following a planted link) that is renamed over the
-  destination, so a failure mid-write cannot truncate the file being replaced.
-  Replacing an existing file keeps its permissions; a new one gets the process
-  umask. The write happens on the UI thread, like the stores' own bounded
-  writes.
+- **Save page.** `Ctrl/Cmd+S` writes the page on screen as Markdown into the
+  OS downloads folder — the Windows Downloads known folder, the XDG one when
+  configured and present, else `~/Downloads`, else home, else the current
+  directory: nothing is typed and no directory is created. A permission denial in the downloads folder falls
+  back to home (announced in the toast), so the write never leaves the user's
+  home tree; any other failure is reported instead of moving the file. The
+  file name derives from the page, so it is
+  slugified (alphanumerics, `-`, `_`) and length-capped BEFORE it becomes a
+  path component: a hostile title or URL segment cannot add a separator or
+  `..`, cannot leave the downloads directory and cannot produce a name the
+  filesystem refuses (a Windows device name such as `aux` or `nul` gets a
+  `-file` suffix). An existing file is NEVER overwritten: the first free
+  browser-style copy name (`notes.md`, `notes (1).md`, …) is picked instead.
+  The write is ATOMIC: the bounded document (at most `MAX_BODY_BYTES`) goes to
+  a unique sibling temp file (`create_new`, never following a planted link)
+  that is renamed into place, so a failure mid-write cannot leave a truncated
+  document; a replacement keeps the existing file's permissions and a new file
+  gets the process umask. The write happens on the UI thread, like the stores'
+  own bounded writes.
 
 ### Credentials and URL sanitization
 
@@ -433,6 +437,11 @@ card and the bookmark/history stores.
   (MIT/Apache-2.0).
 - YAML uses the maintained `serde_norway` fork; the archived `serde_yaml` and
   unsound `serde_yml` are not used.
+- Platform integrations stay target-scoped and small: `known-folders`
+  (Windows only) is a safe wrapper over `SHGetKnownFolderPath` whose only
+  dependency, `windows-sys`, is already in the graph through winit/muda, so
+  the `unsafe_code = "forbid"` crate rule holds and other platforms compile
+  none of it.
 
 ### SSRF note
 

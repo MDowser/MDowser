@@ -36,7 +36,7 @@ MDowser is deliberately focused: one document format, one HTTP method and one ne
 
 - **Markdown, rendered natively.** CommonMark with GFM-style tables, footnotes, task lists and strikethrough, plus YAML frontmatter. Code blocks include syntax coloring and a Copy button; tables, callouts and documentation layouts are rendered by MDowser itself. HTML, JSX and `:::` containers are treated as markup rather than executable application code. MDX components such as `<Tabs>`, `<Accordion>`, `<Card>`, `<Steps>`, `<CodeGroup>` and `<Badge>` — along with supported `:::` equivalents — render natively, without running JavaScript. [See rendering details.](docs/RENDERING.md)
 
-- **A real desktop-browser experience.** Vertical tabs, an address bar with autocomplete, favicons, encrypted local history and bookmarks, an encrypted HTTP cache for repeat visits (with clearly marked offline/saved copies), a document outline panel, page export, zoom, light and dark themes, preferences and built-in `about:home`, `about:history` and `about:licenses` pages. [Explore the interface.](docs/INTERFACE.md)
+- **A real desktop-browser experience.** Vertical tabs, an address bar with autocomplete, favicons, encrypted local history and bookmarks, an encrypted HTTP cache for repeat visits (with clearly marked offline/saved copies), a document outline panel, one-key Markdown saving, zoom, light and dark themes, preferences and built-in `about:home`, `about:history` and `about:licenses` pages. [Explore the interface.](docs/INTERFACE.md)
 
 - **Your documents, not a stripped-down text dump.** Images, color emoji, CJK and right-to-left scripts, in-page anchors, footnotes and automatic links for bare URLs are supported. Image formats include PNG, JPEG, GIF, WebP, JPEG XL, AVIF, ICO and static SVG, decoded in pure Rust.
 
@@ -94,7 +94,7 @@ For the URL-routing sequence, redirects and local-file rules, see [Navigation](d
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+F` | Find in page |
 | `Ctrl/Cmd+Shift+O` | Document outline |
-| `Ctrl/Cmd+S` | Export the page as Markdown or plain text |
+| `Ctrl/Cmd+S` | Save the page as Markdown in the downloads folder |
 | `Ctrl+H` (Windows/Linux) · `Cmd+Y` (macOS) | Open history in a new tab |
 | `Ctrl/Cmd+D` | Bookmark the current page |
 | `Ctrl/Cmd` `+`/`=` / `-` / `0` | Zoom in / out / reset |

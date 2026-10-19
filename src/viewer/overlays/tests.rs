@@ -551,7 +551,7 @@ fn render_menu_texts(ctx: &egui::Context, tab: &mut Tab) -> Vec<String> {
 
 /// The minimal menu renders `Open link in new tab` (only over a link), the
 /// two clipboard actions and the document actions (`Find in page`,
-/// `Document outline`, `Export…`), each with its shortcut hint; no
+/// `Document outline`, `Save page`), each with its shortcut hint; no
 /// navigation items remain.
 #[test]
 fn menu_renders_the_minimal_actions() {
@@ -565,7 +565,7 @@ fn menu_renders_the_minimal_actions() {
         "Select all",
         "Find in page",
         "Document outline",
-        "Export…",
+        "Save page",
     ] {
         assert!(joined.contains(item), "{item:?} missing: {joined}");
     }
@@ -597,7 +597,7 @@ fn outline_row_toggles_the_panel_and_is_disabled_without_headings() {
     click_row(&ctx, &mut tab, pos);
     assert!(!tab.context_open, "the action closes the menu");
     assert!(tab.outline.open, "the row opened the panel");
-    assert!(!tab.export_asked, "no other action rode along");
+    assert!(!tab.save_asked, "no other action rode along");
     // Without headings: disabled (hover-only sense, no action).
     let mut tab = loaded_tab(None);
     settle_menu(&ctx, &mut tab);
@@ -609,7 +609,7 @@ fn outline_row_toggles_the_panel_and_is_disabled_without_headings() {
 
 /// The keyboard skips a disabled row exactly like a native menu: on a
 /// headingless document the fourth `Down` jumps from `Find in page` straight
-/// to `Export…` and never parks on the greyed `Document outline` row — which
+/// to `Save page` and never parks on the greyed `Document outline` row — which
 /// could not hold focus anyway (egui surrenders it on a hover-only row in
 /// the frame that creates it, so a request there silently unseated the
 /// keyboard and the next `Down` restarted at the top).
@@ -617,7 +617,7 @@ fn outline_row_toggles_the_panel_and_is_disabled_without_headings() {
 fn keyboard_navigation_skips_the_disabled_outline_row() {
     use super::next_enabled_row;
     // Rows without a link: Copy, Select all, Find in page, [outline],
-    // Export….
+    // Save page.
     let gapped = [true, true, true, false, true];
     assert_eq!(next_enabled_row(None, true, &gapped), 0);
     assert_eq!(next_enabled_row(Some(2), true, &gapped), 4, "skips forward");
@@ -654,23 +654,23 @@ fn keyboard_navigation_skips_the_disabled_outline_row() {
     );
     menu_frame(&ctx, &mut tab, vec![key(Key::Enter)]);
     assert!(!tab.context_open, "Enter ran the live row");
-    assert!(tab.export_asked, "Export… asked for the card");
+    assert!(tab.save_asked, "Save page asked for the write");
 }
 
-/// The `Export…` row only ASKS for the card (`Tab::export_asked`): the
-/// viewer owns no document payload, so `App` captures it right after the
-/// draw and opens the card — the same path as `Ctrl/Cmd+S`.
+/// The `Save page` row only ASKS for the write (`Tab::save_asked`): the
+/// viewer owns no document payload, so `App` reads it right after the draw
+/// and writes the file — the same path as `Ctrl/Cmd+S`.
 #[test]
-fn export_row_asks_the_app_for_the_card() {
+fn save_row_asks_the_app_for_the_write() {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let mut tab = loaded_tab(None);
     settle_menu(&ctx, &mut tab);
-    assert!(!tab.export_asked, "nothing asked before the click");
-    let pos = row_position(&ctx, &mut tab, "Export…");
+    assert!(!tab.save_asked, "nothing asked before the click");
+    let pos = row_position(&ctx, &mut tab, "Save page");
     click_row(&ctx, &mut tab, pos);
     assert!(!tab.context_open, "the action closes the menu");
-    assert!(tab.export_asked, "the viewer flagged the request");
+    assert!(tab.save_asked, "the viewer flagged the request");
     assert!(!tab.outline.open, "no other action rode along");
 }
 

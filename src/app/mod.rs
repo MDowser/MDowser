@@ -24,14 +24,13 @@
 //!   Ctrl/Cmd+R / F5 (refresh), Ctrl/Cmd+L (focus address),
 //!   Ctrl/Cmd+F (find in page on document pages; Enter/Shift+Enter or
 //!   F3/Shift+F3 step through matches, Esc closes the bar),
-//!   Ctrl/Cmd+Shift+O (document outline panel), Ctrl/Cmd+S (export the page
-//!   to a local file),
+//!   Ctrl/Cmd+Shift+O (document outline panel), Ctrl/Cmd+S (save the page as
+//!   Markdown in the downloads folder),
 //!   Ctrl/Cmd+D (bookmark/unbookmark the loaded page),
 //!   Ctrl/Cmd+1..9 (select tab N), Ctrl/Cmd `+`/`=`/`-`/`0` (zoom in/out,
 //!   reset), Ctrl+H / Cmd+Y (history, in a new tab),
-//!   Ctrl/Cmd+, (preferences), Esc (closes an open window or the export
-//!   card, else stops the load; reverts the address field when it owns the
-//!   keyboard).
+//!   Ctrl/Cmd+, (preferences), Esc (closes an open window, else stops the
+//!   load; reverts the address field when it owns the keyboard).
 //! - On macOS the system menu bar (always present there) is completed with
 //!   the same commands (`app::menu`); Windows and Linux have no menu at all.
 
@@ -42,7 +41,6 @@ use crate::history::HistoryStore;
 use crate::media::favicon::FaviconCache;
 use crate::settings::{self, Prefs};
 use crate::ui;
-use crate::ui::export::ExportState;
 use crate::ui::omnibox::BookmarkState;
 use crate::ui::preferences::PreferencesState;
 use eframe::egui;
@@ -94,10 +92,11 @@ pub struct MdowserApp {
     /// Floating Preferences window (visibility lives here so the toolbar and
     /// the tab rail can toggle it). The history list is an internal page.
     windows: PreferencesState,
-    /// The floating "Export…" card (Ctrl/Cmd+S or the context menu): it holds
-    /// the document captured when it opened, so it outlives a navigation on
-    /// purpose (`ui::export`).
-    export: ExportState,
+    /// Test-only destination override: keeps the shortcut tests out of the
+    /// real downloads folder, so a Ctrl/Cmd+S test never writes to the home
+    /// of whoever runs the suite.
+    #[cfg(test)]
+    save_dir: Option<std::path::PathBuf>,
     /// The native macOS menu bar, installed at startup and drained every
     /// frame. `None` on the other platforms, where there is no menu at all.
     #[cfg(target_os = "macos")]
@@ -201,7 +200,8 @@ impl MdowserApp {
             session_restore_enabled,
             window_geometry,
             windows: PreferencesState::new(),
-            export: ExportState::new(),
+            #[cfg(test)]
+            save_dir: None,
             #[cfg(target_os = "macos")]
             mac_menu: menu::AppMenu::install(&cc.egui_ctx),
             #[cfg(target_os = "macos")]
@@ -308,22 +308,23 @@ impl MdowserApp {
         self.active_tab_mut().set_toast(message);
     }
 
-    /// Ctrl/Cmd+S or the document context menu's "Export…": captures the page
-    /// on screen for the export card (`ui::export`), which then owns the
-    /// destination and the write. `Loaded` and `Licenses` are the two pages
-    /// that render a document; everywhere else there is nothing to save and a
-    /// toast says so (never an empty card).
-    ///
-    /// The capture is BOTH renderings plus a default file name, cloned ONCE
-    /// here: the card outlives a later navigation and must not read the tab
-    /// again. An already open card is left exactly as it is (the same rule as
-    /// a repeated Ctrl/Cmd+S in a browser's save dialog): it holds the
-    /// captured document and a destination the user may be part-way through
-    /// editing.
-    fn open_export(&mut self) {
-        if self.export.is_open() {
-            return;
-        }
+    /// Ctrl/Cmd+S or the document context menu's "Save page": writes the page
+    /// on screen into `~/Downloads` as Markdown (`app::save`), without a
+    /// dialog. `Loaded` and `Licenses` are the two pages that render a
+    /// document; everywhere else there is nothing to save and a toast says so.
+    fn save_page(&mut self) {
+        #[cfg(test)]
+        let directory = self.save_dir.clone();
+        #[cfg(not(test))]
+        let directory: Option<std::path::PathBuf> = None;
+        self.save_page_to(directory.as_deref());
+    }
+
+    /// [`Self::save_page`] with an explicit destination directory (tests
+    /// exercise the real write off the real downloads folder). The document
+    /// is read from the page on screen NOW, and the outcome is reported with
+    /// the shared toast.
+    fn save_page_to(&mut self, directory: Option<&std::path::Path>) {
         self.heal_active();
         let idx = self.active.min(self.tabs.len().saturating_sub(1));
         let document = match &self.tabs[idx].state {
@@ -332,14 +333,25 @@ impl MdowserApp {
             _ => None,
         };
         let Some(document) = document else {
-            self.active_tab_mut().set_toast("Nothing to export");
+            self.active_tab_mut().set_toast("Nothing to save");
             return;
         };
-        self.export.open(crate::ui::export::ExportPayload::new(
-            crate::ui::export::default_stem(document.page_title(), &document.display_url),
-            document.source.clone(),
-            document.plain_text.clone(),
-        ));
+        let payload = save::Payload::new(
+            save::default_stem(document.page_title(), &document.display_url),
+            &document.source,
+        );
+        match save::write_to(directory, &payload) {
+            Ok(saved) => {
+                let name = saved.file_name();
+                let message = if saved.home_fallback() {
+                    format!("Saved {name} in home (Downloads needs permission)")
+                } else {
+                    format!("Saved {name}")
+                };
+                self.active_tab_mut().set_toast(&message);
+            }
+            Err(error) => self.active_tab_mut().set_toast(&error),
+        }
     }
 
     /// Bookmark ribbon state for the toolbar: unavailable (nothing loaded), not
@@ -554,6 +566,7 @@ impl MdowserApp {
 #[cfg(target_os = "macos")]
 pub(crate) mod menu;
 mod run;
+mod save;
 mod session;
 mod shortcuts;
 mod window;

@@ -267,7 +267,7 @@ fn finish_document_derives_the_first_h1_title() {
     assert_eq!(fetched.h1_title.as_deref(), Some("Carla"));
     assert_eq!(fetched.page_title(), Some("Carla"));
     assert!(fetched.meta.title.is_none());
-    // The raw body is kept as the export source, byte for byte.
+    // The raw body is kept as the Markdown source, byte for byte.
     assert_eq!(fetched.source, "Intro.\n\n# Carla\n\nBody.");
 
     // A frontmatter title wins; the heading still arrives as the fallback.

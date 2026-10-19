@@ -62,8 +62,9 @@ pub(super) enum MenuAction {
     ZoomReset,
     /// Toggle the document outline panel (`Ctrl/Cmd+Shift+O`).
     Outline,
-    /// Export the page on screen to a local file (`Ctrl/Cmd+S`).
-    Export,
+    /// Save the page on screen as Markdown in the downloads folder
+    /// (`Ctrl/Cmd+S`).
+    SavePage,
     /// Copy the selection (`Ctrl/Cmd+C`).
     Copy,
     /// Paste from the clipboard (`Ctrl/Cmd+V`).
@@ -111,7 +112,7 @@ impl MenuAction {
                 egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
                 egui::Key::O,
             ),
-            Self::Export => command_key(egui::Key::S),
+            Self::SavePage => command_key(egui::Key::S),
         })
     }
 }
@@ -130,7 +131,7 @@ fn action_for(id: &MenuId) -> Option<MenuAction> {
         "zoom-out" => MenuAction::ZoomOut,
         "zoom-reset" => MenuAction::ZoomReset,
         "outline" => MenuAction::Outline,
-        "export" => MenuAction::Export,
+        "save-page" => MenuAction::SavePage,
         "copy" => MenuAction::Copy,
         "paste" => MenuAction::Paste,
         "select-all" => MenuAction::SelectAll,
@@ -228,9 +229,9 @@ fn build() -> muda::Result<Menu> {
             &item("new-tab", "New Tab", Code::KeyT),
             &item("close-tab", "Close Tab", Code::KeyW),
             &PredefinedMenuItem::separator(),
-            // The export card asks for a destination itself, so this is not
-            // AppKit's "Save Page As…" sheet: same command as Ctrl/Cmd+S.
-            &item("export", "Export…", Code::KeyS),
+            // There is no destination dialog: this is NOT AppKit's
+            // "Save Page As…" sheet, but the same direct save as Ctrl/Cmd+S.
+            &item("save-page", "Save Page", Code::KeyS),
         ],
     )?;
     // Edit is deliberately minimal: Copy / Paste / Select all and nothing else.
@@ -362,7 +363,7 @@ mod tests {
             ("zoom-out", MenuAction::ZoomOut),
             ("zoom-reset", MenuAction::ZoomReset),
             ("outline", MenuAction::Outline),
-            ("export", MenuAction::Export),
+            ("save-page", MenuAction::SavePage),
             ("copy", MenuAction::Copy),
             ("paste", MenuAction::Paste),
             ("select-all", MenuAction::SelectAll),
@@ -408,7 +409,7 @@ mod tests {
                 egui::Modifiers::COMMAND,
                 egui::Key::Num0,
             ),
-            (MenuAction::Export, egui::Modifiers::COMMAND, egui::Key::S),
+            (MenuAction::SavePage, egui::Modifiers::COMMAND, egui::Key::S),
             (
                 MenuAction::Outline,
                 egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,

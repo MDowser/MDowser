@@ -33,7 +33,7 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         session_restore_enabled: false,
         window_geometry: WindowGeometryState::new(None),
         windows: PreferencesState::new(),
-        export: crate::ui::export::ExportState::new(),
+        save_dir: None,
         // The real bar is installed at startup (AppKit owns it); tests never
         // touch it, so the field stays `None` here.
         #[cfg(target_os = "macos")]
@@ -759,37 +759,17 @@ fn find_shortcut_focuses_and_selects_the_query() {
     );
 }
 
-/// The text painted by the export card over a few settled frames (the
-/// anchored `Area` lays out on its first ones).
-fn card_texts(ctx: &eframe::egui::Context, app: &mut MdowserApp) -> Vec<String> {
-    let mut texts = Vec::new();
-    for _ in 0..4 {
-        let input = eframe::egui::RawInput {
-            screen_rect: Some(eframe::egui::Rect::from_min_size(
-                eframe::egui::Pos2::ZERO,
-                eframe::egui::vec2(900.0, 700.0),
-            )),
-            ..Default::default()
-        };
-        let mut out = ctx.run_ui(input, |root| {
-            let _ = app.export.show(root.ctx());
-        });
-        out.textures_delta.clear();
-        texts = out
-            .shapes
-            .iter()
-            .filter_map(|c| match &c.shape {
-                eframe::egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
-                _ => None,
-            })
-            .collect();
-    }
-    texts
+/// Fresh scratch directory for the save tests (the stores' own recipe:
+/// `pid`-tagged, so parallel test processes never share one).
+fn scratch(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("mdowser-app-save-{}-{tag}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+    dir
 }
 
-/// A loaded page whose body is non-trivial (the export tests read the
-/// default destination, not the bytes) and whose outline is real, so the
-/// outline panel can draw it.
+/// A loaded page whose Markdown source is non-trivial (the save tests read
+/// the bytes) and whose outline is real, so the outline panel can draw it.
 fn loaded_tab_with_outline(id: usize, url: &str, title: &str) -> Tab {
     let mut tab = loaded_tab(id, url, Some(title));
     let TabState::Loaded { fetched } = &mut tab.state else {
@@ -803,15 +783,13 @@ fn loaded_tab_with_outline(id: usize, url: &str, title: &str) -> Tab {
     tab
 }
 
-/// `Ctrl/Cmd+S` (and the context menu's `Export…`, which shares `open_export`)
-/// captures the page ONCE: the card holds both renderings and a default
-/// destination named after the page, and a repeat request leaves that open
-/// card untouched — a navigation must never swap the captured document (or
-/// reset a destination the user is part-way through editing) under it.
+/// `Ctrl/Cmd+S` (and the context menu's `Save page`, which shares
+/// `save_page`) writes the captured Markdown straight into the downloads
+/// folder under the page's own name; a repeat save picks the browser-style
+/// copy name and never overwrites the file already there.
 #[test]
-fn open_export_captures_the_page_once() {
-    let ctx = eframe::egui::Context::default();
-    crate::ui::theme::apply(&ctx);
+fn save_page_writes_markdown_named_after_the_page() {
+    let dir = scratch("named");
     let mut app = app_with(
         vec![loaded_tab_with_outline(
             1,
@@ -820,43 +798,47 @@ fn open_export_captures_the_page_once() {
         )],
         0,
     );
-    app.open_export();
-    assert!(app.export.is_open(), "the loaded page opens the card");
-    let shown = card_texts(&ctx, &mut app);
-    assert!(
-        shown.iter().any(|t| t.ends_with("guía-rápida.md")),
-        "the default destination is named after the page: {shown:?}"
+    app.save_page_to(Some(&dir));
+    let target = dir.join("guía-rápida.md");
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("file written"),
+        "# Title\n\nBody\n",
+        "the Markdown source, exactly as captured"
     );
-    // The page changes under the open card (a navigation or a tab swap): a
-    // repeat request must keep the FIRST capture, destination included.
-    app.tabs[0] = loaded_tab_with_outline(1, "https://ex.com/other/", "Other");
-    app.open_export();
-    assert!(app.export.is_open(), "a repeat request is a no-op");
-    let shown = card_texts(&ctx, &mut app);
-    assert!(
-        shown.iter().any(|t| t.ends_with("guía-rápida.md")),
-        "the open card keeps its document and destination: {shown:?}"
+    assert_eq!(
+        app.active_tab_mut().toast_text.as_deref(),
+        Some("Saved guía-rápida.md")
     );
+    app.save_page_to(Some(&dir));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("guía-rápida (1).md")).expect("copy written"),
+        "# Title\n\nBody\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("first kept"),
+        "# Title\n\nBody\n",
+        "the file already on disk stays untouched"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Home (or any page that renders no document) has nothing to capture:
-/// `open_export` says so with a toast instead of opening an empty card.
+/// `save_page` says so with a toast and writes nothing.
 #[test]
-fn open_export_without_a_document_toasts() {
+fn save_page_without_a_document_toasts() {
     let mut app = app_with(vec![Tab::new(1)], 0);
-    app.open_export();
-    assert!(!app.export.is_open(), "no document, no card");
+    app.save_page();
     assert_eq!(
         app.active_tab_mut().toast_text.as_deref(),
-        Some("Nothing to export")
+        Some("Nothing to save")
     );
 }
 
-/// `Ctrl/Cmd+S` is the keyboard entry point of the same card (the context
-/// menu's `Export…` row is the pointer one), and a document page is its only
-/// target: on Home the key is not claimed and no card opens.
+/// `Ctrl/Cmd+S` is the keyboard entry point of the same write (the context
+/// menu's `Save page` row is the pointer one), and a document page is its
+/// only target: on Home the key is not claimed and nothing is written.
 #[test]
-fn export_shortcut_opens_the_card_on_document_pages_only() {
+fn save_shortcut_writes_on_document_pages_only() {
     let ctx = eframe::egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let key = || eframe::egui::Event::Key {
@@ -880,20 +862,34 @@ fn export_shortcut_opens_the_card_on_document_pages_only() {
         });
         out.textures_delta.clear();
     };
+    let dir = scratch("shortcut");
     let mut page = app_with(
         vec![loaded_tab_with_outline(1, "https://ex.com/a/", "A")],
         0,
     );
+    page.save_dir = Some(dir.clone());
     frame(&ctx, &mut page);
-    assert!(page.export.is_open(), "Ctrl/Cmd+S opens the card");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("a.md")).expect("shortcut saved"),
+        "# Title\n\nBody\n"
+    );
+    assert_eq!(
+        page.active_tab_mut().toast_text.as_deref(),
+        Some("Saved a.md")
+    );
     let mut home = app_with(vec![Tab::new(1)], 0);
     frame(&ctx, &mut home);
-    assert!(!home.export.is_open(), "Home has nothing to export");
+    assert_eq!(
+        home.active_tab_mut().toast_text,
+        None,
+        "Home does not claim the key (the menu row explains it instead)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Esc ownership of the reading surfaces: with the export card, the find bar
-/// and the outline panel all up, one press closes exactly one surface — the
-/// card first (it holds the captured document), then the bar, then the panel.
+/// Esc ownership of the reading surfaces: with the find bar and the outline
+/// panel both up, one press closes exactly one surface — the bar first, then
+/// the panel.
 #[test]
 fn esc_closes_one_reading_surface_per_press() {
     let ctx = eframe::egui::Context::default();
@@ -905,8 +901,6 @@ fn esc_closes_one_reading_surface_per_press() {
     let generation = app.tabs[0].doc_generation;
     app.tabs[0].find.show(generation);
     app.tabs[0].outline.show();
-    app.open_export();
-    assert!(app.export.is_open());
     let escape = || eframe::egui::Event::Key {
         key: eframe::egui::Key::Escape,
         physical_key: None,
@@ -933,12 +927,11 @@ fn esc_closes_one_reading_surface_per_press() {
             out.textures_delta.clear();
         };
     frame(&ctx, &mut app, vec![escape()]);
-    assert!(!app.export.is_open(), "the card owned the first press");
-    assert!(app.tabs[0].find.open, "the find bar waited for its press");
+    assert!(!app.tabs[0].find.open, "the bar owned the first press");
     assert!(app.tabs[0].outline.open, "the panel waited for its press");
     frame(&ctx, &mut app, vec![escape()]);
-    assert!(!app.tabs[0].find.open, "the bar owned the second press");
-    assert!(app.tabs[0].outline.open, "the panel still waited");
-    frame(&ctx, &mut app, vec![escape()]);
-    assert!(!app.tabs[0].outline.open, "the panel owned the third press");
+    assert!(
+        !app.tabs[0].outline.open,
+        "the panel owned the second press"
+    );
 }

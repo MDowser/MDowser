@@ -7,7 +7,8 @@ and threat model are in [`SECURITY.md`](SECURITY.md).
 
 ```
 main → app (tabs + active index + zoom + favicons + encrypted history and
-           bookmarks + shortcuts + the macOS-only native menu bar
+           bookmarks + shortcuts + Markdown saving to the downloads folder
+           (`save`) + the macOS-only native menu bar
            (`menu`, macOS only) + native window geometry (`window`:
            first-frame placement + persisted position/size/maximized) +
            OS/CLI open targets)
@@ -125,9 +126,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
           preferences (tabbed Preferences window: General/Data/Shortcuts,
           incl. the licenses link; `widgets` kit), history_page (internal about:history
-          page), error_view, export (the floating Export card: the captured
-          payload, destination resolution, the two-click overwrite and the
-          write), `row` (the shared painted-row recipe behind
+          page), error_view, `row` (the shared painted-row recipe behind
           menus/dropdowns/rows), `ui::forget_tab()` (single function registry
           for closed-tab egui-memory keys))
 ```
@@ -970,27 +969,27 @@ field/menu/find-bar owns the key; a focused omnibox reverts its text instead),
 Ctrl/Cmd+D (toggle the loaded page's bookmark, with a toast), Ctrl/Cmd+,
 (Preferences), the platform History key (Ctrl+H/Cmd+Y), zoom
 `+`/`=`/`-`/`0`, Ctrl/Cmd+F (in-page find on document pages, even while a field
-is focused) with `F3`/`Shift+F3` stepping through matches, Ctrl/Cmd+S (the
-export card, likewise a document action that never types an `s` into a field),
+is focused) with `F3`/`Shift+F3` stepping through matches, Ctrl/Cmd+S (saving
+the page, likewise a document action that never types an `s` into a field),
 Ctrl/Cmd+Shift+O (the outline panel, only when the document has headings), and
 Ctrl/Cmd+A selecting the whole page with Ctrl/Cmd+C copying it while that
 highlight is active (egui only emits `Event::Copy`; no key event to consume).
 The Esc cascade gives the first press to a focused field/editor, then a
-popup/menu, a floating window, the export card, the find bar or the outline
-panel, and only then Stop. The full table
+popup/menu, a floating window, the find bar or the outline panel, and only then
+Stop. The full table
 is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 
 ## Right-click menu
 
 - `viewer/overlays`: minimal Copy / Select all / Find in page / Document
-  outline / Export…, plus "Open link in new tab" when
+  outline / Save page, plus "Open link in new tab" when
   the click hit a link (link hitboxes are collected by the renderer each frame).
   `Cmd/Ctrl+click` on a link is the direct route: the renderer's `on_link`
   callback hands the viewer a background-tab request instead of a same-tab
   navigation (an in-page `#anchor` becomes its absolute URL plus fragment).
-  "Document outline" is disabled when the document has no headings; the rows
-  that need `App` (Export) or the viewer's own state flag what they want
-  (`Tab::export_asked`) instead of reaching outside their layer.
+  "Document outline" is disabled when the document has no headings; the row
+  that needs `App` (Save page) or the viewer's own state flags what it wants
+  (`Tab::save_asked`) instead of reaching outside its layer.
 - The rows carry explicit widget ids and are keyboard-navigable: opening with
   the pointer leaves NO row focused, `Up`/`Down` move focus into the rows (the
   first press lands on the first one, egui's arrow traversal cancelled so it
@@ -1016,7 +1015,7 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   default (About/Services/Hide/Quit only): an Application menu (About MDowser,
   Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit — the first
   submenu, which AppKit titles with the app name), File (New Tab, Close Tab,
-  Export…), Edit (Copy, Paste, Select all — deliberately no more), View
+  Save Page), Edit (Copy, Paste, Select all — deliberately no more), View
   (Reload, Document Outline, Zoom In/Out/Actual Size), History (Show History)
   and Window (Minimize, Zoom, Bring All to Front).
 - The bar owns no logic: each custom item replays the shortcut the keyboard
@@ -1149,40 +1148,38 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   document is never reflowed) and requests no repaint of its own, so an idle
   window stays idle.
 
-## Export
+## Save page
 
-- The context menu's "Export…" row only flags the request (`Tab::export_asked`);
+- The context menu's "Save page" row only flags the request (`Tab::save_asked`);
   `App::ui` reads and clears it right after the viewer draw and calls
-  `open_export` — the same path as Ctrl/Cmd+S — so the viewer never reaches
+  `save_page` — the same path as Ctrl/Cmd+S — so the viewer never reaches
   across its own layer for the document payload.
-- `open_export` captures BOTH renderings ONCE into
-  `ui::export::ExportPayload` (`Fetched.source` and `Fetched.plain_text`, or
-  the `about:licenses` document; everywhere else a "Nothing to export" toast),
-  plus a default file name from `default_stem`: the page title's slug, else the
-  URL's last non-empty path segment with `.md`/`.markdown`/`.txt` stripped and
+- `save_page` reads `Fetched.source` (or the `about:licenses` document;
+  everywhere else a "Nothing to save" toast) and names the file through
+  `app::save::default_stem`: the page title's slug, else the URL's last
+  non-empty path segment with `.md`/`.markdown`/`.txt` stripped and
   percent-decoded, else `document`, all capped; a Windows device name (`aux`,
   `nul`, `com1`…) gets a `-file` suffix, so the default is a real file on every
-  platform. Nothing reads the tab again, so
-  a navigation, reload or tab switch while the card is up cannot change what a
-  save writes; a repeat request leaves an open card — destination edits
-  included — exactly as the user has it.
-- `ui::export::ExportState` owns the card: an `Area` in `Order::Foreground`
-  anchored top-center (the Preferences dialog recipe: fixed width, shadow,
-  divider under the header), format segments, an editable destination, a
-  one-`stat`-per-press overwrite check and the write. Destination resolution
-  expands `~`/`~/…` against `util::home_dir`, takes a relative name from home,
-  canonicalizes nothing and creates nothing, and is capped by
-  `MAX_EXPORT_PATH_CHARS`;
-  the default lands in `~/Downloads` when that directory exists, else in home.
-  An existing file is only replaced on the second press (the shared
-  `config::deadline_after` armed-confirm recipe, `Replace` stating the outcome
-  of the next press); a failed write stays inline ("Could not save: …") and the
-  file name of a completed one reaches `App` for the `Saved <name>` toast.
+  platform. The source is borrowed, not copied: the write happens in the same
+  frame the shortcut or menu row was read, and nothing reads the tab again.
+- `app::save` owns the write: destination is the OS downloads folder — the
+  Downloads known folder on Windows (`known-folders`, a Windows-only
+  dependency wrapping `SHGetKnownFolderPath`, so a location the user relocated
+  in Explorer is honored), the XDG `XDG_DOWNLOAD_DIR` from `user-dirs.dirs` on
+  Linux/BSD (localized names work) — when it exists, else `~/Downloads`, else
+  home, else the current directory; the first free name wins (`notes.md`,
+  `notes (1).md`, …), so an existing file is NEVER overwritten. A destination that refuses the write with a permission error
+  (the macOS Downloads prompt denied, a read-only folder) falls back to the
+  home directory, and the toast distinguishes it
+  (`Saved <name> in home (Downloads needs permission)`); any other failure
+  surfaces as `Could not save: …`. Success, fallback and failure all go
+  through the shared toast, so no dialog ever blocks the save.
   The write is atomic (unique `create_new` temp beside the destination, then
-  `rename`), so a failed or interrupted save never truncates the existing
-  file; replacing one keeps its permissions.
-  Esc is app-owned (`app::shortcuts` closes the card): the card holds state no
-  other surface can reach, and one press closes exactly one surface.
+  `rename`), so a failed or interrupted save never truncates a file; a
+  replacement keeps the existing file's permissions.
+  The file name derives from the page and is slugified and capped BEFORE it
+  becomes a path component, so a hostile title or URL segment cannot add a
+  separator, leave the downloads directory or name a Windows device.
 
 ## Bounds and conventions
 

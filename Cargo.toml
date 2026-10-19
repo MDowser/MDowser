@@ -195,6 +195,16 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
     "NSWindow",
 ] }
 
+# WINDOWS ONLY: the real Downloads known folder. A user can relocate it in
+# Explorer (Properties > Location) or under a redirected profile, which the
+# literal `%USERPROFILE%\Downloads` cannot follow; `SHGetKnownFolderPath` is
+# the API that can, and this crate is the safe wrapper for it (`unsafe_code =
+# "forbid"` holds). It is empty on every other platform, and its only
+# dependency, `windows-sys`, is ALREADY in the graph through winit/muda:
+# this adds one small crate to Windows builds, nothing to macOS/Linux.
+[target.'cfg(target_os = "windows")'.dependencies]
+known-folders = "1.4"
+
 [build-dependencies]
 # Rasterizes `assets/icon.svg` into `assets/icons/` when the committed icons
 # are missing or outdated (`build.rs` + `build_support/gen_icons.rs`), so a

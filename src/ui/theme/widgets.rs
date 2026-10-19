@@ -301,7 +301,7 @@ pub fn soft_shadow(ui: &egui::Ui, offset: [i8; 2], blur: u8, alpha_light: u8) ->
 }
 
 /// Floating-dialog shadow: the elevation used by the app's centered cards
-/// (Preferences, Export). Light mode gets a soft drop shadow; dark mode is
+/// (Preferences). Light mode gets a soft drop shadow; dark mode is
 /// flat (black blur over dark chrome reads as dirt). Single source so the
 /// two dialogs cannot drift apart.
 pub fn dialog_shadow(dark: bool) -> egui::Shadow {

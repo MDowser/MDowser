@@ -573,12 +573,7 @@ pub const MAX_OUTLINE_TITLE_CHARS: usize = 120;
 ///   of a narrow panel.
 pub const MAX_OUTLINE_INDENT_STEPS: u8 = 5;
 
-/// Max chars accepted in the export card's file-path field.
-/// - One path line, used verbatim for one file write; the field itself is a
-///   single-line `TextEdit` capped here.
-pub const MAX_EXPORT_PATH_CHARS: usize = 1_024;
-
-/// Max chars of the exported file's name stem.
+/// Max chars of the saved file's name stem.
 /// - Derived from the page title (author-controlled) or the URL's last path
 ///   segment: a hostile title must not build a file name past every
 ///   filesystem's limit.

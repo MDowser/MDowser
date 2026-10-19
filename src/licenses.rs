@@ -38,7 +38,7 @@ pub(crate) fn document() -> Option<&'static Fetched> {
 fn parse() -> Option<Fetched> {
     let url = url::Url::parse(crate::config::LICENSES_URL).ok()?;
     // The embedded notices are a `'static` str; the pipeline takes the body
-    // by value (it keeps it as the document's export source). One copy per
+    // by value (it keeps it as the document's Markdown source). One copy per
     // PROCESS: `document()` memoizes the result.
     crate::protocol::client::finish_document(
         crate::assets::THIRD_PARTY_NOTICES.to_string(),

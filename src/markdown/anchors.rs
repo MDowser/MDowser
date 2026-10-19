@@ -123,9 +123,9 @@ fn canonical_fragment(fragment: &str) -> String {
 /// invalid UTF-8 are kept literally instead of failing.
 ///
 /// `pub(crate)` for the two callers that must read a URL's own text the way
-/// the reader sees it: fragment matching here, and the export card's default
-/// file name (`ui::export::url_stem`), where a percent-encoded segment used
-/// to become a `%C3%A9`-littered file name.
+/// the reader sees it: fragment matching here, and the saved file's default
+/// name (`app::save::url_stem`), where a percent-encoded segment used to
+/// become a `%C3%A9`-littered file name.
 pub(crate) fn percent_decode(value: &str) -> String {
     fn hex(b: u8) -> Option<u8> {
         match b {

@@ -57,6 +57,7 @@ policy in CI-style `cargo deny check`.
 | `harfrust` | MIT |
 | `image` | MIT OR Apache-2.0 |
 | `jxl-oxide` | MIT OR Apache-2.0 |
+| `known-folders` (Windows only) | MIT OR Apache-2.0 |
 | `libc` | MIT OR Apache-2.0 |
 | `muda` (macOS only) | Apache-2.0 OR MIT |
 | `objc2` (macOS only) | MIT |

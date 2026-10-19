@@ -255,12 +255,12 @@ pub struct Tab {
     /// section cursor); cleared on navigation/tab switch with the rest of
     /// the overlay state, since the cursor belongs to the page on screen.
     pub outline: crate::viewer::outline::OutlineState,
-    /// Set by the context menu's "Export…" row (the menu has no access to
-    /// the app's export card): `App::ui` reads it right after
-    /// `viewer::show_content` and opens the card from the page then on
-    /// screen, so a navigation later in the same frame cannot swap the
-    /// document out from under the export.
-    pub export_asked: bool,
+    /// Set by the context menu's "Save page" row (the menu has no access to
+    /// the app's save path): `App::ui` reads it right after
+    /// `viewer::show_content` and saves the page then on screen, so a
+    /// navigation later in the same frame cannot swap the document out from
+    /// under the write.
+    pub save_asked: bool,
     /// Next fetch bypasses fresh disk-cache hits and revalidates instead
     /// (set by Refresh; consumed when the fetch spawns). Back/Forward and
     /// plain navigations serve fresh records without network.
@@ -342,7 +342,7 @@ impl Tab {
             doc_generation: 0,
             find: crate::viewer::find::FindState::default(),
             outline: crate::viewer::outline::OutlineState::default(),
-            export_asked: false,
+            save_asked: false,
             force_revalidate: false,
             display_cache: None,
         }
@@ -447,7 +447,7 @@ impl Tab {
         // The outline panel describes the page that was on screen, and its
         // scrollspy cursor belongs to that page's headings.
         self.outline.reset();
-        self.export_asked = false;
+        self.save_asked = false;
         // The indicator popup describes the page that was on screen; every
         // navigation and tab switch goes through here, so it can never
         // linger over a different page.

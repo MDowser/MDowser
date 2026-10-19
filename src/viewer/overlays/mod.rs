@@ -6,7 +6,7 @@
 //! `viewer::overlays`: floating UI over the document.
 //!
 //! - `content_menu`: minimal right-click menu over the page: `Copy`,
-//!   `Select all`, `Find in page`, `Document outline` and `Export…`, plus
+//!   `Select all`, `Find in page`, `Document outline` and `Save page`, plus
 //!   `Open link in new tab` when the click landed on a
 //!   link. Uses a global secondary-click detector + a foreground `Area`, so
 //!   right-click works on text too without ever eating link clicks.
@@ -18,7 +18,7 @@
 //!   context menu): a reading aid docked to the sheet's right edge (a bottom
 //!   sheet on narrow windows), with the current section tracked by the
 //!   document walk's scrollspy.
-//! - `show_toast`: transient confirmation (copy, export), auto-dismissed.
+//! - `show_toast`: transient confirmation (copy, save), auto-dismissed.
 //!
 //! ORDER MATTERS: the document calls `content_menu` BEFORE rendering the
 //! document. A `Copy` click pushes `Event::Copy` into this frame's input,
@@ -56,8 +56,9 @@ enum MenuAction {
     FindPage,
     /// Toggle the document outline panel (same as `Ctrl/Cmd+Shift+O`).
     Outline,
-    /// Open the export card (same as `Ctrl/Cmd+S`).
-    Export,
+    /// Save the page as Markdown in the downloads folder (same as
+    /// `Ctrl/Cmd+S`).
+    SavePage,
 }
 
 /// Right-click context menu over the document.
@@ -72,7 +73,8 @@ enum MenuAction {
 /// - `Find in page`: opens the find bar (same as `Ctrl/Cmd+F`).
 /// - `Document outline`: toggles the outline panel (disabled when the
 ///   document has no headings; same as `Ctrl/Cmd+Shift+O`).
-/// - `Export…`: opens the export card (same as `Ctrl/Cmd+S`).
+/// - `Save page`: writes the page to the downloads folder as Markdown (same
+///   as `Ctrl/Cmd+S`).
 ///
 /// egui has no cross-widget selection model that can be driven from the
 /// outside, so "Select all" highlights the whole page (`Tab::selected_all`)
@@ -194,15 +196,15 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     } else {
         "Ctrl+Shift+O"
     };
-    let export_hint: &str = if cfg!(target_os = "macos") {
+    let save_hint: &str = if cfg!(target_os = "macos") {
         "Cmd+S"
     } else {
         "Ctrl+S"
     };
     // The outline row is disabled when there is nothing to list (a document
-    // without headings): the panel would be an empty card. The export row is
-    // always live on a document page (the source and the text are derived at
-    // fetch time, whatever the body).
+    // without headings): the panel would be an empty card. The save row is
+    // always live on a document page (the source is derived at fetch time,
+    // whatever the body).
     let outline_enabled = tab
         .document_outline()
         .is_some_and(|outline| !outline.is_empty());
@@ -220,7 +222,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     let has_link = tab.context_link.is_some();
     let row_count = if has_link { 6 } else { 5 };
     // Row order: [link], Copy, Select all, Find in page, Document outline,
-    // Export…. Every row is live except the outline one on a headingless
+    // Save page. Every row is live except the outline one on a headingless
     // document (an empty panel is worse than a dead row).
     let mut row_enabled = [true; 6];
     row_enabled[3 + usize::from(has_link)] = outline_enabled;
@@ -293,9 +295,9 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
                 {
                     action = Some(MenuAction::Outline);
                 }
-                let export_row = row(ui, "Export…", Some(export_hint), true);
-                if export_row.clicked() || (menu_enter && export_row.has_focus()) {
-                    action = Some(MenuAction::Export);
+                let save_row = row(ui, "Save page", Some(save_hint), true);
+                if save_row.clicked() || (menu_enter && save_row.has_focus()) {
+                    action = Some(MenuAction::SavePage);
                 }
             });
         });
@@ -366,12 +368,12 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
             tab.outline.toggle();
             None
         }
-        Some(MenuAction::Export) => {
+        Some(MenuAction::SavePage) => {
             tab.context_open = false;
-            // The export card needs the document payload, which only `App`
-            // can capture: the viewer flags the request and `App::ui` reads
-            // it right after `viewer::show_content` (same frame).
-            tab.export_asked = true;
+            // The save path needs the document payload, which only `App` can
+            // read: the viewer flags the request and `App::ui` reads it right
+            // after `viewer::show_content` (same frame).
+            tab.save_asked = true;
             None
         }
         None => None,
@@ -381,7 +383,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
 /// Drops any menu-row keyboard focus left in egui memory when the menu is
 /// closed, so a rebuilt row cannot ring itself on the next open.
 /// Max 6 rows (`Open link in new tab` + `Copy` + `Select all` +
-/// `Find in page` + `Document outline` + `Export…`).
+/// `Find in page` + `Document outline` + `Save page`).
 fn surrender_menu_focus(ctx: &egui::Context, tab_id: usize) {
     let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
     if let Some(id) = ctx
