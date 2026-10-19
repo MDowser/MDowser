@@ -10,7 +10,7 @@ use super::{paint, paint_text, Icon};
 use eframe::egui;
 
 /// Every variant, so a new icon cannot dodge the checks below.
-const ALL: [Icon; 25] = [
+const ALL: [Icon; 27] = [
     Icon::Home,
     Icon::Back,
     Icon::Forward,
@@ -36,6 +36,8 @@ const ALL: [Icon; 25] = [
     Icon::Check,
     Icon::ChevronUp,
     Icon::ChevronDown,
+    Icon::CloudOff,
+    Icon::Archive,
 ];
 
 /// Every icon paints vector geometry: no text fallback and no texture.

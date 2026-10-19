@@ -25,6 +25,7 @@ fn fetched_for(url: &str) -> Fetched {
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
+        stale_copy: None,
     }
 }
 

@@ -91,6 +91,11 @@ pub enum Icon {
     ChevronUp,
     /// Chevron pointing down: find-bar next match.
     ChevronDown,
+    /// Slashed cloud: an offline copy (no HTTP response arrived for the load).
+    CloudOff,
+    /// Archive box: a saved copy (the server answered without providing a
+    /// fresh document).
+    Archive,
 }
 
 /// Design grid side: every glyph below is drawn in a 24x24 unit square.
@@ -276,6 +281,28 @@ impl Icon {
             }
             Icon::ChevronUp => pen.stroke(&[(6.6, 14.6), (12.0, 9.2), (17.4, 14.6)]),
             Icon::ChevronDown => pen.stroke(&[(6.6, 9.4), (12.0, 14.8), (17.4, 9.4)]),
+            Icon::CloudOff => {
+                // Cloud outline (left lobe, flat bottom, right lobe) with a
+                // diagonal slash: no connection.
+                pen.arc(9.4, 12.0, 6.2, 90.0, 343.1);
+                pen.stroke(&[(15.33, 10.2), (16.6, 10.2)]);
+                pen.arc(16.6, 14.2, 4.0, 270.0, 450.0);
+                pen.stroke(&[(16.6, 18.2), (9.4, 18.2)]);
+                pen.stroke(&[(3.2, 3.2), (20.8, 20.8)]);
+            }
+            Icon::Archive => {
+                // Lid slab, box body and the centered handle line.
+                pen.rounded_rect((3.4, 3.6), (20.6, 8.0), 1.2);
+                pen.stroke(&[
+                    (4.9, 8.0),
+                    (4.9, 18.7),
+                    (6.4, 20.6),
+                    (17.6, 20.6),
+                    (19.1, 18.7),
+                    (19.1, 8.0),
+                ]);
+                pen.stroke(&[(9.8, 12.4), (14.2, 12.4)]);
+            }
         }
     }
 }

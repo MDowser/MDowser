@@ -15,6 +15,11 @@
 //!   object-store default) and a missing header are allowed because the
 //!   magic-byte sniff + decoder still validate the payload.
 //! - Cooperative cancellation reuses the document fetch contract.
+//! - When no fresh copy can be obtained (network failure, 404, a wrong
+//!   type), a STALE disk record is served instead of the error, like the
+//!   document contract in `protocol::client::fetch`. Images and favicons
+//!   carry no indicator of their own: the page-level offline/saved marker
+//!   is the only signal.
 //! - The async work runs on the shared process-wide runtime
 //!   (`protocol::client::run_network`), never on a per-job runtime: the
 //!   HTTP client's pooled connections must stay attached to a long-lived
@@ -88,7 +93,7 @@ pub(crate) async fn fetch_binary(
         cancel,
     )
     .await
-    .map_err(|e| crate::util::strip_credentials_for_log(&e).into_owned())?;
+    .map_err(|e| crate::util::strip_credentials_for_log(&e.message).into_owned())?;
     match outcome {
         GetOutcome::Fresh(raw) => Ok(BinaryOutcome::Fresh {
             bytes: raw.bytes,
@@ -177,12 +182,15 @@ fn fetch_image_blocking_inner(url: &str, cancel: Arc<AtomicBool>) -> Result<Deco
 /// Network half of [`fetch_image_blocking_inner`]: fresh fetch, or a
 /// conditional revalidation of a stale disk record (304 serves the stored
 /// bytes; 200 replaces them). A failed revalidation falls back to a full
-/// fetch; when that fails too the error surfaces (stale is never served).
+/// fetch; when that fails too, the stale record's bytes are served instead
+/// of the error (see the module docs for the fallback contract).
 async fn fetch_image_bytes(
     parsed: &Url,
     key: Option<&str>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<u8>, String> {
+    // The stale record, kept for the failure fallback below.
+    let mut stale: Option<ImageRecord> = None;
     // Stale record with validators: try one conditional request first.
     if let Some(k) = key {
         if let Some(images::ImageHit::Stale(record)) = global().and_then(|c| c.image_lookup(k)) {
@@ -225,9 +233,14 @@ async fn fetch_image_bytes(
                         store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
                         return Ok(bytes);
                     }
-                    // Revalidation failed: fall through to a full fetch.
-                    Err(_) => {}
+                    // Revalidation failed: keep the record and fall through
+                    // to a full fetch (a fresh copy may still succeed).
+                    Err(_) => stale = Some(record),
                 }
+            } else {
+                // Nothing to validate with: the record can only be the
+                // fallback of the full fetch below.
+                stale = Some(record);
             }
         }
     }
@@ -239,16 +252,38 @@ async fn fetch_image_bytes(
         None,
         cancel,
     )
-    .await?
+    .await
     {
-        BinaryOutcome::Fresh { bytes, headers } => {
+        Ok(BinaryOutcome::Fresh { bytes, headers }) => {
             if let Some(k) = key {
                 store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
             }
             Ok(bytes)
         }
         // No validators were sent: a 304 answers nothing we asked.
-        BinaryOutcome::NotModified { .. } => Err("unexpected 304 for an image".to_string()),
+        Ok(BinaryOutcome::NotModified { .. }) => {
+            stale_or_error(cancel, stale, "unexpected 304 for an image".to_string())
+        }
+        Err(e) => stale_or_error(cancel, stale, e),
+    }
+}
+
+/// Serves the stored bytes of a stale record when a failed load left us one
+/// (the image counterpart of the document fallback in
+/// `protocol::client::fetch`): a stored image beats a broken one, and the
+/// page-level marker is the only offline/saved signal an image has. Without
+/// a record the error stands, and a cancelled job never serves anything.
+fn stale_or_error(
+    cancel: &AtomicBool,
+    stale: Option<ImageRecord>,
+    error: String,
+) -> Result<Vec<u8>, String> {
+    if cancel.load(Ordering::Relaxed) {
+        return Err(error);
+    }
+    match stale {
+        Some(record) => Ok(record.body),
+        None => Err(error),
     }
 }
 
@@ -315,6 +350,10 @@ fn fetch_favicon_blocking_inner(
             probe.set_fragment(None);
             let probe_str = probe.as_str().to_string();
             let key = resource_key(&probe);
+            // The stale record of THIS probe, kept for the failure fallback
+            // below (a stored icon beats the failure; icons carry no marker
+            // of their own).
+            let mut stale_probe: Option<ImageRecord> = None;
             // Fresh disk record: decode without network.
             if let Some(k) = key.as_deref() {
                 if let Some(hit) = global().and_then(|c| c.favicon_lookup(k)) {
@@ -333,7 +372,7 @@ fn fetch_favicon_blocking_inner(
                             if let Some(result) =
                                 revalidate_favicon(&probe, k, &record, &cancel).await
                             {
-                                // Revalidated (or failed and fell back):
+                                // Revalidated (or the stored copy serves):
                                 // the verdict for THIS probe is final.
                                 match result {
                                     Ok(bytes) => {
@@ -344,12 +383,22 @@ fn fetch_favicon_blocking_inner(
                                             return Ok(img);
                                         }
                                     }
-                                    // Revalidation fell back to network and
-                                    // failed: try the next probe.
-                                    Err(_) => continue,
+                                    // Revalidation failed: the stored copy
+                                    // is the fallback; an undecodable one
+                                    // moves to the next probe.
+                                    Err(_) => match decode::decode_with_max_dim(
+                                        &record.body,
+                                        config::MAX_FAVICON_DIM,
+                                    ) {
+                                        Ok(img) => return Ok(img),
+                                        Err(_) => continue,
+                                    },
                                 }
+                            } else {
+                                // No validators: full fetch below, the
+                                // stored copy kept for its failure.
+                                stale_probe = Some(record);
                             }
-                            // No validators: full fetch below.
                         }
                     }
                 }
@@ -374,10 +423,13 @@ fn fetch_favicon_blocking_inner(
                     }
                     bytes
                 }
-                // No validators were sent: a 304 answers nothing we asked.
-                Ok(BinaryOutcome::NotModified { .. }) => continue,
-                // 404 / network / wrong type: try the next probe.
-                Err(_) => continue,
+                // 304 without validators, 404 or a failed transfer: the
+                // stored copy (when this probe has one) beats the failure;
+                // without one, try the next probe.
+                _ => match stale_probe {
+                    Some(record) => record.body,
+                    None => continue,
+                },
             };
             // Undecodable bytes: try the next probe too.
             // `decode_with_max_dim`: icons draw at the toolbar icon size
@@ -392,8 +444,8 @@ fn fetch_favicon_blocking_inner(
 }
 
 /// Conditional revalidation of one stale favicon probe (`Some(Ok)` =
-/// serve these bytes; `Some(Err)` = fall back failed, try next probe;
-/// `None` = no validators, fetch normally).
+/// serve these bytes; `Some(Err)` = revalidation failed, the caller
+/// serves the stored copy instead; `None` = no validators, fetch normally).
 async fn revalidate_favicon(
     probe: &Url,
     key: &str,

@@ -36,8 +36,17 @@ without the network; a stale one with validators revalidates with
 `If-None-Match`/`If-Modified-Since` (a 304 refreshes it). Refresh bypasses the
 cache record, re-fetching through the route cascade with
 `Cache-Control: no-cache` and never sending stored validators; a fresh copy
-always comes from the network. A failed revalidation falls back to the
-cascade; a stale body is never served as current.
+always comes from the network.
+
+When no fresh copy can be obtained — the network is unreachable, the server
+rejects every route (404, 500, a wrong `Content-Type`), or a revalidation and
+the cascade both fail — the cache's stored copy of the asked page is served
+instead of the error view, marked in the address bar and the page-info card:
+**Offline copy** when no response arrived at all, **Saved copy** when the
+server answered without providing a document. The mark means exactly that: a
+stale body is never presented as current. Refresh falls back the same way and
+its result is marked too; a failed image or favicon load serves the stored
+bytes the same way. Without any stored copy the error view stands.
 
 ## Autocomplete
 

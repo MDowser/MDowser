@@ -9,7 +9,8 @@
 //! Facts only, read from the tab's own state: what the reader is looking
 //! at (the sanitized page title, when the document carries one), where it
 //! came from (the exact address, scheme included) and how it traveled
-//! (HTTPS, local file or an internal page). Built only while the popup is
+//! (HTTPS — current, or a marked offline/saved copy — a local file or an
+//! internal page). Built only while the popup is
 //! open; every string is sanitized and bounded like any other
 //! remote-controlled display text.
 
@@ -89,6 +90,27 @@ impl Tab {
                         page_title,
                         address: Some(bounded(&path)),
                     }
+                } else if let Some(stale) = fetched.stale_copy {
+                    // A stale copy is never described as current: the card
+                    // names the kind and says why it is on screen. "Offline"
+                    // only when nothing answered; a server that answered
+                    // without a document gets the saved wording.
+                    SiteInfo {
+                        title: match stale {
+                            client::StaleCopy::Offline => "Offline copy",
+                            client::StaleCopy::Saved => "Saved copy",
+                        },
+                        detail: match stale {
+                            client::StaleCopy::Offline => {
+                                "The network could not be reached; showing the copy stored on this device."
+                            }
+                            client::StaleCopy::Saved => {
+                                "The server could not provide a fresh copy; showing the copy stored on this device."
+                            }
+                        },
+                        page_title,
+                        address: Some(bounded(fetched.display_url.as_str())),
+                    }
                 } else {
                     SiteInfo {
                         title: "Secure connection",
@@ -162,6 +184,34 @@ mod tests {
         assert_eq!(info.page_title.as_deref(), Some("My Page"));
         assert_eq!(info.address.as_deref(), Some("https://ex.com/page/"));
         assert!(info.detail.contains("HTTPS"));
+    }
+
+    /// A stale copy is announced as such: the offline wording only when
+    /// nothing answered, the saved wording otherwise, and never the
+    /// "Secure connection" line.
+    #[test]
+    fn stale_copies_are_marked_with_their_own_wording() {
+        use crate::protocol::client::StaleCopy;
+
+        let mut offline = Tab::new(1);
+        let mut fetched = fetched_for("https://ex.com/page/");
+        fetched.stale_copy = Some(StaleCopy::Offline);
+        offline.state = TabState::Loaded { fetched };
+        let info = offline.site_info();
+        assert_eq!(info.title, "Offline copy");
+        assert!(
+            info.detail.contains("network could not be reached"),
+            "{info:?}"
+        );
+        assert_eq!(info.address.as_deref(), Some("https://ex.com/page/"));
+
+        let mut saved = Tab::new(2);
+        let mut fetched = fetched_for("https://ex.com/page/");
+        fetched.stale_copy = Some(StaleCopy::Saved);
+        saved.state = TabState::Loaded { fetched };
+        let info = saved.site_info();
+        assert_eq!(info.title, "Saved copy");
+        assert!(info.detail.contains("fresh copy"), "{info:?}");
     }
 
     /// A local file shows its decoded path and the local wording.

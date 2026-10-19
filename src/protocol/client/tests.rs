@@ -20,6 +20,7 @@ fn fetch_one_sync(url: &str) -> Result<(String, url::Url), String> {
         fetch_one(&client, &url, false, &cancel)
             .await
             .map(|(text, final_url, _headers)| (text, final_url))
+            .map_err(|e| e.line)
     })
     .expect("shared network runtime")
 }

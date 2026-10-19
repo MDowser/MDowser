@@ -25,7 +25,9 @@ minimal.
   `https_only(true)` rejects `http://` downgrades before the network, and an
   off-`https` redirect is rejected before the body is read.
 - The encrypted disk cache (`cache/`) reuses validated responses within their
-  HTTP freshness (`Cache-Control`/`Expires`, absolute 1-year ceiling).
+  HTTP freshness (`Cache-Control`/`Expires`, absolute 1-year ceiling). When no
+  fresh copy can be obtained, the stored copy is served MARKED in the address
+  bar (offline/saved), never presented as current.
 - TLS uses `rustls` only (no `native-tls`); system `ca-certificates` is
   required on Linux for verification. `deny.toml` bans `openssl` and
   `native-tls`.
@@ -335,15 +337,18 @@ card and the bookmark/history stores.
 - **Cache freshness.** Freshness is HTTP: `max-age` / `Expires` (+`Date`/`Age`;
   the response's age is the larger of the `Age` header and the apparent age
   `now - Date`), `no-store` (never persisted, and evicts an older record for
-  the same URL), `no-cache` (always revalidated), `must-revalidate` (trivially
-  honored: a stale entry is never served) and `immutable` (no distinct effect:
-  a fresh entry is never revalidated unless Refresh asks), all inside the
-  absolute 1-year ceiling. `ETag`/`Last-Modified` revalidation refreshes the
-  entry on 304 and replaces it on 200. `Vary: *` (or over anything but
-  `Accept`/`Accept-Encoding`) is never stored, `Refresh` forces a revalidation,
-  and an expired entry that cannot be revalidated fails instead of serving
-  stale. Past either bound the OLDEST entries evict FIFO (never an error, never
-  a toast), with per-class quotas.
+  the same URL), `no-cache` (always revalidated), `must-revalidate` (honored:
+  an expired entry is never served as current) and `immutable` (no distinct
+  effect: a fresh entry is never revalidated unless Refresh asks), all inside
+  the absolute 1-year ceiling. `ETag`/`Last-Modified` revalidation refreshes
+  the entry on 304 and replaces it on 200. `Vary: *` (or over anything but
+  `Accept`/`Accept-Encoding`) is never stored, and `Refresh` forces a
+  revalidation. When none of that yields a fresh copy (unreachable network,
+  every route rejected, a failed revalidation after the cascade), a stored
+  copy is served only MARKED as an offline/saved copy in the address bar and
+  the page-info card — never as current, and only when one exists; without a
+  stored copy the error view stands. Past either bound the OLDEST entries
+  evict FIFO (never an error, never a toast), with per-class quotas.
   Local files and internal pages are never cached; "Forget on exit" disables
   the cache entirely (neither read nor written, leftovers wiped); each class
   clears separately from Preferences and "Delete all data" removes the whole

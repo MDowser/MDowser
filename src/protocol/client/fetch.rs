@@ -15,9 +15,14 @@
 //! Cache contract: a fresh cache record (canonical key, see
 //! `cache::policy::doc_key`) short-circuits the network entirely; a stale
 //! record with validators revalidates conditionally (304 refreshes it, 200
-//! replaces it); a stale record that cannot be revalidated falls back to a
-//! full cascade, and when the network fails the stale body is NEVER served.
-//! `FetchMode::ForceRevalidate` (Refresh) skips fresh hits but still stores.
+//! replaces it). When no fresh copy can be obtained — the cascade failed,
+//! the network never answered, the server rejected every route, or a stale
+//! revalidation could not run — the STALE record is served instead of the
+//! error view, marked through [`Fetched::stale_copy`] (offline copy when no
+//! HTTP response arrived, saved copy when the server answered without a
+//! document). A stale body is therefore never served as if it were
+//! current. `FetchMode::ForceRevalidate` (Refresh) skips fresh hits but
+//! still stores, and falls back to the stale copy on failure too.
 
 use super::*;
 use crate::cache::docs::{self, DocRecord};
@@ -48,6 +53,22 @@ enum AttemptOutcome {
     NotModified { headers: CapturedHeaders },
 }
 
+/// One failed candidate attempt: the error-view line plus whether ANY HTTP
+/// response arrived. `transport` is the only "offline" evidence
+/// [`serve_stale_copy`] may use: a body pipeline rejection (UTF-8, YAML,
+/// parse) or an HTTP/gate verdict is an ANSWERED attempt, so a fallback
+/// after those is a saved copy, never an "offline" one.
+pub(super) struct AttemptError {
+    pub(super) line: String,
+    transport: bool,
+}
+
+impl std::fmt::Display for AttemptError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.line)
+    }
+}
+
 /// Downloads ONE document candidate and validates it.
 /// Returns the body text + final URL, or a failure line.
 /// `cancel` is checked before each chunk and after every stall timeout so an
@@ -61,7 +82,7 @@ pub(super) async fn fetch_one(
     url: &Url,
     reload: bool,
     cancel: &AtomicBool,
-) -> Result<(String, Url, CapturedHeaders), String> {
+) -> Result<(String, Url, CapturedHeaders), AttemptError> {
     match fetch_one_attempt(client, url, None, reload, cancel).await? {
         AttemptOutcome::Fresh {
             text,
@@ -69,9 +90,10 @@ pub(super) async fn fetch_one(
             headers,
         } => Ok((text, final_url, headers)),
         // No validators were sent: a 304 here answers nothing we asked.
-        AttemptOutcome::NotModified { .. } => {
-            Err(format!("access to {url} returned 304 (unexpected)"))
-        }
+        AttemptOutcome::NotModified { .. } => Err(AttemptError {
+            line: format!("access to {url} returned 304 (unexpected)"),
+            transport: false,
+        }),
     }
 }
 
@@ -84,7 +106,7 @@ async fn fetch_one_attempt(
     conditional: Option<&get::Conditional>,
     reload: bool,
     cancel: &AtomicBool,
-) -> Result<AttemptOutcome, String> {
+) -> Result<AttemptOutcome, AttemptError> {
     // Header gate: only a declared markdown type is downloaded at
     // all. EVERY declared value must be a markdown type: a server naming
     // `text/html` alongside `text/markdown` gets no precedence game (the
@@ -120,18 +142,23 @@ async fn fetch_one_attempt(
         },
         cancel,
     )
-    .await?;
+    .await
+    .map_err(|e| AttemptError {
+        line: e.message,
+        transport: e.transport,
+    })?;
     match outcome {
         get::GetOutcome::NotModified { headers } => Ok(AttemptOutcome::NotModified { headers }),
         get::GetOutcome::Fresh(raw) => {
             // UTF-8 is mandatory. `String::from_utf8` takes the owned body: no
             // second full-body copy (the bytes are dead either way).
-            let text = String::from_utf8(raw.bytes).map_err(|e| {
-                BrowserError::InvalidUtf8 {
+            let text = String::from_utf8(raw.bytes).map_err(|e| AttemptError {
+                line: BrowserError::InvalidUtf8 {
                     url: url.to_string(),
                     detail: e.utf8_error().to_string(),
                 }
-                .to_string()
+                .to_string(),
+                transport: false,
             })?;
             Ok(AttemptOutcome::Fresh {
                 text,
@@ -191,6 +218,9 @@ pub(crate) fn finish_document(text: &str, landed: Url, error_url: &Url) -> Resul
         events,
         anchors,
         dests,
+        // Set only by the stale-copy fallback (`serve_stale_copy`): a body
+        // freshly finished here is never marked.
+        stale_copy: None,
     })
 }
 
@@ -215,6 +245,11 @@ pub async fn fetch_with_fallback(
 
     let candidates = resolver::candidates_for(start);
     let mut lines: Vec<String> = Vec::new();
+    // `true` once ANY attempt got an HTTP verdict (status, gate, body,
+    // parse): evidence the network answers, so a stale fallback is a SAVED
+    // copy and must not claim there is no connection. The fallback labels
+    // itself offline only when every attempt failed at the transport level.
+    let mut any_response = false;
 
     for cand in candidates {
         // Cooperative cancellation: a superseded navigation stops here.
@@ -250,6 +285,9 @@ pub async fn fetch_with_fallback(
                         return Ok(fetched);
                     }
                     Err(line) => {
+                        // The body arrived and failed to parse: an answered
+                        // attempt (never "offline" evidence).
+                        any_response = true;
                         // Same defense in depth as the network-error arm:
                         // the line embeds the candidate URL, so strip
                         // credentials before it reaches the error view.
@@ -262,17 +300,18 @@ pub async fn fetch_with_fallback(
                     }
                 }
             }
-            Err(line) => {
+            Err(err) => {
                 // A cancel racing the chunk loop surfaces as a "cancelled"
                 // line: map it to the typed variant instead of polluting
                 // the route log and walking the remaining candidates.
                 if cancel.load(Ordering::Relaxed) {
                     return Err(BrowserError::Cancelled);
                 }
+                any_response |= !err.transport;
                 // Server-controlled redirect URLs can land inside reqwest
                 // error text (e.g. `https://user:pass@host/`); strip
                 // credentials before the line reaches the error view.
-                let clean = crate::util::strip_credentials_for_log(&line);
+                let clean = crate::util::strip_credentials_for_log(&err.line);
                 lines.push(
                     crate::util::truncate_chars(&clean, config::MAX_ERROR_LINE_CHARS).into_owned(),
                 );
@@ -281,10 +320,77 @@ pub async fn fetch_with_fallback(
         }
     }
 
+    // Every route failed. With a stored copy of the asked page, serve it
+    // MARKED instead of the error view (the product decision: marked stale
+    // beats an error page; see docs/NAVIGATION.md). Without one, the error
+    // stands.
+    if cancel.load(Ordering::Relaxed) {
+        return Err(BrowserError::Cancelled);
+    }
+    if let Some(fetched) = serve_stale_copy(start, cancel, any_response) {
+        return Ok(fetched);
+    }
+
     Err(BrowserError::NoCandidateWorked {
         asked: start.to_string(),
         lines,
     })
+}
+
+/// Which marker a stale-copy fallback carries: only a navigation where
+/// NOTHING answered (no HTTP response at all) may claim "offline"; any
+/// answered attempt means the saved-copy wording.
+fn stale_cause(any_response: bool) -> StaleCopy {
+    if any_response {
+        StaleCopy::Saved
+    } else {
+        StaleCopy::Offline
+    }
+}
+
+/// Rebuilds a `Fetched` from a stale cache record and stamps the marker
+/// that drives the address-bar indicator. `Err(key)` when the stored body no
+/// longer parses (a hand-edited cache file, decoder drift), so it is never
+/// served and its key goes back for cleanup.
+fn mark_stale_copy(record: DocRecord, start: &Url, cause: StaleCopy) -> Result<Fetched, String> {
+    match rebuild_cached(&record, start) {
+        Some(mut fetched) => {
+            fetched.stale_copy = Some(cause);
+            Ok(fetched)
+        }
+        None => Err(record.key),
+    }
+}
+
+/// Serves the asked page from the cache's STALE record when no fresh copy
+/// could be obtained (the attempted cascade in `fetch_with_fallback`, or a
+/// Refresh that never reached the network). `any_response` selects the
+/// marker (see [`stale_cause`]).
+///
+/// A FRESH record can only reach here through Refresh (a Normal navigation
+/// serves those before the cascade), and is still a stored copy: the load
+/// did not come from the network. `None` when the cache is disabled, has no
+/// record for the asked page, or the record no longer parses (the poisoned
+/// record is dropped, like the fresh-hit path).
+fn serve_stale_copy(start: &Url, cancel: &AtomicBool, any_response: bool) -> Option<Fetched> {
+    if cancel.load(Ordering::Relaxed) {
+        return None;
+    }
+    let cache = global()?;
+    if !cache.enabled() {
+        return None;
+    }
+    let key = doc_key(start)?;
+    let record = match cache.doc_lookup(&key)? {
+        docs::DocHit::Fresh(record) | docs::DocHit::Stale(record) => record,
+    };
+    match mark_stale_copy(record, start, stale_cause(any_response)) {
+        Ok(fetched) => Some(fetched),
+        Err(poisoned_key) => {
+            cache.clear_docs_for_key(&poisoned_key);
+            None
+        }
+    }
 }
 
 /// Stores a freshly fetched document in the encrypted disk cache under the
@@ -434,7 +540,8 @@ fn fetch_blocking_inner(
 ///   candidate that produced it. 304 refreshes the record and serves the
 ///   stored body; 200 replaces it through the normal store path; a network
 ///   failure returns `None` so the caller runs the full cascade (and when
-///   that fails too, the error surfaces: stale is never served).
+///   that fails too, `fetch_with_fallback` serves the stored copy MARKED as
+///   an offline/saved one, never as current).
 /// - Stale without validators, disabled cache, or any poisoned record:
 ///   `None` (full cascade).
 /// - `Refresh` never reaches here (it forces revalidation in the cascade).
@@ -484,7 +591,8 @@ fn rebuild_cached(record: &DocRecord, error_url: &Url) -> Option<Fetched> {
 /// One conditional request for a stale record. 304 refreshes the record
 /// and serves the stored body; 200 replaces it (same store path as the
 /// cascade); anything else falls back to the full cascade (`None`), whose
-/// failure surfaces as the error (stale is never served).
+/// failure falls back again to the stale copy, served MARKED
+/// (`serve_stale_copy`) instead of the error view.
 ///
 /// The conditional GET is real network work with the same whole-body buffer
 /// as any fetch (a hostile origin can answer a validator with 200 + the full
@@ -511,7 +619,17 @@ fn revalidate_cached(
     let job_cancel = Arc::clone(cancel);
     let attempt_url = fetched_url.clone();
     let outcome = run_network(async move {
-        let client = global_client().map_err(|e| e.to_string())?.clone();
+        let client = match global_client() {
+            Ok(client) => client.clone(),
+            // No client, no network: transport evidence (the caller falls
+            // back to the cascade, then to the marked stale copy).
+            Err(e) => {
+                return Err(AttemptError {
+                    line: e.to_string(),
+                    transport: true,
+                })
+            }
+        };
         fetch_one_attempt(
             &client,
             &attempt_url,
@@ -525,8 +643,8 @@ fn revalidate_cached(
         Err(_) => {
             // Transport/runtime failure on the revalidation: let the caller
             // run the full cascade (a fresh fetch may still succeed). When
-            // it fails too, the error — not the stale body — is what the
-            // user sees.
+            // it fails too, the stale copy is what the user sees — MARKED
+            // as an offline/saved one by `serve_stale_copy`.
             None
         }
         Ok(Err(_)) => {
@@ -605,5 +723,66 @@ fn revalidate_cached(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One stored record whose body is the given markdown.
+    fn record(body: &str) -> DocRecord {
+        DocRecord {
+            key: "https://ex.com/page/".to_string(),
+            fetched_url: "https://ex.com/page.md".to_string(),
+            final_url: "https://ex.com/page/".to_string(),
+            content_type: "text/markdown".to_string(),
+            stored_at: 1_700_000_000,
+            fresh_until: 1_700_003_600,
+            etag: String::new(),
+            last_modified: String::new(),
+            body: body.to_string(),
+        }
+    }
+
+    /// The stale fallback rebuilds the stored body and stamps the marker the
+    /// address bar reads; the rebuilt document is otherwise identical to a
+    /// fetched one (same display URL and title).
+    #[test]
+    fn stale_fallback_marks_the_rebuilt_copy() {
+        let start = Url::parse("https://ex.com/page/").unwrap();
+        let body = "# Hello\n\nbody\n";
+        let offline = mark_stale_copy(record(body), &start, StaleCopy::Offline).expect("rebuild");
+        assert_eq!(offline.stale_copy, Some(StaleCopy::Offline));
+        assert_eq!(offline.display_url.as_str(), "https://ex.com/page/");
+        assert_eq!(offline.page_title(), Some("Hello"));
+
+        let saved = mark_stale_copy(record(body), &start, StaleCopy::Saved).expect("rebuild");
+        assert_eq!(saved.stale_copy, Some(StaleCopy::Saved));
+    }
+
+    /// A stored body that no longer parses is never served: the caller gets
+    /// the cache key back so it can drop the poisoned record.
+    #[test]
+    fn stale_fallback_refuses_a_body_that_no_longer_parses() {
+        let start = Url::parse("https://ex.com/page/").unwrap();
+        let poisoned = mark_stale_copy(
+            record("---\ntitle: [unclosed\n---\n\nbody\n"),
+            &start,
+            StaleCopy::Saved,
+        );
+        assert_eq!(
+            poisoned.expect_err("must not serve"),
+            "https://ex.com/page/"
+        );
+    }
+
+    /// Only a navigation where NOTHING answered may claim "offline": any
+    /// answered attempt (status, gate, body or parse verdict) makes it a
+    /// saved copy.
+    #[test]
+    fn stale_marker_never_claims_offline_when_the_server_answered() {
+        assert_eq!(stale_cause(false), StaleCopy::Offline);
+        assert_eq!(stale_cause(true), StaleCopy::Saved);
     }
 }

@@ -6,7 +6,9 @@
 //! `ui::omnibox`: the address bar shared by the toolbar and the home page.
 //!
 //! Modern-browser shape: a fully rounded capsule with a left security
-//! indicator (padlock for HTTPS, page for a local file), the field itself
+//! indicator (padlock for HTTPS, page for a local file, cloud-off for a
+//! copy served with no connection, archive for a saved copy), the field
+//! itself
 //! (no `https://`, schemeless), and a right slot that holds the clear `X`
 //! while editing or the bookmark ribbon otherwise (toolbar only): a filled
 //! ribbon when the shown page is bookmarked, an outline ribbon when it is
@@ -50,6 +52,7 @@
 use crate::bookmarks::BookmarkStore;
 use crate::browser::tab::{SiteInfo, Tab, TabState};
 use crate::history::HistoryStore;
+use crate::protocol::client::StaleCopy;
 use crate::suggest::{self, Suggestion};
 use crate::ui::{icons, theme};
 use crate::util::{strip_scheme_prefix, truncate_chars};
@@ -140,18 +143,49 @@ pub(crate) fn forget_tab_data(ctx: &egui::Context, tab_id: usize) {
     }
 }
 
-/// Left-indicator glyph: padlock (secure HTTPS), page (local file) or the
-/// internal-page glyph (globe/history/info). Shared by the indicator and
+/// Left-indicator glyph: padlock (secure HTTPS), page (local file), the
+/// internal-page glyph (globe/history/info) or the stale-copy glyph
+/// (cloud-off offline / archive saved). Shared by the indicator and
 /// its page-info card, so the two can never disagree.
 fn indicator_icon(tab: &Tab) -> icons::Icon {
     if tab.is_local_file() {
         return icons::Icon::File;
+    }
+    // A stale copy outranks the padlock: the page on screen is NOT current,
+    // and the glyph must say so (the page-info card names which kind).
+    if let Some(stale) = tab.stale_copy() {
+        return match stale {
+            StaleCopy::Offline => icons::Icon::CloudOff,
+            StaleCopy::Saved => icons::Icon::Archive,
+        };
     }
     match &tab.state {
         TabState::Home => icons::Icon::Globe,
         TabState::History => icons::Icon::History,
         TabState::Licenses => icons::Icon::Info,
         _ => icons::Icon::Lock,
+    }
+}
+
+/// Tooltip (and accessible name) of the indicator: names the page kind and
+/// never calls a stored copy current.
+fn indicator_tip(tab: &Tab) -> &'static str {
+    if tab.is_local_file() {
+        return "Local file (on this device)";
+    }
+    if let Some(stale) = tab.stale_copy() {
+        // The wording names what the user is actually looking at; the
+        // page-info card carries the matching explanation (`Tab::site_info`).
+        return match stale {
+            StaleCopy::Offline => "Offline copy (on this device)",
+            StaleCopy::Saved => "Saved copy (on this device)",
+        };
+    }
+    match &tab.state {
+        TabState::Home => "MDowser: HTTPS and local files",
+        TabState::History => "Internal page: local history (on this device)",
+        TabState::Licenses => "Internal page: third-party licenses (shipped with this build)",
+        _ => "Secure connection (HTTPS only)",
     }
 }
 
@@ -219,8 +253,9 @@ pub(crate) fn show_omnibox(
     // layout, so focus looked like a 2px overlap glitch.
     let bg_idx = ui.painter().add(egui::Shape::Noop);
 
-    // Left indicator: padlock (secure HTTPS), page (local file) or globe on
-    // Home. The box is the shared chrome icon box (`theme::ICON_BOX`), not a
+    // Left indicator: padlock (secure HTTPS), page (local file), globe on
+    // Home, or the stale-copy glyph (the page is not current). The box is
+    // the shared chrome icon box (`theme::ICON_BOX`), not a
     // local 26.0: the indicator is the same visual family as every chrome
     // icon button and must not drift from them.
     let pad = 7.0;
@@ -229,27 +264,16 @@ pub(crate) fn show_omnibox(
         egui::pos2(rect.min.x + pad + indicator_box * 0.5, rect.center().y),
         egui::vec2(indicator_box, indicator_box),
     );
-    let local = tab.is_local_file();
     let indicator = indicator_icon(tab);
-    let indicator_tip = if local {
-        "Local file (on this device)"
-    } else {
-        match &tab.state {
-            TabState::Home => "MDowser: HTTPS and local files",
-            TabState::History => "Internal page: local history (on this device)",
-            TabState::Licenses => "Internal page: third-party licenses (shipped with this build)",
-            _ => "Secure connection (HTTPS only)",
-        }
-    };
+    let tip = indicator_tip(tab);
     // Interact first, then paint: the hover fill sits BEHIND the glyph.
     let indicator_resp = ui
         .interact(indicator_rect, id.with("indicator"), egui::Sense::click())
         .on_hover_cursor(egui::CursorIcon::PointingHand);
     // Lazy hint: the "click for page details" suffix is built only while
     // the pointer actually rests on the indicator.
-    let indicator_resp = crate::ui::hover_tooltip_lazy(indicator_resp, || {
-        format!("{indicator_tip}. Click for page details")
-    });
+    let indicator_resp =
+        crate::ui::hover_tooltip_lazy(indicator_resp, || format!("{tip}. Click for page details"));
     if indicator_resp.hovered() {
         // The capsule itself lightens on hover, so the indicator's own
         // feedback is one step stronger, matching `icons::icon_button`.
@@ -276,8 +300,7 @@ pub(crate) fn show_omnibox(
     );
     // Accessible name: the painted indicator otherwise announces nothing
     // (the tooltip is not exposed to accesskit on its own).
-    indicator_resp
-        .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, indicator_tip));
+    indicator_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
     // Click (or Space/Enter on the focused indicator) toggles the
     // page-info card. It never focuses the field: the capsule padding and
     // the field itself already do that, and the indicator answers "what am

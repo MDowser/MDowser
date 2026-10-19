@@ -20,6 +20,11 @@
 //! - Each candidate is validated: 2xx status + markdown Content-Type + UTF-8 + YAML ok.
 //!   On any failure the next one is tried. When none works, returns
 //!   `BrowserError::NoCandidateWorked` with the line-by-line log.
+//! - When NO candidate works, the cache's stale record for the asked page is
+//!   served instead of the error, marked through [`Fetched::stale_copy`]
+//!   ("offline copy" when nothing answered, "saved copy" when the server
+//!   answered without a document): stale is served VISIBLY, never as
+//!   current. Without a stored record the error view stands.
 //! - Background networking: each `fetch` runs on a `poll-promise` thread,
 //!   but the async work itself runs on ONE process-wide tokio runtime
 //!   (`run_network`) so the HTTP client's pooled connections keep their
@@ -35,6 +40,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
 use url::Url;
+
+/// Why a loaded document came from the cache's STALE record instead of a
+/// fresh network response (or a fresh cache hit).
+///
+/// The distinction drives the address-bar indicator's wording: a document
+/// served after the network never answered is an "offline copy" (the device
+/// looks offline), while one served after the server answered without
+/// providing a document (route errors, a wrong `Content-Type`, a page that
+/// is gone) is a "saved copy" and must not claim there is no connection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StaleCopy {
+    /// No HTTP response arrived for any attempt: offline copy.
+    Offline,
+    /// The server answered, but no fresh copy was available: saved copy.
+    Saved,
+}
 
 /// Successfully loaded document.
 #[derive(Debug, Clone)]
@@ -63,6 +84,12 @@ pub struct Fetched {
     /// Every link/image destination resolved ONCE here, so the per-frame
     /// fragment tree does no URL parsing (`protocol::rewrite::DestCache`).
     pub dests: crate::protocol::rewrite::DestCache,
+    /// `Some` exactly when this document was served from the cache's stale
+    /// record because no fresh copy could be obtained: the address-bar
+    /// indicator marks it ([`StaleCopy`]) and the page-info card says so.
+    /// `None` for live fetches AND fresh cache hits (a record within its
+    /// HTTP freshness is current, deliberately indistinguishable).
+    pub stale_copy: Option<StaleCopy>,
 }
 
 impl Fetched {

@@ -227,6 +227,7 @@ fn toolbar_slots_are_fixed_across_content_states() {
                 events: Vec::new(),
                 anchors: crate::markdown::anchors::AnchorIndex::default(),
                 dests: crate::protocol::rewrite::DestCache::default(),
+                stale_copy: None,
             },
         };
         tab
@@ -301,6 +302,7 @@ fn loaded_tab() -> Tab {
             events: Vec::new(),
             anchors: crate::markdown::anchors::AnchorIndex::default(),
             dests: crate::protocol::rewrite::DestCache::default(),
+            stale_copy: None,
         },
     };
     tab

@@ -100,6 +100,7 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
+        stale_copy: None,
     };
     fetched.meta.title = title.map(str::to_string);
     let mut tab = Tab::new(id);
@@ -398,6 +399,7 @@ fn markdown_tab(id: usize, md: &str) -> Tab {
             events,
             anchors,
             dests,
+            stale_copy: None,
         },
     };
     tab

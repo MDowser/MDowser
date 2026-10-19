@@ -31,6 +31,7 @@ fn loaded_tab(md: &str) -> Tab {
             events,
             anchors,
             dests,
+            stale_copy: None,
         },
     };
     tab

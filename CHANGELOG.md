@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Offline reading: when no fresh copy of a page can be obtained (unreachable
+  network, every route rejected, a failed revalidation after the cascade),
+  the encrypted cache's stored copy is served instead of the error view,
+  marked in the address bar and the page-info card as an "Offline copy"
+  (nothing answered) or a "Saved copy" (the server answered without a
+  document). Refresh falls back the same way and its result is marked too;
+  cached images and favicons fall back to their stored bytes as well.
+  (`src/protocol/client/`, `src/media/fetch.rs`, `src/browser/tab/`,
+  `src/ui/omnibox/`, `src/ui/icons/`, `docs/`.)
+
 ## [0.6.0] - 2026-10-19
 
 An encrypted HTTP disk cache with revalidation and hardening, `--help` and

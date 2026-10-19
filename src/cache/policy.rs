@@ -12,8 +12,10 @@
 //!   non-storable: a partial policy view could hide `no-store`/`Vary: *`.
 //! - [`Directives`]: parsed `Cache-Control` (`no-store`, `no-cache`,
 //!   `max-age`, `must-revalidate`, `immutable`; `s-maxage` is a shared-cache
-//!   directive and is ignored, like `stale-while-revalidate`/`stale-if-error`
-//!   in v1: expired + unreachable means fail, never serve stale).
+//!   directive and is ignored, like `stale-while-revalidate`/`stale-if-error`,
+//!   which stay unimplemented here: any stale serving goes through the
+//!   client's marked offline/saved fallback (`protocol::client::fetch`),
+//!   never as a current response).
 //! - [`freshness`]: computes `fresh_until` from the headers with the app's
 //!   default TTL and the absolute 1-year ceiling (`MAX_CACHE_FRESHNESS_SECS`).
 //! - [`doc_key`]: the canonical document identity — scheme + lowercase host
@@ -65,8 +67,9 @@ pub(crate) struct Directives {
     pub no_cache: bool,
     /// `max-age=N` (seconds). Invalid values are ignored (directive absent).
     pub max_age: Option<u64>,
-    /// `must-revalidate` (or `proxy-revalidate`): expired means revalidate
-    /// or fail, never serve stale.
+    /// `must-revalidate` (or `proxy-revalidate`): expired means revalidate,
+    /// never serve stale as current (the client's marked offline/saved
+    /// fallback is a visible exception, not a current response).
     pub must_revalidate: bool,
     /// `immutable`: honored inside the absolute ceiling, never "forever".
     pub immutable: bool,

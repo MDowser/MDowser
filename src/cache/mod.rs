@@ -19,7 +19,9 @@
 //! - Freshness is HTTP: `max-age`/`Expires` (+`Date`/`Age`), `no-store`,
 //!   `no-cache`, `must-revalidate`, `immutable` inside the absolute 1-year
 //!   ceiling, `ETag`/`Last-Modified` revalidation (304 refreshes the entry).
-//!   Expired + unreachable means FAIL, never serve stale. `Refresh` forces a
+//!   Expired + unreachable is never served as CURRENT: the client's fallback
+//!   (`protocol::client::fetch`) serves a stored copy MARKED offline/saved
+//!   when one exists; without one the error view stands. `Refresh` forces a
 //!   revalidation (or a full fetch when there is nothing to validate with).
 //! - Document keys are canonical (`policy::doc_key`): every spelling of one
 //!   logical page (`/love`, `/love/`, `/love.md`, indexes…) hits the same

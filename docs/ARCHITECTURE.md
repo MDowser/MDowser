@@ -192,8 +192,13 @@ Key contracts per area (the module map above names every module):
 - `Cache-Control`/`Expires` (+`Date`/`Age`) set freshness under the absolute
   1-year ceiling. `no-store` (or `Vary: *`) skips storage and evicts older
   records for that URL; `no-cache` revalidates; a 304 refreshes
-  `ETag`/`Last-Modified`; an expired un-revalidatable record fails instead of
-  serving stale. `Refresh` forces revalidation.
+  `ETag`/`Last-Modified`. `Refresh` forces revalidation.
+- When no fresh copy can be obtained (transport failure, every route
+  rejected, a failed revalidation after the cascade), the stored record is
+  served MARKED instead of the error view: `Fetched::stale_copy` drives the
+  omnibox indicator (cloud-off offline / archive saved) and the page-info
+  wording, while images/favicons fall back to their stored bytes unmarked. A
+  stale body is never served as current.
 - Past either bound the oldest entries evict FIFO (never an error); per-class
   clears live in Preferences/Data.
 - Startup decrypts only the small indexes (bodies lazily per hit) plus a

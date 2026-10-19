@@ -272,6 +272,7 @@ pub(super) fn fetched_for(url: &str) -> Fetched {
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
+        stale_copy: None,
     }
 }
 
@@ -330,6 +331,7 @@ pub(super) fn fetched_from_md(url: &str, md: &str) -> Fetched {
         events,
         anchors,
         dests,
+        stale_copy: None,
     }
 }
 

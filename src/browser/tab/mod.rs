@@ -30,8 +30,10 @@
 //! - `forward`: stack for the forward button.
 //! - Navigating to a new URL pushes `current` to `back` and clears `forward`.
 //! - Back/forward/refresh/retry re-navigate: a fresh encrypted disk-cache
-//!   record may serve without network, a stale one revalidates, and errors
-//!   are never reused. Home lands on the new tab page (no network).
+//!   record may serve without network, a stale one revalidates, and a load
+//!   that fails with a stored copy serves that copy MARKED as stale, never
+//!   as current (see [`Tab::stale_copy`]). Home lands on the new tab page
+//!   (no network).
 //!
 //! MINIMAL UI:
 //! - `address` is shown WITHOUT `https://` (always https internally; a local
@@ -643,6 +645,19 @@ impl Tab {
     pub fn loaded_url(&self) -> Option<&Url> {
         match &self.state {
             TabState::Loaded { fetched } => Some(&fetched.display_url),
+            _ => None,
+        }
+    }
+
+    /// The stale-copy marker of the LOADED document: `Some` exactly when the
+    /// page on screen came from the cache's stale record because no fresh
+    /// copy could be obtained ([`Fetched::stale_copy`]). The omnibox
+    /// indicator reads it to mark an offline/saved copy instead of a page
+    /// loaded just now; `None` while loading, on failures and on a document
+    /// that came from the network or a fresh cache hit.
+    pub fn stale_copy(&self) -> Option<client::StaleCopy> {
+        match &self.state {
+            TabState::Loaded { fetched } => fetched.stale_copy,
             _ => None,
         }
     }

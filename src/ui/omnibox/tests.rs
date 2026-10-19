@@ -755,6 +755,7 @@ fn loaded_tab(id: usize, url: &str, title: Option<&str>) -> Tab {
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
         dests: crate::protocol::rewrite::DestCache::default(),
+        stale_copy: None,
     };
     fetched.meta.title = title.map(str::to_string);
     let mut tab = Tab::new(id);
@@ -814,6 +815,37 @@ fn indicator_click_toggles_the_page_info_card() {
     assert!(!tab.site_info_open(), "the second click closed the card");
     let (_, shapes) = frame(&ctx, &mut tab, &history, &bookmarks, false, Vec::new());
     assert!(!painted(&shapes).iter().any(|t| t == "Secure connection"));
+}
+
+/// A page served from the cache's stale record never shows the padlock of a
+/// current one: the glyph and the tooltip name the copy (cloud-off offline /
+/// archive saved), and the page-info card's wording matches (`Tab::site_info`
+/// is what the card paints).
+#[test]
+fn stale_copies_change_the_indicator_glyph_and_tip() {
+    use crate::browser::tab::TabState;
+    use crate::protocol::client::StaleCopy;
+    use crate::ui::icons::Icon;
+
+    fn set_stale(tab: &mut Tab, cause: StaleCopy) {
+        if let TabState::Loaded { fetched } = &mut tab.state {
+            fetched.stale_copy = Some(cause);
+        } else {
+            panic!("the fixture must be a loaded tab");
+        }
+    }
+
+    let mut tab = loaded_tab(1, "https://ex.com/page/", None);
+    assert_eq!(super::indicator_icon(&tab), Icon::Lock);
+    assert_eq!(super::indicator_tip(&tab), "Secure connection (HTTPS only)");
+
+    set_stale(&mut tab, StaleCopy::Offline);
+    assert_eq!(super::indicator_icon(&tab), Icon::CloudOff);
+    assert_eq!(super::indicator_tip(&tab), "Offline copy (on this device)");
+
+    set_stale(&mut tab, StaleCopy::Saved);
+    assert_eq!(super::indicator_icon(&tab), Icon::Archive);
+    assert_eq!(super::indicator_tip(&tab), "Saved copy (on this device)");
 }
 
 /// Esc closes the card; the address field keeps its text (the key is

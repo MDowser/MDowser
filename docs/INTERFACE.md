@@ -96,7 +96,8 @@ app's own icon (the embedded 256px raster), not AppKit's placeholder folder.
 
 `src/ui/navbar/mod.rs`: modern layout, no `Go`. Back/forward, reload (5s
 cooldown with a tooltip countdown, a Stop X while loading; it forces cache
-revalidation instead of serving a fresh record), home (opens the new-tab page;
+revalidation instead of serving a fresh record, and falls back to the stored
+copy — marked — when the network fails), home (opens the new-tab page;
 the page left behind stays on Back), zoom pill and Preferences gear. Circular
 hover fills; every icon is a monochrome vector glyph — muted at rest, easing to
 the accent and growing slightly on hover.
@@ -104,7 +105,8 @@ the accent and growing slightly on hover.
 ## Omnibox
 
 `src/ui/omnibox/mod.rs`: a rounded capsule with a padlock indicator (a page
-indicator for local files), the address (schemeless for web, decoded path for
+indicator for local files, a cloud-off/archive for a copy served when no fresh
+one could be obtained), the address (schemeless for web, decoded path for
 files), an indeterminate loading sweep and ONE right slot: the clear `X` while
 editing, else the bookmark ribbon (toolbar only) — filled when the page is
 bookmarked, outline when not, disabled with nothing to bookmark. Sharing the
@@ -116,12 +118,14 @@ drag selects from the press point. Launching the app or opening a tab never
 focuses the field (no popup over a fresh window or tab); only `Ctrl/Cmd+L` does.
 
 The left indicator is a button, not a focus target. It names the page kind
-(padlock HTTPS, page for a local file, globe/clock/info internal), and clicking
+(padlock HTTPS, page for a local file, globe/clock/info internal, cloud-off for
+an offline copy, archive for a saved one), and clicking
 it (or keyboard activation) opens a page-info card under the capsule with the
 rendered page's facts: kind, the document's own title when it has one
 (frontmatter `title`, else the first `#` heading), the exact address WITH its
 scheme (the field hides `https://`), and one line on content origin (fetched
-over HTTPS, read from this device, or an internal page). The card is an overlay
+over HTTPS, read from this device, an internal page, or why a stored copy is
+shown). The card is an overlay
 and never shifts the capsule; its address stays bounded
 (`config::SITE_INFO_ADDRESS_CHARS`), and it closes on the next indicator click,
 `Esc`, a click outside, `Ctrl/Cmd+L` or any navigation, never describing a gone

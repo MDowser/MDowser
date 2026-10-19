@@ -10,7 +10,9 @@
 //!   throttle.
 //! - Tabs share the encrypted HTTP disk cache, never decoded images or
 //!   documents in memory: a fresh cache record can serve a navigation, a
-//!   stale one revalidates, and Refresh forces revalidation. History only
+//!   stale one revalidates, and Refresh forces revalidation. A load that
+//!   fails with a stored copy serves it MARKED (offline/saved), never as
+//!   current. History only
 //!   stores URLs, never bodies. Document images live only while their
 //!   document is on screen (see `media::cache`).
 //! - Tab persistence ships (`settings::save_session` / `load_session`, used

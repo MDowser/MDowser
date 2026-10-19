@@ -64,6 +64,44 @@ pub(crate) enum GetOutcome {
     NotModified { headers: CapturedHeaders },
 }
 
+/// One failed GET: the error-view line plus whether the failure proves the
+/// network never answered.
+///
+/// `transport` is the only "offline" evidence the cache fallback may use: a
+/// failed connect/TLS, a stall or a broken body transfer means no HTTP
+/// response arrived, while a status/gate/policy rejection is an ANSWERED
+/// response (or a client-side refusal) and never evidence of being offline.
+pub(crate) struct GetError {
+    /// Error line (the error-view contract; do not reword).
+    pub message: String,
+    /// `true` when no HTTP response was received.
+    pub transport: bool,
+}
+
+impl GetError {
+    /// A failure with an HTTP response (or a client-side refusal) behind it.
+    fn answered(message: String) -> Self {
+        Self {
+            message,
+            transport: false,
+        }
+    }
+
+    /// A transport failure (DNS, TLS, connect, timeout, stall, body IO).
+    fn network(message: String) -> Self {
+        Self {
+            message,
+            transport: true,
+        }
+    }
+}
+
+impl std::fmt::Display for GetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
 /// Performs one cancellable GET and reads the body with a hard cap.
 ///
 /// Shared by document fetches (`fetch_one`) and image/favicon subresources
@@ -89,7 +127,7 @@ pub(crate) async fn get_bytes(
     url: &Url,
     options: &GetOptions<'_>,
     cancel: &AtomicBool,
-) -> Result<GetOutcome, String> {
+) -> Result<GetOutcome, GetError> {
     // Defense in depth: callers are expected to hand in a credential-free
     // URL (`parse_navigable` strips userinfo), but this shared entry point
     // must never let a secret ride an `Authorization` header to the wire or
@@ -100,10 +138,10 @@ pub(crate) async fn get_bytes(
     let url = if !url.username().is_empty() || url.password().is_some() {
         let mut clean = url.clone();
         if clean.set_username("").is_err() || clean.set_password(None).is_err() {
-            return Err(format!(
+            return Err(GetError::answered(format!(
                 "access to {url} with credentials (blocked)",
                 url = crate::util::strip_credentials_for_log(url.as_str())
-            ));
+            )));
         }
         stripped = clean;
         &stripped
@@ -154,8 +192,12 @@ pub(crate) async fn get_bytes(
     };
     futures_util::pin_mut!(send_fut, cancel_fut);
     let resp = match select(send_fut, cancel_fut).await {
-        Either::Left((r, _)) => r.map_err(|e| format!("access to {url} network error: {e}"))?,
-        Either::Right((_, _)) => return Err(format!("access to {url} cancelled")),
+        Either::Left((r, _)) => {
+            r.map_err(|e| GetError::network(format!("access to {url} network error: {e}")))?
+        }
+        Either::Right((_, _)) => {
+            return Err(GetError::answered(format!("access to {url} cancelled")))
+        }
     };
 
     // Final URL after redirects (reqwest follows up to MAX_REDIRECTS).
@@ -168,24 +210,26 @@ pub(crate) async fn get_bytes(
     if (!final_url.username().is_empty() || final_url.password().is_some())
         && (final_url.set_username("").is_err() || final_url.set_password(None).is_err())
     {
-        return Err(format!(
+        return Err(GetError::answered(format!(
             "access to {url} redirected with credentials (blocked)"
-        ));
+        )));
     }
 
     // Defense in depth: `https_only(true)` should already reject downgrades,
     // but never read a body that did not land on https.
     if final_url.scheme() != "https" {
-        return Err(format!("access to {url} redirected off https (blocked)"));
+        return Err(GetError::answered(format!(
+            "access to {url} redirected off https (blocked)"
+        )));
     }
     // A redirect can land on a URL far longer than the input cap (the
     // `Location` is server-controlled). Everything downstream (display,
     // history, relative resolution) assumes the cap, so reject it here
     // before any body is read. Byte-based: the landed URL is serialized.
     if final_url.as_str().len() > config::MAX_URL_BYTES {
-        return Err(format!(
+        return Err(GetError::answered(format!(
             "access to {url} redirected to an over-long URL (blocked)"
-        ));
+        )));
     }
 
     let status = resp.status();
@@ -202,9 +246,13 @@ pub(crate) async fn get_bytes(
         let code = status.as_u16();
         // 404 gets its own message ("does not exist") for the line-by-line log.
         if code == 404 {
-            return Err(format!("access to {url} does not exist (404)"));
+            return Err(GetError::answered(format!(
+                "access to {url} does not exist (404)"
+            )));
         }
-        return Err(format!("access to {url} returned HTTP {code}"));
+        return Err(GetError::answered(format!(
+            "access to {url} returned HTTP {code}"
+        )));
     }
 
     // All Content-Type values (case-insensitive, whitespace-tolerant).
@@ -224,9 +272,9 @@ pub(crate) async fn get_bytes(
         .count()
         > config::MAX_CONTENT_TYPE_VALUES
     {
-        return Err(format!(
+        return Err(GetError::answered(format!(
             "access to {url} returned too many content-types (blocked)"
-        ));
+        )));
     }
     let content_types: Vec<String> = resp
         .headers()
@@ -242,7 +290,7 @@ pub(crate) async fn get_bytes(
 
     // Caller gate BEFORE the body is read: a concrete non-accepted type is
     // rejected without downloading/decompressing a single byte.
-    (options.gate)(&content_types)?;
+    (options.gate)(&content_types).map_err(GetError::answered)?;
 
     // Early cutoff on the declared `Content-Length` (anti-abuse, no download).
     // Not a cache: just avoids fetching giant bodies we would reject anyway.
@@ -253,10 +301,10 @@ pub(crate) async fn get_bytes(
     let content_len_hint = resp.content_length();
     if let Some(len) = content_len_hint {
         if len > options.max_bytes as u64 {
-            return Err(format!(
+            return Err(GetError::answered(format!(
                 "access to {url} exceeds {} bytes",
                 options.max_bytes
-            ));
+            )));
         }
     }
 
@@ -282,7 +330,7 @@ pub(crate) async fn get_bytes(
         // below also races the flag against a stalled chunk wait, so a
         // superseded load never sits behind the full stall timeout.
         if cancel.load(Ordering::Relaxed) {
-            return Err(format!("access to {url} cancelled"));
+            return Err(GetError::answered(format!("access to {url} cancelled")));
         }
         // Bound each chunk wait: without this a server trickling one byte at
         // a time would defeat the request timeout (which covers the whole
@@ -300,23 +348,26 @@ pub(crate) async fn get_bytes(
         futures_util::pin_mut!(chunk_fut, cancel_fut);
         match select(chunk_fut, cancel_fut).await {
             // Superseded while waiting for data: drop promptly.
-            Either::Right((_, _)) => return Err(format!("access to {url} cancelled")),
+            Either::Right((_, _)) => {
+                return Err(GetError::answered(format!("access to {url} cancelled")))
+            }
             Either::Left((Err(_), _)) => {
-                return Err(format!(
+                return Err(GetError::network(format!(
                     "access to {url} stalled (no data for {}s)",
                     config::CHUNK_TIMEOUT_SECS
-                ));
+                )));
             }
             Either::Left((Ok(None), _)) => break,
             Either::Left((Ok(Some(chunk)), _)) => {
-                let bytes =
-                    chunk.map_err(|e| format!("access to {url} error reading body: {e}"))?;
+                let bytes = chunk.map_err(|e| {
+                    GetError::network(format!("access to {url} error reading body: {e}"))
+                })?;
                 // `saturating` in case a giant chunk overflows: still fails by limit.
                 if buf.len().saturating_add(bytes.len()) > options.max_bytes {
-                    return Err(format!(
+                    return Err(GetError::answered(format!(
                         "access to {url} exceeds {} bytes",
                         options.max_bytes
-                    ));
+                    )));
                 }
                 buf.extend_from_slice(&bytes);
             }
