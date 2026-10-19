@@ -125,6 +125,10 @@ pub fn noto_color_emoji() -> &'static [u8] {
 /// handing epaint an empty slice (which would panic deeper with a worse
 /// one); a corrupted binary is not a recoverable state.
 #[cold]
+#[allow(
+    clippy::panic,
+    reason = "an embedded, build-time-validated font that fails to decode means the binary was corrupted; no recovery exists"
+)]
 fn corrupt_font(name: &str, detail: &str) -> ! {
     panic!("embedded font {name} is corrupt: {detail}")
 }

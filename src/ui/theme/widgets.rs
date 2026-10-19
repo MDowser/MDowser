@@ -279,6 +279,18 @@ pub fn rule(ui: &mut egui::Ui) {
     );
 }
 
+/// Full-bleed 1px separator: the dialog/card rule and the header underline.
+/// Single helper so every floating surface draws the same hairline instead
+/// of repeating the allocate + `rect_filled` recipe.
+pub fn hairline(ui: &mut egui::Ui, color: egui::Color32) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), stroke::HAIRLINE),
+        egui::Sense::hover(),
+    );
+    ui.painter()
+        .rect_filled(rect, egui::CornerRadius::ZERO, color);
+}
+
 /// Elevation helper: a soft shadow in light mode, none in dark mode.
 ///
 /// A black shadow over dark chrome reads as a dirty outline around panels
@@ -286,6 +298,14 @@ pub fn rule(ui: &mut egui::Ui) {
 /// fill contrast between chrome and page.
 pub fn soft_shadow(ui: &egui::Ui, offset: [i8; 2], blur: u8, alpha_light: u8) -> egui::Shadow {
     shadow_recipe(ui.visuals().dark_mode, offset, blur, alpha_light)
+}
+
+/// Floating-dialog shadow: the elevation used by the app's centered cards
+/// (Preferences, Export). Light mode gets a soft drop shadow; dark mode is
+/// flat (black blur over dark chrome reads as dirt). Single source so the
+/// two dialogs cannot drift apart.
+pub fn dialog_shadow(dark: bool) -> egui::Shadow {
+    shadow_recipe(dark, [0, 8], 28, 40)
 }
 
 /// Core shadow recipe, shared by [`soft_shadow`] and the floating surfaces

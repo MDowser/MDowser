@@ -340,9 +340,13 @@ fn read_bytes_at(
         if cancel.load(Ordering::Relaxed) {
             return Err(format!("access to {} cancelled", echo()));
         }
-        let n = file
-            .read(&mut chunk)
-            .map_err(|e| format!("access to {} error reading file: {e}", echo()))?;
+        let n = match file.read(&mut chunk) {
+            Ok(n) => n,
+            // A signal (NFS, FUSE, a debugger attaching) must not abort a
+            // readable local document: retry the same read.
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(format!("access to {} error reading file: {e}", echo())),
+        };
         if n == 0 {
             break;
         }

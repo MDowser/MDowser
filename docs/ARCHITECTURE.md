@@ -849,7 +849,8 @@ Key contracts per area (the module map above names every module):
   strokes share `theme::stroke` (`HAIRLINE/ICON/EMPHASIS`), gaps share
   `theme::spacing` (`XXS/XS/S/M/L/XL/PAGE_END`), and every chrome icon button
   shares `theme::ICON_BOX` (26px: tab close, omnibox clear, history clear, zoom
-  buttons, image placeholders, accordion headers).
+  buttons, image placeholders, accordion headers). Full-bleed separators use
+  `theme::hairline`; the floating cards share `theme::dialog_shadow`.
 - Tile avatar hues live in `theme::AVATAR_PALETTE` (documented fixed-hue
   exception: identity colors, not chrome surfaces). The find washes live in the
   `Scheme` (`find_match`/`find_current`, pale/strong amber per theme), so
@@ -1177,6 +1178,9 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   `config::deadline_after` armed-confirm recipe, `Replace` stating the outcome
   of the next press); a failed write stays inline ("Could not save: …") and the
   file name of a completed one reaches `App` for the `Saved <name>` toast.
+  The write is atomic (unique `create_new` temp beside the destination, then
+  `rename`), so a failed or interrupted save never truncates the existing
+  file; replacing one keeps its permissions.
   Esc is app-owned (`app::shortcuts` closes the card): the card holds state no
   other surface can reach, and one press closes exactly one surface.
 

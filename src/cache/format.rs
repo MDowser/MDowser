@@ -117,7 +117,12 @@ pub(crate) fn read_u8(data: &mut &[u8]) -> Option<u8> {
 }
 
 /// Appends a `u32`-prefixed byte string.
+///
+/// Every caller is bounded far below `u32::MAX` (body/image/config caps), so
+/// the length field is exact; the assertion catches a future caller long
+/// before a truncated length could corrupt a store.
 pub(crate) fn write_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
+    debug_assert!(bytes.len() <= u32::MAX as usize, "record field too long");
     out.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
     out.extend_from_slice(bytes);
 }

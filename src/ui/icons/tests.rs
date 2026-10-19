@@ -10,7 +10,7 @@ use super::{paint, paint_text, Icon};
 use eframe::egui;
 
 /// Every variant, so a new icon cannot dodge the checks below.
-const ALL: [Icon; 27] = [
+const ALL: [Icon; 28] = [
     Icon::Home,
     Icon::Back,
     Icon::Forward,
@@ -36,6 +36,7 @@ const ALL: [Icon; 27] = [
     Icon::Check,
     Icon::ChevronUp,
     Icon::ChevronDown,
+    Icon::ChevronRight,
     Icon::CloudOff,
     Icon::Archive,
 ];

@@ -54,6 +54,9 @@ STRUCTURE and never evaluates it:
   never toggle each other); `<Card>` as a bordered box (`title` first line,
   linked with `href`); `<Steps>`/`<Step>` as numbered rows; `<CodeGroup>` as one
   code tab per fenced child (label from the fence `title=`, else its language).
+  A section's disclosure chevron is a themed vector glyph (`ui::icons`,
+  right when collapsed, down when expanded) in a fixed slot, so the title
+  column never moves and no font fallback is involved.
 - `<Tabs items={["A", "B"]}>` labels its `<Tab>` children with no
   `label`/`title`, so tab sets relying on it show real names instead of
   `Tab 1…N`. A very long label (tab cell, accordion header, step title) is

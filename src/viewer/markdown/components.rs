@@ -14,8 +14,9 @@
 //!   salt, the marker's event index and the tab labels, so it survives
 //!   scroll/zoom, stays per-tab and never leaks between two sets that share
 //!   the same labels.
-//! - `<Accordion>`: a collapsible section (`▸`/`▾` header); open state in the
-//!   same temp store.
+//! - `<Accordion>`: a collapsible section (a themed vector chevron header,
+//!   right when closed and down when open); open state in the same temp
+//!   store.
 //! - `<Card>`: a bordered box (title emitted as its first content line by the
 //!   normalizer, so links stay real links).
 //! - `<Steps>`/`<Step>`: numbered rows.
@@ -168,6 +169,33 @@ fn render_transparent(
     }
 }
 
+/// Fits `text` into `max_w` at `font`, returning whether it was shortened and
+/// its laid-out galley. The shared ellipsis rule bounds the character count
+/// first; a string that still does not fit is shortened using its measured
+/// per-character average, so a wide glyph run (CJK, a URL) never overflows
+/// the reading sheet. Callers keep the full text in the tooltip/accessible
+/// name.
+fn fit_label(
+    ui: &egui::Ui,
+    text: &str,
+    font: egui::FontId,
+    color: egui::Color32,
+    max_w: f32,
+) -> (bool, std::sync::Arc<egui::Galley>) {
+    let shown =
+        crate::util::truncate_chars(text, crate::config::MAX_COMPONENT_LABEL_CHARS).into_owned();
+    let shown_chars = shown.chars().count().max(1);
+    let mut galley = ui.painter().layout_no_wrap(shown, font.clone(), color);
+    if galley.size().x > max_w {
+        let per_char = (galley.size().x / shown_chars as f32).max(1.0);
+        let cap = (max_w / per_char).floor().max(1.0) as usize;
+        let shown = crate::util::truncate_chars(text, cap).into_owned();
+        galley = ui.painter().layout_no_wrap(shown, font, color);
+        return (true, galley);
+    }
+    (galley.text().len() < text.len(), galley)
+}
+
 /// One tab label: text centered in a fixed-size cell. Returns the cell rect,
 /// whether it is hovered, and whether it was clicked. Its geometry depends
 /// only on the label, so hover/selection never shift the bar.
@@ -184,19 +212,7 @@ fn tab_label(
     // and fit it to `max_w` (the strip's per-cell share) when needed.
     let pad_x = theme::spacing::L;
     let text_w = (max_w - pad_x * 2.0).max(24.0);
-    let mut shown = crate::util::truncate_chars(text, crate::config::MAX_COMPONENT_LABEL_CHARS);
-    let mut galley =
-        ui.painter()
-            .layout_no_wrap(shown.as_ref().to_owned(), font.clone(), scheme.on_surface);
-    if galley.size().x > text_w {
-        let per_char = (galley.size().x / shown.chars().count().max(1) as f32).max(1.0);
-        let cap = (text_w / per_char).floor().max(1.0) as usize;
-        shown = crate::util::truncate_chars(text, cap);
-        galley = ui
-            .painter()
-            .layout_no_wrap(shown.as_ref().to_owned(), font, scheme.on_surface);
-    }
-    let truncated = shown.len() < text.len();
+    let (truncated, galley) = fit_label(ui, text, font, scheme.on_surface, text_w);
     let desired = egui::vec2(galley.size().x + pad_x * 2.0, TAB_H);
     let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -234,6 +250,11 @@ const TAB_H: f32 = 30.0;
 
 /// A full-width clickable header (accordion): fixed height, chevron + title.
 /// Returns `true` when clicked.
+///
+/// The chevron is a themed VECTOR glyph (`ui::icons`), not a text run: the
+/// old `▸`/`▾` characters relied on the bundled font having them and shifted
+/// the title's ink when the two glyphs differed in advance width. A painted
+/// icon keeps the title column fixed and follows the active palette.
 fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
     let scheme = theme::scheme_ref(ui);
     let width = ui.available_width().max(1.0);
@@ -246,15 +267,22 @@ fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
             scheme.container_hover,
         );
     }
-    let arrow = if open { "\u{25be}" } else { "\u{25b8}" };
     let label = if title.is_empty() { "Details" } else { title };
-    let text = format!("{arrow}  {label}");
-    let shown = crate::util::truncate_chars(&text, crate::config::MAX_COMPONENT_LABEL_CHARS);
-    let truncated = shown.len() < text.len();
+    // Chevron slot: one icon box, painted left of the title. The glyph swaps
+    // between right (collapsed) and down (expanded) in a FIXED slot, so the
+    // title never moves.
+    let icon_side = theme::ICON_BOX.min(rect.height());
+    let icon_rect = egui::Rect::from_center_size(
+        egui::pos2(
+            rect.min.x + theme::spacing::S + icon_side * 0.5,
+            rect.center().y,
+        ),
+        egui::vec2(icon_side, icon_side),
+    );
+    let text_x = icon_rect.max.x + theme::spacing::S;
+    let text_w = (rect.max.x - text_x - theme::spacing::S).max(24.0);
     let font = egui::TextStyle::Body.resolve(ui.style());
-    let galley = ui
-        .painter()
-        .layout_no_wrap(shown.into_owned(), font, scheme.on_surface);
+    let (truncated, galley) = fit_label(ui, label, font, scheme.on_surface, text_w);
     if truncated {
         crate::ui::hover_tooltip(resp.clone(), label);
     }
@@ -266,11 +294,23 @@ fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
     if resp.has_focus() {
         theme::focus_ring(ui, rect, theme::radius::SMALL);
     }
+    let icon = if open {
+        crate::ui::icons::Icon::ChevronDown
+    } else {
+        crate::ui::icons::Icon::ChevronRight
+    };
+    crate::ui::icons::paint(
+        ui,
+        icon_rect,
+        icon,
+        if resp.hovered() {
+            scheme.on_surface
+        } else {
+            scheme.on_surface_variant
+        },
+    );
     ui.painter().galley(
-        egui::pos2(
-            rect.min.x + theme::spacing::S,
-            rect.center().y - galley.size().y / 2.0,
-        ),
+        egui::pos2(text_x, rect.center().y - galley.size().y / 2.0),
         galley,
         scheme.on_surface,
     );

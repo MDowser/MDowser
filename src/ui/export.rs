@@ -232,21 +232,16 @@ impl ExportState {
         let frame = egui::Frame::new()
             .fill(s.surface)
             .corner_radius(egui::CornerRadius::same(RADIUS))
-            .shadow(if dark {
-                egui::Shadow::NONE
-            } else {
-                egui::Shadow {
-                    offset: [0, 8],
-                    blur: 28,
-                    spread: 0,
-                    color: egui::Color32::from_black_alpha(40),
-                }
-            })
+            .shadow(theme::dialog_shadow(dark))
             .inner_margin(egui::Margin::same(0));
         let mut intent = CardIntent::default();
         // The card holds the payload and the typed destination, so this
-        // borrow covers the whole draw; nothing below reads it again.
-        let card = self.open.as_mut().expect("checked above");
+        // borrow covers the whole draw; nothing below reads it again. The
+        // early return above guarantees it is open (no `expect`: a UI
+        // thread must never panic on state it can simply skip).
+        let Some(card) = self.open.as_mut() else {
+            return ExportActions::default();
+        };
         egui::Area::new(egui::Id::new("export-card"))
             .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, TOP_MARGIN))
             // The find bar's layer: above the document, the outline panel
@@ -334,11 +329,57 @@ impl Default for ExportState {
 /// Writes `bytes` to `path` and returns the file NAME for the confirmation
 /// toast (`notes.md`), or a line for the card.
 ///
-/// A plain synchronous `fs::write` on the UI thread: the payload is bounded
-/// by `MAX_BODY_BYTES` (the fetch cap), the same land the encrypted stores
-/// already do for their own summaries.
+/// The write is ATOMIC: the bytes land in a unique sibling temp file that is
+/// renamed over the destination, so a failure mid-write (full disk, revoked
+/// permission, a crash) never truncates or corrupts an existing file the
+/// user chose to replace. A plain synchronous write on the UI thread is
+/// acceptable because the payload is bounded by `MAX_BODY_BYTES` (the fetch
+/// cap), the same land the encrypted stores already do for their own
+/// summaries.
 fn write_file(path: &Path, bytes: &str) -> Result<String, String> {
-    std::fs::write(path, bytes).map_err(|e| format!("Could not save: {e}"))?;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    // Unique per process + call: two exports never share a temp file, and a
+    // leftover from a crash is never followed (create_new).
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let mut written = None;
+    for _ in 0..8 {
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let temp = dir.join(format!(".mdowser-export-{}-{seq}.tmp", std::process::id()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        match options.open(&temp) {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                let result = file.write_all(bytes.as_bytes());
+                drop(file);
+                if let Err(e) = result {
+                    let _ = std::fs::remove_file(&temp);
+                    return Err(format!("Could not save: {e}"));
+                }
+                written = Some(temp);
+                break;
+            }
+            // A stale temp name (pid reuse) is skipped, never truncated.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(format!("Could not save: {e}")),
+        }
+    }
+    let Some(temp) = written else {
+        return Err("Could not save: no unique temporary file".to_string());
+    };
+    // Replacing an existing file keeps its permissions (`fs::write` used to
+    // truncate in place; the atomic rename must not silently widen or narrow
+    // them). New files keep the process umask.
+    #[cfg(unix)]
+    if let Ok(meta) = std::fs::metadata(path) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = meta.permissions().mode() & 0o777;
+        let _ = std::fs::set_permissions(&temp, std::fs::Permissions::from_mode(mode));
+    }
+    if let Err(e) = std::fs::rename(&temp, path) {
+        let _ = std::fs::remove_file(&temp);
+        return Err(format!("Could not save: {e}"));
+    }
     Ok(match path.file_name() {
         Some(name) => name.to_string_lossy().into_owned(),
         // A destination with no file name at all (`/`, `~`): echo the path.
@@ -556,7 +597,7 @@ fn header(ui: &mut egui::Ui, s: &theme::Scheme, intent: &mut CardIntent) {
                 },
             );
         });
-    divider(ui, s);
+    theme::hairline(ui, s.outline_variant);
 }
 
 /// Card body: format choice, destination field, the error/confirm line and
@@ -776,16 +817,6 @@ fn actions_row(ui: &mut egui::Ui, armed: bool, intent: &mut CardIntent) {
             }
         },
     );
-}
-
-/// Full-bleed hairline separator (the dialog's own rule).
-fn divider(ui: &mut egui::Ui, s: &theme::Scheme) {
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
-        egui::Sense::hover(),
-    );
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
 }
 
 #[cfg(test)]
@@ -1051,6 +1082,39 @@ mod tests {
         );
         // No home directory at all: a relative name (the current directory).
         assert_eq!(default_dir_in(None), PathBuf::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The export write is ATOMIC: it replaces the destination through a
+    /// sibling temp file and never leaves that temp behind, so an existing
+    /// file is only ever swapped whole.
+    #[test]
+    fn write_file_replaces_atomically_and_cleans_up() {
+        let dir = scratch("atomic");
+        let target = dir.join("notes.md");
+        assert_eq!(
+            write_file(&target, "first\n").expect("write"),
+            "notes.md",
+            "the confirmation names the file"
+        );
+        assert_eq!(
+            write_file(&target, "second\n").expect("replace"),
+            "notes.md"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("file written"),
+            "second\n"
+        );
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .expect("scratch dir")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".mdowser-export-"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

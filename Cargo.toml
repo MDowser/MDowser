@@ -65,12 +65,15 @@ print_stderr = { level = "warn", priority = -1 }
 [dependencies]
 # Cross-platform immediate UI (winit + wgpu). No webview; all app logic is
 # Rust (the TLS crypto provider links C/asm, see the package comment).
-# DIET NOTE (checked 2026-10-02): eframe default pulls `accesskit` (~14
-# small crates) + `web_screen_reader` (wasm-only, zero native cost).
-# Dropping `accesskit` needs `default-features = false` + manual
-# re-wiring (`default_fonts`, `links`, `wayland`, `wgpu`, `x11`,
-# `winit/default`) and loses screen-reader support; saving vs. ~300
-# total deps is small and GUI-regression risk is high, so defaults stay.
+# DIET NOTE (checked 2026-10-19): eframe's default feature set is required
+# as-is. `default_fonts` (~1.4 MB of Ubuntu/Hack/NotoEmoji/emoji-icon-font
+# data) is never REGISTERED by `ui::theme::install_fonts`, but turning the
+# feature off is not expressible from here: `default-features = false` drops
+# `winit/default`, whose `wayland-dlopen`/`wayland-csd-adwaita` and `rwh_06`
+# entries a consumer cannot re-enable (cargo rejects `winit/default` in a
+# dependency feature list), so a direct `winit` dependency would be needed
+# for a ~3% size win with real Linux packaging risk. `accesskit` stays on
+# (screen readers). Defaults stay.
 eframe = "0.36"
 # Modern HTTPS client with HTTP/2. rustls only (no native-tls) to stay cross-platform.
 # NOTE: no system proxy on purpose (see protocol/client/).

@@ -251,16 +251,7 @@ impl PreferencesState {
         let frame = egui::Frame::new()
             .fill(s.surface)
             .corner_radius(egui::CornerRadius::same(RADIUS))
-            .shadow(if dark {
-                egui::Shadow::NONE
-            } else {
-                egui::Shadow {
-                    offset: [0, 8],
-                    blur: 28,
-                    spread: 0,
-                    color: egui::Color32::from_black_alpha(40),
-                }
-            })
+            .shadow(theme::dialog_shadow(dark))
             .inner_margin(egui::Margin::same(0));
         // A platform that reports no viewport (headless tests) must not
         // clamp the dialog: `auto_sized` then hugs the content exactly, and

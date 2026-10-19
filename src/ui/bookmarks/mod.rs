@@ -282,7 +282,12 @@ pub fn show_bookmarks(
                                         break;
                                     }
                                     let index = count - 1 - position;
-                                    let bookmark = &store.entries()[index];
+                                    // Defensive: a store mutation mid-frame
+                                    // (a save landing, a rename) must never
+                                    // panic a frame; skip the stale slot.
+                                    let Some(bookmark) = store.entries().get(index) else {
+                                        break;
+                                    };
                                     let tile_edit =
                                         edit.as_mut().filter(|state| state.url == bookmark.url);
                                     let dragging =

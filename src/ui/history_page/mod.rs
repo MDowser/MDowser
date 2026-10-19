@@ -621,17 +621,19 @@ enum ListItem {
 /// contributed `1 + len` slots, i.e. `index` headers plus `offsets[index] - index`
 /// rows, so the local and global offsets differ by exactly the header count.
 fn item_at(flat: usize, sections: &[Section], offsets: &[usize]) -> ListItem {
-    let mut index = 0;
-    while index < sections.len() {
-        let start = offsets[index];
-        let end = start + 1 + sections[index].len;
+    for (index, section) in sections.iter().enumerate() {
+        // `offsets` and `sections` are built together; `get` keeps a future
+        // divergence from panicking the UI thread.
+        let Some(&start) = offsets.get(index) else {
+            break;
+        };
+        let end = start + 1 + section.len;
         if flat == start {
             return ListItem::Header(index);
         }
         if flat < end {
             return ListItem::Row(flat - index - 1);
         }
-        index += 1;
     }
     // Unreachable while `flat` is inside the list (`show_rows` bounds it);
     // a header is always safe to paint, a row index might not be.

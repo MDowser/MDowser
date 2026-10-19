@@ -363,9 +363,13 @@ card and the bookmark/history stores.
   and length-capped BEFORE it becomes a path component: a hostile title or URL
   segment cannot add a separator or `..`, cannot leave the default directory
   and cannot produce a name the filesystem refuses (a Windows device name such
-  as `aux` or `nul` gets a `-file` suffix). The write is one plain
-  `fs::write` of the captured document (bounded by `MAX_BODY_BYTES`) on the UI
-  thread, like the stores' own bounded writes.
+  as `aux` or `nul` gets a `-file` suffix). The write is ATOMIC: the bounded
+  document (at most `MAX_BODY_BYTES`) goes to a unique sibling temp file
+  (`create_new`, never following a planted link) that is renamed over the
+  destination, so a failure mid-write cannot truncate the file being replaced.
+  Replacing an existing file keeps its permissions; a new one gets the process
+  umask. The write happens on the UI thread, like the stores' own bounded
+  writes.
 
 ### Credentials and URL sanitization
 

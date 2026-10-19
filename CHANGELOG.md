@@ -34,6 +34,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/viewer/overlays/outline.rs`, `src/ui/export.rs`, `src/app/`,
   `docs/`.)
 
+### Changed
+
+- Accordion headers use the themed monochrome vector chevron set
+  (`ui::icons`: right when collapsed, down when expanded) in a fixed slot
+  instead of the `▸`/`▾` text characters, so the title column never shifts
+  and disclosure no longer depends on font glyph coverage. (`src/ui/icons/`,
+  `src/viewer/markdown/components.rs`, `docs/RENDERING.md`.)
+- Export saves are atomic: the captured document is written to a unique
+  sibling temp file and renamed over the destination, so a failed or
+  interrupted save can never truncate the file being replaced. Replacing an
+  existing file keeps its permissions. (`src/ui/export.rs`, `docs/`.)
+- The floating cards share one dialog shadow and one hairline rule
+  (`theme::dialog_shadow` / `theme::hairline`) instead of duplicating the
+  recipe in Preferences and Export. (`src/ui/theme/`, `src/ui/preferences/`,
+  `src/ui/export.rs`.)
+- The shipped binary now denies `clippy::unwrap_used`, `expect_used`, `panic`
+  and `unreachable` (the test harness is exempt); build-time embedded-asset
+  guards carry a documented `#[allow]`. Failure paths stay typed or degrade
+  gracefully. (`src/main.rs`, `src/assets.rs`, `src/builtin_sites.rs`,
+  `docs/CONTRIBUTING.md`.)
+
+### Fixed
+
+- The export card no longer carries a production `expect` for a state it can
+  simply skip; the bookmark grid and the history list also use checked
+  indexing, so a mid-frame store change can never panic the UI thread.
+  (`src/ui/export.rs`, `src/ui/bookmarks/`, `src/ui/history_page/`.)
+- A local file read interrupted by a signal now retries instead of failing
+  the document, and the bounded-record writer asserts its `u32` field length
+  in debug builds. (`src/protocol/local.rs`, `src/cache/format.rs`.)
+
 ## [0.6.0] - 2026-10-19
 
 An encrypted HTTP disk cache with revalidation and hardening, `--help` and

@@ -158,7 +158,7 @@ pub fn truncate_chars(value: &str, max_chars: usize) -> std::borrow::Cow<'_, str
     // exceed the budget (`👨‍👩‍👧‍👦` is 7 scalars), in which case nothing is
     // kept — a partial cluster would render as a different character.
     let keep = max_chars.saturating_sub(3);
-    let mut out = String::with_capacity(value.len().min(max_chars * 4));
+    let mut out = String::with_capacity(value.len().min(max_chars.saturating_mul(4)));
     let mut scalars = 0usize;
     for cluster in unicode_segmentation::UnicodeSegmentation::graphemes(value, true) {
         let n = cluster.chars().count();

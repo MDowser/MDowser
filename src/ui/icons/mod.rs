@@ -89,8 +89,11 @@ pub enum Icon {
     /// Chevron pointing up: find-bar previous match (also the stepper shape
     /// pair with [`Icon::ChevronDown`]).
     ChevronUp,
-    /// Chevron pointing down: find-bar next match.
+    /// Chevron pointing down: find-bar next match (also the expanded state
+    /// of an accordion header).
     ChevronDown,
+    /// Chevron pointing right: the collapsed state of an accordion header.
+    ChevronRight,
     /// Slashed cloud: an offline copy (no HTTP response arrived for the load).
     CloudOff,
     /// Archive box: a saved copy (the server answered without providing a
@@ -281,6 +284,7 @@ impl Icon {
             }
             Icon::ChevronUp => pen.stroke(&[(6.6, 14.6), (12.0, 9.2), (17.4, 14.6)]),
             Icon::ChevronDown => pen.stroke(&[(6.6, 9.4), (12.0, 14.8), (17.4, 9.4)]),
+            Icon::ChevronRight => pen.stroke(&[(9.4, 6.6), (14.8, 12.0), (9.4, 17.4)]),
             Icon::CloudOff => {
                 // Cloud outline (left lobe, flat bottom, right lobe) with a
                 // diagonal slash: no connection.

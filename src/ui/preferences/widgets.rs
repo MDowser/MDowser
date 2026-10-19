@@ -51,12 +51,7 @@ pub(super) fn dialog_header(ui: &mut egui::Ui, s: &theme::Scheme, open: &mut boo
                 },
             );
         });
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
-        egui::Sense::hover(),
-    );
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
+    theme::hairline(ui, s.outline_variant);
 }
 
 /// A grouped surface (an outlined card): subtle fill, hairline
@@ -151,12 +146,7 @@ pub(super) fn setting_row(
 /// Hairline separator between rows inside a card.
 pub(super) fn divider(ui: &mut egui::Ui, s: &theme::Scheme) {
     ui.add_space(theme::spacing::XXS);
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
-        egui::Sense::hover(),
-    );
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
+    theme::hairline(ui, s.outline_variant);
     ui.add_space(theme::spacing::XXS);
 }
 
@@ -451,12 +441,7 @@ pub(super) fn tab_bar(
                 },
             );
         });
-    let (rect, _) = ui.allocate_exact_size(
-        egui::vec2(ui.available_width(), theme::stroke::HAIRLINE),
-        egui::Sense::hover(),
-    );
-    ui.painter()
-        .rect_filled(rect, egui::CornerRadius::ZERO, s.outline_variant);
+    theme::hairline(ui, s.outline_variant);
     chosen
 }
 

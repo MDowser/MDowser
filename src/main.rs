@@ -19,6 +19,20 @@
 // (the paired bits live in the embedded manifest, `build.rs`); every other
 // platform and the test binaries keep their default.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
+// The shipped binary must never abort on a user/network-controlled path:
+// every failure is a typed error, a graceful skip or a guarded fallback. The
+// gate is lifted for the test harness, whose fixtures use concise
+// `unwrap`/`expect` freely. `debug_assert!` stays available (it documents
+// invariants without shipping a panic in release builds).
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unreachable
+    )
+)]
 
 mod app;
 mod assets;

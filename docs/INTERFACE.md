@@ -457,5 +457,7 @@ the open card exactly as the user has it, destination edits included. `Export`
 (or `Enter` in the field) writes the file; an existing destination is replaced
 only on a second press (`Replace`, armed for a few seconds), a failed write
 stays in the card as an inline error instead of failing silently, and a
-completed save names the file in a toast. `Esc`, `Cancel` or the header's X
-closes the card. No native save dialog is involved.
+completed save names the file in a toast. The save is atomic: the file is
+written beside the destination and renamed into place, so an interrupted or
+failed save never leaves a truncated document. `Esc`, `Cancel` or the header's
+X closes the card. No native save dialog is involved.

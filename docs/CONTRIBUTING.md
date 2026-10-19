@@ -29,7 +29,10 @@ URL is still probed over the network). Manual maintainer step: no CI.
 - `cargo fmt` with the stable `rustfmt.toml` options (max 100 columns) and
   `.editorconfig` (LF).
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`; no
-  pedantic/nursery lints globally.
+  pedantic/nursery lints globally. The shipped binary denies
+  `clippy::unwrap_used`, `expect_used`, `panic` and `unreachable` (tests are
+  exempt); new failure paths return typed errors or skip gracefully, and an
+  embedded-asset invariant guard needs a documented `#[allow]`.
 - English comments and user strings; every `src/` module keeps its `//!`
   contract header.
 - Every `.rs`/`.sh` file carries the MPL-2.0 header (copyright line +

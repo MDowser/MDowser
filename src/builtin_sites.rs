@@ -51,7 +51,12 @@ pub fn builtin_suggestions() -> &'static [(&'static str, &'static str)] {
 ///
 /// The file is compiled into the binary, so a malformed line cannot be
 /// fixed at runtime: panic with the file and line instead of silently
-/// dropping an entry or mis-splitting the title.
+/// dropping an entry or mis-splitting the title. A test parses the committed
+/// asset, so this arm is a build-invariant guard, not a runtime failure path.
+#[allow(
+    clippy::panic,
+    reason = "the embedded list is a compile-time asset validated by its test; silently dropping entries would hide a broken build"
+)]
 fn parse(raw: &'static str) -> Vec<(&'static str, &'static str)> {
     let mut out = Vec::new();
     for (index, line) in raw.lines().enumerate() {
