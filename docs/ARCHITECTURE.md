@@ -175,11 +175,13 @@ Key contracts per area (the module map above names every module):
 - `rewrite` lets `file:` destinations out of a local base only, and only
   `https:`/`file:` through. Favicons are never probed for local pages.
 - OS/CLI hand-off (`main` → `app::MdowserApp::new`) opens one tab per target
-  and wins over session restore. The list is capped at `MAX_TABS`
-  (`main::collect_initial_targets` skips flags/empties), so an OS-controlled
-  argument list can never allocate an unbounded tab vector. Per-target length
-  stays enforced by `parse_navigable`: oversized input becomes that tab's local
-  error, never a truncated navigation.
+  and wins over session restore. `main::cli_action` answers `--help`/`-h` and
+  `--version`/`-V` on stdout (`print_help`/`print_version`, the app's only
+  stdout writes) and exits before any window; the remaining list is capped at
+  `MAX_TABS` (`main::collect_initial_targets` skips flags/empties), so an
+  OS-controlled argument list can never allocate an unbounded tab vector.
+  Per-target length stays enforced by `parse_navigable`: oversized input
+  becomes that tab's local error, never a truncated navigation.
 
 ## Encrypted disk cache
 

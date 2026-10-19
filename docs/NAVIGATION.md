@@ -93,8 +93,13 @@ over session restore.
 ```sh
 mdowser ~/notes.md                  # from a terminal
 mdowser file:///tmp/a.md            # file URL
+mdowser --help                      # usage (also -h); --version prints the build (-V)
 open -a MDowser --args ~/notes.md   # macOS, while the app is not running
 ```
+
+`--help`/`-h` and `--version`/`-V` are answered on stdout without opening a
+window. Every other flag is skipped, so a launcher's own arguments (macOS
+Finder's `-psn_...`) never open a document.
 
 Platform integration:
 

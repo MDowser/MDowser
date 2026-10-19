@@ -12,4 +12,12 @@ ignore = [
     # `ttf-parser` via `winit` -> `sctk-adwaita` -> `ab_glyph`, Linux/Wayland
     # decorations only (not compiled on macOS or Windows).
     "RUSTSEC-2026-0192",
+    # zbus 5 accessibility stack (Linux/AT-SPI only): `zbus_names`,
+    # `zvariant` and `zvariant_derive` were folded into `zbus` 6 and are
+    # deprecated in place, with no safe 5.x upgrade; `eframe` ->
+    # `accesskit_unix` -> `atspi` still pins zbus 5. Same rationale as
+    # `deny.toml`; revisit when accesskit migrates.
+    "RUSTSEC-2026-0370",
+    "RUSTSEC-2026-0371",
+    "RUSTSEC-2026-0372",
 ]

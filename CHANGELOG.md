@@ -7,8 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-19
+
+An encrypted HTTP disk cache with revalidation and hardening, `--help` and
+`--version` command-line flags, and a dependency and supply-chain refresh.
+
 ### Added
 
+- Command-line flags: `--help`/`-h` prints the synopsis and `--version`/`-V`
+  the version to stdout and exits before a window opens. (`src/main.rs`,
+  `README.md`, `docs/NAVIGATION.md`, `docs/BUILDING.md`,
+  `docs/ARCHITECTURE.md`, `packaging/linux/mdowser.1`.)
 - Encrypted HTTP disk cache (`src/cache/`, same `store.key` as
   history/bookmarks/settings): documents (one AEAD file per host, keyed by
   canonical page identity, so every route spelling shares a record), images (one
@@ -53,6 +62,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Documentation pass: `AGENTS.md`, `docs/*.md` and this changelog were
   condensed, standardized and rewritten in English, with cross-document
   deduplication and no factual changes. (`AGENTS.md`, `CHANGELOG.md`, `docs/`.)
+- Routine `cargo update` refresh (42 crates), including `aws-lc-rs` 1.18.2,
+  `aws-lc-sys` 0.46.0, `rustls-native-certs` 0.8.5, `hyper` 1.12.0, `h2`
+  0.4.20, `tokio` 1.53.3, `libc` 0.2.191, `uuid` 1.28.0 and `zeroize` 1.9.1.
+  The refresh also collapses the redundant `windows-sys` 0.60 lane, dropping
+  its nine `windows-targets` payload crates (duplicated crate families 42 ->
+  33, none newly introduced).
 
 ### Fixed
 
@@ -136,6 +151,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   document/image body writers re-verify the shard is a real directory
   immediately before `atomic_write` (defense in depth under the same-user
   assumption).
+- Supply chain: the three unmaintained-crate advisories of the Linux-only zbus
+  5 accessibility stack (RUSTSEC-2026-0370 `zbus_names`, RUSTSEC-2026-0371
+  `zvariant`, RUSTSEC-2026-0372 `zvariant_derive`) are recorded as accepted
+  ignores in `deny.toml` and `.cargo/audit.toml` with the migration blocker
+  documented; `make audit` stays green while any new advisory still fails.
+  (`deny.toml`, `.cargo/audit.toml`, `docs/SECURITY.md`.)
 
 ## [0.5.4] - 2026-10-16
 

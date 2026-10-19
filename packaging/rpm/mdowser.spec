@@ -111,6 +111,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Mon Oct 19 2026 MDowser <noreply@mdowser.invalid> - 0.6.0-1
+- Encrypted HTTP disk cache, --help/--version flags, dependency and supply-chain refresh (see CHANGELOG.md 0.6.0).
 * Fri Oct 16 2026 MDowser <noreply@mdowser.invalid> - 0.5.4-1
 - Find in page, tabbed Preferences, history refresh, hardening passes and UI fixes (see CHANGELOG.md 0.5.4).
 * Thu Oct 15 2026 MDowser <noreply@mdowser.invalid> - 0.5.3-1

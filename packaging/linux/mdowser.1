@@ -28,17 +28,29 @@ over HTTPS (there is no
 support) or read from the local filesystem, parsed once as CommonMark with
 GFM-style extensions, and
 rendered with a desktop-browser-style interface. There is no webview, no
-JavaScript, no cookies, no proxy and no command-line option: every argument
-is an open target. Repeat visits use a bounded, encrypted on-disk HTTP cache,
-which the app clears or disables from its preferences.
+JavaScript, no cookies and no proxy. Repeat visits use a bounded, encrypted
+on-disk HTTP cache, which the app clears or disables from its preferences.
+Being a GUI application it has only the two options listed under OPTIONS
+below; every other argument is an open target.
 .PP
 When the application is already running, a new launch opens its targets in a
 new instance; MDowser does not use a single-instance guard.
 .SH OPTIONS
-None. Arguments that begin with a hyphen are ignored, so a macOS Finder
-launch's
+.TP
+.B \-h, \-\-help
+Print the usage synopsis on standard output and exit without opening a
+window.
+.TP
+.B \-V, \-\-version
+Print the version on standard output and exit without opening a window.
+.PP
+Every other argument is an open target; words that begin with a hyphen are
+ignored, so a macOS Finder launch's
 .B \-psn_
-argument is never treated as a document.
+argument is never treated as a document. On Windows the windowed subsystem
+has no console: the flags are no-ops there and the
+.IR .exe
+properties carry the version.
 .SH ENVIRONMENT
 .TP
 .B XDG_DATA_HOME
@@ -58,8 +70,9 @@ is unset or relative.
 .SH FILES
 .TP
 .I $XDG_DATA_HOME/mdowser/
-Encrypted per-user data: preferences, session, history, bookmarks and the
-single shared key file. Nothing is written outside this directory.
+Encrypted per-user data: preferences, session, history, bookmarks, the HTTP
+cache and the single shared key file. Nothing is written outside this
+directory.
 .SH SEE ALSO
 .BR xdg-open (1),
 .BR dpkg (1),

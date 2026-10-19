@@ -28,6 +28,18 @@ ignore = [
   # decorations only (not compiled on macOS or Windows). MDowser never
   # parses fonts from documents; egui rasterizes its bundled fonts.
   "RUSTSEC-2026-0192",
+  # zbus 5 accessibility stack (Linux/AT-SPI only, not compiled on macOS or
+  # Windows): `zbus_names`, `zvariant` and `zvariant_derive` were folded
+  # into `zbus` 6 and are deprecated in place, and cargo-deny reports "no
+  # safe upgrade" (the `5.15.1`/`4.3.5` releases only add the deprecation
+  # notice). The chain is `eframe` -> `egui-winit` -> `accesskit_winit` ->
+  # `accesskit_unix` -> `atspi`/`accesskit_atspi_common`, all still on zbus
+  # 5; the decision is upstream's, not this workspace's. Revisit when
+  # accesskit moves to zbus 6 (checked 2026-10-19 with
+  # `accesskit_unix 0.24.0` / `atspi 0.30.0`: both still `zbus ^5`).
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
 ]
 
 [licenses]

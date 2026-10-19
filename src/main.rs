@@ -42,6 +42,36 @@ mod viewer;
 
 use eframe::egui;
 
+/// What a command-line invocation asks the process to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CliAction {
+    /// Open the window (possibly with initial document targets).
+    Open,
+    /// Print usage and exit (no window).
+    Help,
+    /// Print the version and exit (no window).
+    Version,
+}
+
+/// Classifies raw arguments (the ones after `argv[0]`).
+///
+/// `--help`/`-h` and `--version`/`-V` are answered on the spot instead of
+/// being skipped like every other flag: the app used to ignore them and open
+/// its window, which made `mdowser --version` silently launch the GUI. The
+/// scan stops at the first match, so the order matches what a shell user
+/// types first; every other argument is left to
+/// [`collect_initial_targets`].
+fn cli_action(args: &[String]) -> CliAction {
+    for arg in args {
+        match arg.as_str() {
+            "--help" | "-h" => return CliAction::Help,
+            "--version" | "-V" => return CliAction::Version,
+            _ => {}
+        }
+    }
+    CliAction::Open
+}
+
 /// Collects OS/CLI open targets from raw arguments.
 ///
 /// Skips flags (`-psn_...` on a macOS Finder launch, and any future
@@ -56,7 +86,56 @@ fn collect_initial_targets(args: impl Iterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+/// Prints the `--help` text to stdout.
+///
+/// `print_help` and [`print_version`] are the ONLY stdout writers in the app
+/// (the GUI never prints), so the global `clippy::print_stdout` gate is waived
+/// here and nowhere else. Windows GUI subsystem builds have no console: there
+/// the flags are no-ops (documented in `docs/BUILDING.md`).
+#[allow(clippy::print_stdout, reason = "the deliberate CLI text entry point")]
+fn print_help() {
+    println!(
+        "\
+MDowser {} - browser for text/markdown over HTTPS and local files
+
+Usage:
+  mdowser [TARGET]...
+
+Open each TARGET as a document: an https:// URL (the scheme is optional),
+a file:// URL, an absolute or ~ path, or a Markdown file. Without a TARGET
+the app opens on its new-tab page.
+
+Options:
+  -h, --help     Print this help and exit
+  -V, --version  Print the version and exit
+
+Full documentation: https://github.com/MDowser/MDowser/tree/main/docs",
+        env!("CARGO_PKG_VERSION")
+    );
+}
+
+/// Prints the `--version` line to stdout (see [`print_help`] on the waived
+/// stdout gate).
+#[allow(clippy::print_stdout, reason = "the deliberate CLI text entry point")]
+fn print_version() {
+    println!("MDowser {}", env!("CARGO_PKG_VERSION"));
+}
+
 fn main() -> eframe::Result<()> {
+    // `--help` / `--version` answer on the spot (no window): the app used to
+    // skip every flag and silently launch the GUI for them.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match cli_action(&args) {
+        CliAction::Version => {
+            print_version();
+            return Ok(());
+        }
+        CliAction::Help => {
+            print_help();
+            return Ok(());
+        }
+        CliAction::Open => {}
+    }
     // macOS: AppKit adds its own "Show Tab Bar"/"Show All Tabs" items to the
     // View menu while automatic window tabbing is on; MDowser's tabs are the
     // in-window rail, so opt out BEFORE any window exists. Windows and Linux
@@ -67,7 +146,7 @@ fn main() -> eframe::Result<()> {
     // or `file://` URLs (`Exec=... %U`); terminals pass whatever the user
     // typed. Flags are skipped (`-psn_...` on a macOS Finder launch, and any
     // future option), so nothing machine-generated is opened as a document.
-    let initial = collect_initial_targets(std::env::args().skip(1));
+    let initial = collect_initial_targets(args.into_iter());
     // Native options: title, creation + minimum size (the first frame then
     // applies the remembered geometry or the monitor-proportional size; see
     // `app::window`), vsync for smooth scrolling. `app_id` drives the Wayland
@@ -106,7 +185,7 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::collect_initial_targets;
+    use super::{cli_action, collect_initial_targets, CliAction};
 
     #[test]
     fn skips_flags_and_empty_args() {
@@ -128,5 +207,22 @@ mod tests {
             (0..crate::config::MAX_TABS + 10).map(|i| format!("/tmp/{i}.md")),
         );
         assert_eq!(out.len(), crate::config::MAX_TABS);
+    }
+
+    /// `--help`/`-h` and `--version`/`-V` are answered before any window is
+    /// created; anything else opens the app. An unknown flag (or a Finder's
+    /// `-psn_...`) must NOT be read as a request for help.
+    #[test]
+    fn cli_flags_are_classified_before_opening() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(cli_action(&args(&["--help"])), CliAction::Help);
+        assert_eq!(cli_action(&args(&["-h"])), CliAction::Help);
+        assert_eq!(cli_action(&args(&["--version"])), CliAction::Version);
+        assert_eq!(cli_action(&args(&["-V"])), CliAction::Version);
+        // A target, an unknown flag or a Finder launch all open the window.
+        assert_eq!(cli_action(&args(&["notes.md"])), CliAction::Open);
+        assert_eq!(cli_action(&args(&["--nope"])), CliAction::Open);
+        assert_eq!(cli_action(&args(&["-psn_0_1234"])), CliAction::Open);
+        assert_eq!(cli_action(&[]), CliAction::Open);
     }
 }

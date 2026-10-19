@@ -81,7 +81,7 @@ Or read a Markdown document hosted online:
 mdowser https://example.com/readme.md
 ```
 
-You can also type a URL or file path into the address bar, or open a file from the application. Navigation stays inside MDowser, and `Esc` stops a load.
+You can also type a URL or file path into the address bar, or open a file from the application. Navigation stays inside MDowser, and `Esc` stops a load. `mdowser --help` prints the usage and `mdowser --version` the build, without opening a window.
 
 For the URL-routing sequence, redirects and local-file rules, see [Navigation](docs/NAVIGATION.md).
 

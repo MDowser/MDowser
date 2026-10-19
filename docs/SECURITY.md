@@ -399,7 +399,9 @@ card and the bookmark/history stores.
 
 - `unsafe_code = "forbid"` in `Cargo.toml`. `Cargo.lock` is committed, and
   `cargo audit` + `cargo deny check` run via `make audit` (configured by
-  `.cargo/audit.toml` and `deny.toml`) before releases.
+  `.cargo/audit.toml` and `deny.toml`) before releases. Accepted transitive
+  advisories are listed in both files with their rationale and dependency
+  chain; any advisory not listed fails the gate.
 - `deny.toml` allows an explicit license set (the app itself is `MPL-2.0`, see
   `LICENSE`). The required notices, bundled fonts included, ship in
   `THIRD_PARTY_NOTICES.md` with every binary and are embedded in it for the
