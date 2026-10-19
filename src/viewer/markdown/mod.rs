@@ -216,9 +216,9 @@ struct RenderCtx<'a> {
     /// the query is empty). Assigns match ordinals in document order while
     /// painting; the total is handed back to `FindState` after the walk.
     find: Option<crate::viewer::find::FindRender>,
-    /// Outline panel state this frame (`None` while the panel is closed:
-    /// the walk then records no heading rects at all). Every rendered
-    /// heading pushes its own rect through
+    /// Outline sidebar state this frame (`None` on the inert loading
+    /// backdrop, which records no heading rects). Every rendered heading
+    /// pushes its own rect through
     /// [`crate::viewer::outline::OutlineState::record_rect`], keyed by the
     /// heading's `Start` event index; the scrollspy reads them after the
     /// walk.
@@ -266,9 +266,9 @@ impl<'a> RenderCtx<'a> {
 /// - `find`: in-page find state (query/current/scroll in, total/capped out).
 /// - `doc_generation`: per-tab document generation (stale find totals are
 ///   dropped when the visible document is replaced).
-/// - `outline`: outline panel state, `Some` while the panel is open. Its
-///   frame starts here (stale heading rects are dropped) and every rendered
-///   heading records its rect into it; `None` records nothing.
+/// - `outline`: outline sidebar state, `Some` on the document walk that owns
+///   it. Its frame starts here (stale heading rects are dropped) and every
+///   rendered heading records its rect into it; `None` records nothing.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn show_markdown_with_find(
     ui: &mut egui::Ui,

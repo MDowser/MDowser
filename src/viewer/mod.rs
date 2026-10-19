@@ -16,6 +16,8 @@
 //! - Loading keeps the previous document as backdrop
 //!   (stale-while-revalidate): no white flash when following a link.
 //! - Links navigate internally (never open an external browser).
+//! - Document pages with headings carry the always-visible outline sidebar
+//!   (`outline_panel`, layout) on the right.
 //! - Right-click menu + toasts + the find bar live in `overlays`.
 //! - Document text may carry emoji or non-Latin scripts (complete
 //!   monochrome Noto Emoji + CJK + Latin + one face per bundled script;
@@ -30,9 +32,10 @@ pub(crate) mod find;
 mod image;
 mod inline;
 mod markdown;
-// `pub(crate)` like `find`: `browser::tab` holds the per-tab state and
-// `app::shortcuts` drives its entry points.
+// `pub(crate)`: `browser::tab` holds the per-tab state (the panel itself is
+// private to the viewer).
 pub(crate) mod outline;
+mod outline_panel;
 // `pub(crate)` like `code`: the app-level tests drive the find bar's own
 // entry point (`overlays::find::show_find_bar`), the same one `show_content`
 // calls.
@@ -163,12 +166,16 @@ pub fn show_content(
     // and live links. Read from the binary: no fetch, no visit, no image
     // subresources.
     if matches!(tab.state, TabState::Licenses) {
+        // The outline sidebar is layout, so it must claim its width BEFORE
+        // the sheet (and before the find bar decides where to dock).
+        show_document_sidebar(root, tab);
         // MENU FIRST, exactly like `Loaded` (it pushes `Event::Copy` for a
         // native selection before the labels render below).
         let new_tab_url = overlays::content_menu(root, tab);
         // Find bar before the document so a typed query highlights the same
         // frame (no one-frame lag between the bar and the page).
         overlays::find::show_find_bar(root, tab);
+        let gutter = theme::content_gutter(root);
         let mut pending_link: Option<String> = None;
         // Cmd/Ctrl+click target this frame: opened in a background tab by
         // the caller, like the context menu's "Open link in new tab" and
@@ -218,28 +225,37 @@ pub fn show_content(
                     &mut tab.emoji,
                     &mut tab.link_hits,
                     &mut tab.find,
-                    tab.outline.open.then_some(&mut tab.outline),
+                    &mut tab.outline,
                     &mut on_link,
                 );
                 // Scrollspy: pick the section the reader is in from the
-                // heading rects this frame's walk just recorded.
-                if tab.outline.open {
-                    tab.outline.update_current(&doc.outline, viewport.top());
+                // heading rects this frame's walk just recorded. Manual
+                // scrolling (wheel or scrollbar drag) releases a clicked row.
+                if outline_manual_scroll(ui.ctx(), viewport.rect) {
+                    tab.outline.unpin();
                 }
+                tab.outline.update_current(
+                    &doc.outline,
+                    viewport.rect.top(),
+                    viewport.rect.bottom(),
+                    viewport.at_bottom,
+                );
                 // Same hit rect as `Loaded`: backs the context menu and
                 // excludes the vertical scrollbar.
                 let bar = theme::scrollbar_width(ui);
                 new_rect = Some(egui::Rect {
-                    min: viewport.min,
-                    max: egui::pos2((viewport.max.x - bar).max(viewport.min.x), viewport.max.y),
+                    min: viewport.rect.min,
+                    max: egui::pos2(
+                        (viewport.rect.max.x - bar).max(viewport.rect.min.x),
+                        viewport.rect.max.y,
+                    ),
                 });
                 let scrolled = ui.ctx().input(|i| i.smooth_scroll_delta.y.abs() > 0.0);
                 if !scrolled {
-                    theme::paint_content_fade(ui, viewport);
+                    theme::paint_content_fade(ui, viewport.rect);
                 }
             });
         tab.doc_rect = new_rect;
-        overlays::outline::show_outline_panel(root, tab);
         overlays::show_toast(root, tab);
         if let Some(dest) = pending_link {
             tab.navigate_to_text(&dest, true);
@@ -279,6 +295,10 @@ pub fn show_content(
                     // overlay (16 extra rects per throttled repaint). Its
                     // anchors are inert (throwaway `pending_anchor`).
                     let mut no_anchor = None;
+                    // The backdrop belongs to the page being replaced: its
+                    // headings must not feed the new page's outline cursor
+                    // (and the sidebar itself is not drawn here).
+                    let mut no_outline = crate::viewer::outline::OutlineState::default();
                     render_doc(
                         ui,
                         &fetched.events,
@@ -298,10 +318,7 @@ pub fn show_content(
                         &mut tab.emoji,
                         &mut tab.link_hits,
                         &mut tab.find,
-                        // The backdrop belongs to the page being replaced:
-                        // its headings must not feed the new page's outline
-                        // cursor (and the panel itself is not drawn here).
-                        None,
+                        &mut no_outline,
                         &mut noop,
                     );
                 }
@@ -312,6 +329,9 @@ pub fn show_content(
 
     // LOADED: the document alone, no metadata or headers (minimal).
     if let TabState::Loaded { .. } = &tab.state {
+        // The outline sidebar is layout, so it claims its width before the
+        // sheet and before the find bar chooses its dock.
+        show_document_sidebar(root, tab);
         // MENU FIRST: it uses a global secondary-click detector + foreground
         // `Area` (works on text, never blocks links) and, on `Copy`, pushes
         // `Event::Copy` into this frame's input so the text labels below --
@@ -319,6 +339,7 @@ pub fn show_content(
         let new_tab_url = overlays::content_menu(root, tab);
         // Find bar before the document (same reason as `Licenses`).
         overlays::find::show_find_bar(root, tab);
+        let gutter = theme::content_gutter(root);
         // Render the document (no background `interact` behind: it either
         // ate link clicks or never saw secondary clicks on text).
         let mut pending_link: Option<String> = None;
@@ -383,38 +404,44 @@ pub fn show_content(
                         &mut tab.emoji,
                         &mut tab.link_hits,
                         &mut tab.find,
-                        // Outline scrollspy: `Some` only while the panel is
-                        // open, so a closed panel costs the walk nothing.
-                        tab.outline.open.then_some(&mut tab.outline),
+                        &mut tab.outline,
                         &mut on_link,
                     );
                     // Scrollspy: pick the section the reader is in from the
                     // heading rects this frame's walk just recorded. A frame
                     // that painted no heading keeps the previous cursor.
-                    if tab.outline.open {
-                        tab.outline.update_current(&fetched.outline, viewport.top());
+                    // Manual scrolling (wheel or scrollbar drag) releases a
+                    // clicked row.
+                    if outline_manual_scroll(ui.ctx(), viewport.rect) {
+                        tab.outline.unpin();
                     }
+                    tab.outline.update_current(
+                        &fetched.outline,
+                        viewport.rect.top(),
+                        viewport.rect.bottom(),
+                        viewport.at_bottom,
+                    );
                     // Shrink right edge for hit-testing so clicks on the
                     // vertical scrollbar never open the text menu (same
                     // width the fade overlay reserves).
                     let bar = theme::scrollbar_width(ui);
                     let hit_rect = egui::Rect {
-                        min: viewport.min,
-                        max: egui::pos2((viewport.max.x - bar).max(viewport.min.x), viewport.max.y),
+                        min: viewport.rect.min,
+                        max: egui::pos2(
+                            (viewport.rect.max.x - bar).max(viewport.rect.min.x),
+                            viewport.rect.max.y,
+                        ),
                     };
                     new_rect = Some(hit_rect);
                     // Fade only at rest (~no scroll): while scrolling it
                     // costs a few rects per frame for an effect hidden by motion.
                     let scrolled = ui.ctx().input(|i| i.smooth_scroll_delta.y.abs() > 0.0);
                     if !scrolled {
-                        theme::paint_content_fade(ui, viewport);
+                        theme::paint_content_fade(ui, viewport.rect);
                     }
                 }
             });
         tab.doc_rect = new_rect;
-        // The outline panel draws over the document (after the walk, so its
-        // scrollspy cursor is this frame's), before the toast.
-        overlays::outline::show_outline_panel(root, tab);
         overlays::show_toast(root, tab);
         if let Some(id) = pending_anchor_click {
             // Applied on the next frame (this one is already rendered).
@@ -501,6 +528,62 @@ pub fn show_content(
     None
 }
 
+/// Draws the always-visible outline sidebar for the document on screen.
+///
+/// Called BEFORE the reader's central panel: the sidebar is layout, not an
+/// overlay. A page without headings has no sidebar (the document keeps the
+/// full width). A clicked row asks for the same anchor scroll a `#id` link
+/// does; the state was already updated by the panel for immediate feedback.
+fn show_document_sidebar(root: &mut egui::Ui, tab: &mut Tab) {
+    // Field access keeps the borrow of `tab.state` disjoint from the mutable
+    // sidebar state below.
+    let outline = match &tab.state {
+        TabState::Loaded { fetched } => &fetched.outline,
+        TabState::Licenses => match crate::licenses::document() {
+            Some(doc) => &doc.outline,
+            None => {
+                tab.outline.panel_rect = None;
+                return;
+            }
+        },
+        _ => {
+            tab.outline.panel_rect = None;
+            return;
+        }
+    };
+    if outline.is_empty() {
+        tab.outline.panel_rect = None;
+        return;
+    }
+    let response = outline_panel::show(root, outline, &mut tab.outline, tab.id, tab.doc_generation);
+    if let Some(id) = response.clicked {
+        tab.pending_anchor = Some(id);
+    }
+}
+
+/// True when the reader is scrolling the sheet by hand: a wheel/trackpad
+/// delta or a primary press/drag inside the visible sheet (which starts a
+/// scrollbar drag). A click pin set by the outline sidebar must not survive
+/// this: the reader is no longer heading to the row they clicked.
+fn outline_manual_scroll(ctx: &egui::Context, viewport: egui::Rect) -> bool {
+    ctx.input(|i| {
+        i.smooth_scroll_delta.y.abs() > 0.0
+            || (i.pointer.primary_down()
+                && i.pointer
+                    .hover_pos()
+                    .is_some_and(|pos| viewport.contains(pos)))
+    })
+}
+
+/// What one document walk tells the outline scrollspy about the viewport.
+pub(crate) struct DocViewport {
+    /// Visible sheet rect (screen coordinates).
+    pub(crate) rect: egui::Rect,
+    /// The sheet is at its maximum scroll offset: the page end is on screen
+    /// and a heading near the bottom can never reach the top.
+    pub(crate) at_bottom: bool,
+}
+
 /// Renders the centered reading column; returns its VIEWPORT rect so the
 /// context menu attaches to the visible area (not the scrolled content).
 ///
@@ -514,10 +597,10 @@ pub fn show_content(
 /// not be reused). A cross-page `#fragment` still wins: its
 /// `scroll_to_rect` runs during content layout, after the initial offset.
 ///
-/// `outline` is the tab's outline panel state, `Some` while the panel is
-/// open: the walk then records every rendered heading's rect into it (keyed
-/// by the heading's own event index) and the caller recomputes the
-/// scrollspy cursor from those rects right after.
+/// `outline` is the tab's outline sidebar state: the walk records every
+/// rendered heading's rect into it (keyed by the heading's own event index)
+/// and the caller recomputes the scrollspy cursor from those rects right
+/// after.
 #[allow(clippy::too_many_arguments)]
 fn render_doc(
     ui: &mut egui::Ui,
@@ -536,9 +619,9 @@ fn render_doc(
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
     find: &mut crate::viewer::find::FindState,
-    outline: Option<&mut crate::viewer::outline::OutlineState>,
+    outline: &mut crate::viewer::outline::OutlineState,
     on_link: &mut dyn FnMut(&str),
-) -> egui::Rect {
+) -> DocViewport {
     // Link hitboxes are rebuilt from scratch every frame: stale rects from
     // the previous document (or a scroll) would offer the wrong link.
     links.clear();
@@ -611,7 +694,7 @@ fn render_doc(
                         links,
                         find,
                         doc_generation,
-                        outline,
+                        Some(outline),
                     );
                 });
             });
@@ -620,7 +703,15 @@ fn render_doc(
     // it: egui keys the offset by (tab, URL) for Back/Forward and refresh,
     // and nothing else knows the real id of each visited document.
     crate::ui::remember_scroll(ui.ctx(), crate::ui::DOC_SCROLL_ID, tab_id, output.id);
-    viewport
+    // Page end: the last heading may be visible without ever reaching the
+    // top (there is not enough content left to scroll it there). The spy
+    // uses this to keep that heading current.
+    let max_offset = (output.content_size.y - output.inner_rect.height()).max(0.0);
+    let at_bottom = max_offset > 1.0 && output.state.offset.y >= max_offset - 2.0;
+    DocViewport {
+        rect: viewport,
+        at_bottom,
+    }
 }
 
 #[cfg(test)]

@@ -68,7 +68,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   ├─ markdown (frontmatter split+cap (`Cow` body: no copy without a block),
   │            parser options, `:shortcode:` emoji,
   │            anchors (heading/footnote targets; a heading that slugs to
-  │            nothing gets a reserved positional id), outline (the panel's
+  │            nothing gets a reserved positional id), outline (the sidebar's
   │            heading list: level/title/id/event index, capped), `:::`/`!!!`
   │            admonitions +
   │            structural `:::` custom containers (same markers as the JSX
@@ -113,13 +113,14 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │    ├─ inline (inline fragments + `code_span` painted code pills)
   │    ├─ table (measure/layout `mod` + paint `render`)
   │    ├─ image, `code/`, overlays (`overlays/find.rs` = the floating
-  │    │   find bar UI, `overlays/outline.rs` = the document-outline panel),
-  │    │   bidi, cache, `find.rs` + `find/tests.rs` (in-page search state +
-  │    │   case-insensitive matching) and `outline.rs` (the heading scrollspy:
-  │    │   current section + reveal math) with `inline/tests_find.rs`,
+  │    │   find bar UI), bidi, cache, `find.rs` + `find/tests.rs` (in-page
+  │    │   search state + case-insensitive matching), `outline.rs` (the
+  │    │   heading scrollspy: current section, page-end selection + reveal
+  │    │   math) and `outline_panel.rs` (the permanent right sidebar:
+  │    │   wrapped virtualized rows) with `inline/tests_find.rs`,
   │    │   `tests_find.rs` (fragment highlight + layout/scroll contract) and
-  │    │   `tests_outline.rs` (outline panel end-to-end: row click,
-  │    │   scrollspy cursor, responsive placement)
+  │    │   `tests_outline.rs` (outline sidebar end-to-end: wrapped rows, row
+  │    │   click, scrollspy cursor, page end, responsive width)
   └─ ui (browser chrome: `theme/` document styling + widget kit, icons,
           tabs (`TabsResponse`, `rows`) with the live drag reorder, navbar,
           omnibox, home (with the
@@ -969,34 +970,29 @@ field/menu/find-bar owns the key; a focused omnibox reverts its text instead),
 Ctrl/Cmd+D (toggle the loaded page's bookmark, with a toast), Ctrl/Cmd+,
 (Preferences), the platform History key (Ctrl+H/Cmd+Y), zoom
 `+`/`=`/`-`/`0`, Ctrl/Cmd+F (in-page find on document pages, even while a field
-is focused) with `F3`/`Shift+F3` stepping through matches, Ctrl/Cmd+S (saving
-the page, likewise a document action that never types an `s` into a field),
-Ctrl/Cmd+Shift+O (the outline panel, only when the document has headings), and
-Ctrl/Cmd+A selecting the whole page with Ctrl/Cmd+C copying it while that
-highlight is active (egui only emits `Event::Copy`; no key event to consume).
-The Esc cascade gives the first press to a focused field/editor, then a
-popup/menu, a floating window, the find bar or the outline panel, and only then
-Stop. The full table
+is focused) with `F3`/`Shift+F3` stepping through matches, Ctrl/Cmd+S (save
+the page as Markdown in the downloads folder, likewise a document action that
+never types an `s` into a field), and Ctrl/Cmd+A selecting the whole page with
+Ctrl/Cmd+C copying it while that highlight is active (egui only emits
+`Event::Copy`; no key event to consume). The Esc cascade gives the first press
+to a focused field/editor, then a popup/menu, a floating window and the find
+bar, and only then Stop. The full table
 is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 
 ## Right-click menu
 
-- `viewer/overlays`: minimal Copy / Select all / Find in page / Document
-  outline / Save page, plus "Open link in new tab" when
-  the click hit a link (link hitboxes are collected by the renderer each frame).
-  `Cmd/Ctrl+click` on a link is the direct route: the renderer's `on_link`
-  callback hands the viewer a background-tab request instead of a same-tab
-  navigation (an in-page `#anchor` becomes its absolute URL plus fragment).
-  "Document outline" is disabled when the document has no headings; the row
-  that needs `App` (Save page) or the viewer's own state flags what it wants
-  (`Tab::save_asked`) instead of reaching outside its layer.
+- `viewer/overlays`: minimal Copy / Select all / Find in page / Save page,
+  plus "Open link in new tab" when the click hit a link (link hitboxes are
+  collected by the renderer each frame). `Cmd/Ctrl+click` on a link is the
+  direct route: the renderer's `on_link` callback hands the viewer a
+  background-tab request instead of a same-tab navigation (an in-page
+  `#anchor` becomes its absolute URL plus fragment). The rows that need `App`
+  (Save page) or the viewer's own state flag what they want (`Tab::save_asked`)
+  instead of reaching outside their layer.
 - The rows carry explicit widget ids and are keyboard-navigable: opening with
   the pointer leaves NO row focused, `Up`/`Down` move focus into the rows (the
   first press lands on the first one, egui's arrow traversal cancelled so it
-  cannot skip it, and a DISABLED row is skipped — egui surrenders the focus of
-  a hover-only widget in the frame that creates it, so parking on the greyed
-  outline row would silently unseat the keyboard), and `Enter` activates the
-  focused one. A primary press
+  cannot skip it), and `Enter` activates the focused one. A primary press
   outside the popup closes it (a press-drag selection never reaches
   `clicked`).
 - The menu renders BEFORE the document so a Copy click can push `Event::Copy`
@@ -1016,8 +1012,8 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit — the first
   submenu, which AppKit titles with the app name), File (New Tab, Close Tab,
   Save Page), Edit (Copy, Paste, Select all — deliberately no more), View
-  (Reload, Document Outline, Zoom In/Out/Actual Size), History (Show History)
-  and Window (Minimize, Zoom, Bring All to Front).
+  (Reload, Zoom In/Out/Actual Size), History (Show History) and Window
+  (Minimize, Zoom, Bring All to Front).
 - The bar owns no logic: each custom item replays the shortcut the keyboard
   would (`MenuAction::shortcut`: `Event::Copy`, a `Cmd+<key>` `Event::Key`, or a
   clipboard-built `Event::Paste`), queued by the muda handler (which calls
@@ -1129,24 +1125,25 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   slugs to nothing, so such an item is still navigable; an item's `at` keyed to
   the `Start` index means content the viewer SKIPS (a closed accordion, an
   unselected `<Tabs>` panel, the block budget) can never shift the scrollspy of
-  a later heading. `Fetched.outline` carries the result to the panel.
+  a later heading. `Fetched.outline` carries the result to the sidebar.
 - `viewer::outline` is the scrollspy state: the document walk records each
   rendered heading's screen rect by that event index, `current_section` merges
   the heading list and the recorded rects in ONE ordered pass (the last heading
-  above the viewport top, with a small pad) and `reveal_offset` computes the
-  panel's scroll offset for the current row. The latter is a pure function
-  because `ScrollArea::show_rows` only runs the visible rows, so an off-screen
-  row could never be reached through its own rect.
-- `viewer/overlays/outline` draws the panel: an `Area` in `Order::Middle`
-  (below the find bar, the menu and the toasts, which are `Foreground`),
-  right-docked under the find bar on ordinary windows and a bottom sheet below
-  `SHEET_W` (640px) — same rows, one column. Rows are virtualized with the item
-  spacing zeroed so they advance exactly by `ROW_H`, titles are one-row elided
-  galleys (the full title stays in the tooltip and the accessible name), and
-  the current row carries the accent bar. A row click sets `Tab::pending_anchor`,
-  the same request a `#id` link click makes; the panel is an overlay (the
-  document is never reflowed) and requests no repaint of its own, so an idle
-  window stays idle.
+  above the viewport top, with a small pad). At the page end it picks the
+  deepest RENDERED heading instead, so a heading that cannot scroll further
+  still becomes current; a clicked row is pinned until the spy reaches it or
+  the reader scrolls by hand. `reveal_offset` computes the sidebar list offset
+  from the measured variable row heights.
+- `viewer::outline_panel` draws the permanent sidebar BEFORE the central
+  panel, so it is layout, not an overlay: `Panel::right`, proportional width
+  176-240px, full height, on every document with headings. Titles WRAP (the
+  complete heading stays in the tooltip and the accessible name); row heights
+  are measured once per panel width/document and cached in `OutlineState`, and
+  only the visible rows are laid out on each frame. The current row carries the
+  accent bar. A row click selects the row at once and sets `Tab::pending_anchor`,
+  the same request a `#id` link click makes; the sheet's own walk consumes it
+  and scrolls. The sidebar publishes its screen rect so the find bar docks just
+  left of it. It has no close state and owns no keyboard key.
 
 ## Save page
 
@@ -1168,12 +1165,12 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   in Explorer is honored), the XDG `XDG_DOWNLOAD_DIR` from `user-dirs.dirs` on
   Linux/BSD (localized names work) — when it exists, else `~/Downloads`, else
   home, else the current directory; the first free name wins (`notes.md`,
-  `notes (1).md`, …), so an existing file is NEVER overwritten. A destination that refuses the write with a permission error
-  (the macOS Downloads prompt denied, a read-only folder) falls back to the
-  home directory, and the toast distinguishes it
-  (`Saved <name> in home (Downloads needs permission)`); any other failure
-  surfaces as `Could not save: …`. Success, fallback and failure all go
-  through the shared toast, so no dialog ever blocks the save.
+  `notes (1).md`, …), so an existing file is NEVER overwritten. A destination
+  that refuses the write with a permission error (the macOS Downloads prompt
+  denied, a read-only folder) falls back to the home directory, and the toast
+  distinguishes it (`Saved <name> in home (Downloads needs permission)`); any
+  other failure surfaces as `Could not save: …`. Success, fallback and failure
+  all go through the shared toast, so no dialog ever blocks the save.
   The write is atomic (unique `create_new` temp beside the destination, then
   `rename`), so a failed or interrupted save never truncates a file; a
   replacement keeps the existing file's permissions.

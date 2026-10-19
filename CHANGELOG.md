@@ -18,14 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cached images and favicons fall back to their stored bytes as well.
   (`src/protocol/client/`, `src/media/fetch.rs`, `src/browser/tab/`,
   `src/ui/omnibox/`, `src/ui/icons/`, `docs/`.)
-- Reading aids. A **document outline panel** (`Ctrl/Cmd+Shift+O`, or the
-  right-click menu's "Document outline" row; disabled when the document has no
-  headings) docks to the reading sheet's right edge — a bottom sheet on narrow
-  windows — never reflows the document, highlights the current section while
-  scrolling, indents levels from the document's shallowest one, elides long
-  titles (the full text stays in the tooltip) and scrolls its own list. The
-  right-click menu's arrow keys skip the row when it is disabled. And
-  **Save page** (`Ctrl/Cmd+S`, or the menu row) writes the page on screen as
+- Reading aids. A **document outline sidebar** on the right of every document
+  with headings: always visible, narrow and part of the reading layout (the
+  sheet reflows beside it), with wrapped multi-line titles, accent-marked
+  current section, level indentation from the document's shallowest heading
+  and its own virtualized list. A row click scrolls the heading through the
+  same `#anchor` path as a link, and a heading near the page end stays
+  selected when the sheet can scroll no further. And **Save page**
+  (`Ctrl/Cmd+S`, or the menu row) writes the page on screen as
   Markdown straight into the system downloads folder — the Downloads known
   folder on Windows (a Windows-only `known-folders` dependency, so a location
   the user relocated in Explorer is honored), the XDG `XDG_DOWNLOAD_DIR` when
@@ -36,7 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reporting the outcome by toast: no dialog and no plain-text format.
   (`src/app/save.rs`, `Cargo.toml`, `src/markdown/outline.rs`,
   `src/markdown/anchors.rs`, `src/viewer/outline.rs`,
-  `src/viewer/overlays/outline.rs`, `src/app/`, `docs/`.)
+  `src/viewer/outline_panel.rs`, `src/app/`, `docs/`.)
 
 ### Changed
 
@@ -66,6 +66,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A local file read interrupted by a signal now retries instead of failing
   the document, and the bounded-record writer asserts its `u32` field length
   in debug builds. (`src/protocol/local.rs`, `src/cache/format.rs`.)
+
+### Removed
+
+- The document-outline toggle: its right-click row, the
+  `Ctrl/Cmd+Shift+O` shortcut and the macOS View item are gone. The outline
+  sidebar is part of every document page with headings instead.
+  (`src/viewer/overlays/`, `src/app/`, `src/ui/preferences/`, `docs/`.)
 
 ## [0.6.0] - 2026-10-19
 

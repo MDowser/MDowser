@@ -3,12 +3,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! `viewer` outline end-to-end tests: the panel drawn through the real
-//! `show_content` entry point (the reading sheet's own `ScrollArea`), the
-//! scrollspy cursor and the responsive placement.
+//! `viewer` outline end-to-end tests: the always-visible sidebar drawn
+//! through the real `show_content` entry point (the reading sheet's own
+//! `ScrollArea`), wrapped rows, the scrollspy cursor, page-end selection and
+//! the responsive width.
 //!
 //! Unlike `tests_find.rs`, the tabs here carry a REAL anchor index and
-//! outline, built exactly like `protocol::client::fetch` does: the panel
+//! outline, built exactly like `protocol::client::fetch` does: the sidebar
 //! lists the fetched outline and jumps through the same reserved heading ids
 //! a `#id` link uses, so a default-constructed index would test nothing.
 
@@ -50,9 +51,14 @@ fn screen() -> egui::Rect {
     egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))
 }
 
+/// Left edge of the sidebar on `screen`.
+fn panel_left(screen: egui::Rect) -> f32 {
+    screen.right() - super::outline_panel::panel_width(screen.width())
+}
+
 /// One frame through `show_content` at `screen`, returning each painted text
-/// with its top-left position (document galleys and the panel's own rows
-/// alike).
+/// with its top-left position and size (document galleys and the sidebar's
+/// own rows alike).
 fn frame(
     ctx: &egui::Context,
     screen: egui::Rect,
@@ -61,7 +67,7 @@ fn frame(
     bookmarks: &mut BookmarkStore,
     favicons: &mut FaviconCache,
     events: Vec<egui::Event>,
-) -> Vec<(String, egui::Pos2)> {
+) -> Vec<(String, egui::Pos2, egui::Vec2)> {
     let input = egui::RawInput {
         screen_rect: Some(screen),
         events,
@@ -74,23 +80,43 @@ fn frame(
     out.shapes
         .iter()
         .filter_map(|c| match &c.shape {
-            egui::epaint::Shape::Text(t) => Some((t.galley.text().to_string(), t.pos)),
+            egui::epaint::Shape::Text(t) => {
+                Some((t.galley.text().to_string(), t.pos, t.galley.size()))
+            }
             _ => None,
         })
         .collect()
 }
 
-/// Position of the LAST painted text CONTAINING `needle`.
-///
-/// The panel is drawn (and paints) AFTER the document, so a title that exists
-/// both as the document's heading and as a panel row resolves to the panel's
-/// copy; off-screen document text is culled from the frame's shapes anyway.
-fn text_at(texts: &[(String, egui::Pos2)], needle: &str) -> Option<egui::Pos2> {
+/// Position of the LAST sidebar text CONTAINING `needle`. The sidebar is
+/// drawn BEFORE the sheet, so a title that also appears in the document must
+/// be filtered by x: the sheet never reaches the sidebar's columns.
+fn panel_text_at(
+    texts: &[(String, egui::Pos2, egui::Vec2)],
+    needle: &str,
+    screen: egui::Rect,
+) -> Option<egui::Pos2> {
+    let left = panel_left(screen);
     texts
         .iter()
-        .filter(|(t, _)| t.contains(needle))
-        .map(|(_, p)| *p)
+        .filter(|(t, p, _)| p.x >= left && t.contains(needle))
+        .map(|(_, p, _)| *p)
         .next_back()
+}
+
+/// Position of the first document text CONTAINING `needle` (left of the
+/// sidebar).
+fn document_text_at(
+    texts: &[(String, egui::Pos2, egui::Vec2)],
+    needle: &str,
+    screen: egui::Rect,
+) -> Option<egui::Pos2> {
+    let left = panel_left(screen);
+    texts
+        .iter()
+        .filter(|(t, p, _)| p.x < left && t.contains(needle))
+        .map(|(_, p, _)| *p)
+        .next()
 }
 
 /// A primary press+release at `pos`, both events in one frame (a real click).
@@ -111,9 +137,80 @@ fn click(pos: egui::Pos2) -> Vec<egui::Event> {
     ]
 }
 
-/// Clicking a row scrolls the matching heading to the top through the real
-/// document walk: the panel only sets `tab.pending_anchor`, the same request
-/// a `#id` link makes, and the heading's own render consumes it.
+fn wheel(delta_y: f32) -> egui::Event {
+    egui::Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: egui::vec2(0.0, delta_y),
+        phase: egui::TouchPhase::Move,
+        modifiers: egui::Modifiers::NONE,
+    }
+}
+
+/// The sidebar is present with no toggle and no context menu, stays on the
+/// right, and wraps a long title over several lines instead of eliding it.
+#[test]
+fn the_sidebar_is_always_visible_and_wraps_titles() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let md = "# Top\n\nbody\n\n\
+        ### A deliberately long heading that has to wrap several times in a narrow sidebar because it keeps going\n\n\
+        body\n\n## Tail\n\nbody\n";
+    let mut tab = loaded_tab(md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    let left = panel_left(screen());
+    let header = panel_text_at(&texts, "Outline", screen()).expect("sidebar header painted");
+    assert!(header.x >= left, "header at the sidebar's left edge");
+    assert!(header.y < 80.0, "the sidebar starts at the top");
+    // No close button: the body has no dismissible-surface chrome.
+    assert!(
+        panel_text_at(&texts, "Close", screen()).is_none(),
+        "the permanent sidebar has no close control"
+    );
+    // The long title is painted by the sidebar (the doc heading is below the
+    // fold) and its row is taller than one line: the next row starts more
+    // than a single line below it.
+    let long = panel_text_at(&texts, "deliberately long", screen())
+        .expect("the long title row is painted");
+    let tail = panel_text_at(&texts, "Tail", screen()).expect("the next row is painted");
+    assert!(
+        tail.y - long.y > 34.0,
+        "the long title takes several wrapped lines: long {long:?}, tail {tail:?}"
+    );
+    assert!(
+        long.x > tail.x,
+        "the deeper heading keeps its indent step: long {long:?}, tail {tail:?}"
+    );
+    // The document keeps its own column left of the sidebar.
+    for (text, pos, size) in &texts {
+        if text.contains("body") {
+            assert!(
+                pos.x + size.x <= left + 0.5,
+                "document text {text:?} runs under the sidebar: {pos:?}+{size:?}"
+            );
+        }
+    }
+}
+
+/// Clicking a sidebar row scrolls the matching heading through the real
+/// document walk: the sidebar only sets `tab.pending_anchor`, the same
+/// request a `#id` link makes, and the heading's own render consumes it.
 #[test]
 fn a_row_click_scrolls_its_heading_into_view() {
     let ctx = egui::Context::default();
@@ -138,36 +235,29 @@ fn a_row_click_scrolls_its_heading_into_view() {
     for _ in 0..3 {
         let _ = run(&mut tab, Vec::new());
     }
-    // Open the panel and give the `Area` its settling frames (the first is an
-    // invisible disabled sizing pass).
-    tab.outline.show();
-    for _ in 0..3 {
-        let _ = run(&mut tab, Vec::new());
-    }
-    // The marker paragraph sits below the fold, its heading too (the panel
+    // The marker paragraph sits below the fold, its heading too (the sidebar
     // row above is the ONLY painted "Deepmark").
     let before = run(&mut tab, Vec::new());
     assert!(
-        text_at(&before, "deepmark marker").is_none(),
+        document_text_at(&before, "deepmark marker", screen()).is_none(),
         "the marker starts below the fold"
     );
-    let row = text_at(&before, "Deepmark").expect("the outline row is painted");
+    let row = panel_text_at(&before, "Deepmark", screen()).expect("the outline row is painted");
     // Click inside the row: the galley starts at the row's text inset, so a
-    // small offset right/down of it stays inside the 26px row.
+    // small offset right/down of it stays inside the row.
     let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
-    assert!(tab.outline.open, "a row click must not close the panel");
-    assert!(
-        tab.pending_anchor.as_deref() == Some("deepmark"),
-        "the row asks for the heading's own anchor id: {:?}",
-        tab.pending_anchor
+    assert_eq!(
+        tab.outline.current, 1,
+        "the clicked row is selected at once"
     );
-    // The walk consumes the request on the next frame and the sheet's scroll
-    // animation settles over the following ones.
+    // The sidebar sets the same anchor request as a `#id` link and this
+    // frame's document walk consumes it; the sheet's scroll animation settles
+    // over the following ones.
     for _ in 0..40 {
         let _ = run(&mut tab, Vec::new());
     }
     let texts = run(&mut tab, Vec::new());
-    let y = text_at(&texts, "deepmark marker")
+    let y = document_text_at(&texts, "deepmark marker", screen())
         .expect("the marker is scrolled into view")
         .y;
     assert!(
@@ -209,34 +299,23 @@ fn the_cursor_follows_the_reader_scrolling() {
     for _ in 0..3 {
         let _ = run(&mut tab, Vec::new());
     }
-    tab.outline.show();
-    for _ in 0..3 {
-        let _ = run(&mut tab, Vec::new());
-    }
     assert_eq!(
-        (tab.outline.open, tab.outline.current),
-        (true, 0),
-        "the panel opens on the first section"
+        tab.outline.current, 0,
+        "the sidebar opens on the first section"
     );
     // The wheel scrolls the HOVERED area: hover the sheet, away from the
-    // panel (a press or wheel over the panel belongs to its own list).
+    // sidebar (a press or wheel over the sidebar belongs to its own list).
     let _ = run(
         &mut tab,
-        vec![egui::Event::PointerMoved(egui::pos2(450.0, 350.0))],
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 350.0))],
     );
-    let wheel = egui::Event::MouseWheel {
-        unit: egui::MouseWheelUnit::Point,
-        delta: egui::vec2(0.0, -200.0),
-        phase: egui::TouchPhase::Move,
-        modifiers: egui::Modifiers::NONE,
-    };
     // One wheel step per frame until the last section is reached: the
     // sections are several thousand px apart and one step moves a fraction
     // of that, so the cursor must PASS THROUGH the middle one (each heading
     // crosses the viewport top on its own frame).
     let mut seen = vec![tab.outline.current];
     while tab.outline.current < 2 && seen.len() < 500 {
-        let _ = run(&mut tab, vec![wheel.clone()]);
+        let _ = run(&mut tab, vec![wheel(-200.0)]);
         seen.push(tab.outline.current);
     }
     assert!(
@@ -253,11 +332,68 @@ fn the_cursor_follows_the_reader_scrolling() {
     );
 }
 
-/// Below `SHEET_W` the panel becomes a bottom sheet: the header jumps from
-/// the top band (right-docked below the find bar) to the bottom band, where a
-/// right-docked panel would cover the whole reading column.
+/// A heading at the very end of the document cannot scroll to the top (there
+/// is no content left below it). Clicking its row must still select it, and
+/// the page end must keep it current instead of falling back to an earlier
+/// section.
 #[test]
-fn narrow_windows_get_the_bottom_sheet() {
+fn a_heading_at_the_page_end_stays_selected() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body: String = (0..120).map(|i| format!("body {i:03}\n\n")).collect();
+    let md = format!("# One\n\n{body}## Two\n\n{body}## Three\n\nlastmark tail paragraph\n");
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let before = run(&mut tab, Vec::new());
+    let row = panel_text_at(&before, "Three", screen()).expect("the last row is painted");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    assert_eq!(tab.outline.current, 2, "the clicked row is current at once");
+    for _ in 0..60 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    assert_eq!(
+        tab.outline.current, 2,
+        "the page end keeps the selected last section"
+    );
+    assert!(
+        document_text_at(&texts, "lastmark", screen()).is_some(),
+        "the heading near the page end is visible"
+    );
+    // A manual scroll releases the clicked row to the scrollspy. Move the
+    // pointer off the sidebar first: the wheel belongs to the hovered area.
+    let _ = run(
+        &mut tab,
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 350.0))],
+    );
+    let _ = run(&mut tab, vec![wheel(200.0)]);
+    let _ = run(&mut tab, vec![wheel(200.0)]);
+    assert!(
+        tab.outline.current < 2,
+        "scrolling up moves the cursor back to an earlier section"
+    );
+}
+
+/// The sidebar is part of the layout on narrow windows too (always on the
+/// right, never a bottom sheet). It only shrinks proportionally.
+#[test]
+fn narrow_windows_keep_the_right_sidebar() {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let md = "# One\n\nbody\n\n## Two\n\nbody\n\n## Three\n\nbody\n";
@@ -265,7 +401,7 @@ fn narrow_windows_get_the_bottom_sheet() {
     let mut store = HistoryStore::in_memory();
     let mut bookmarks = BookmarkStore::in_memory();
     let mut favicons = FaviconCache::new();
-    let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(420.0, 700.0));
+    let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 700.0));
     let mut run = |tab: &mut Tab, screen: egui::Rect| {
         frame(
             &ctx,
@@ -280,111 +416,22 @@ fn narrow_windows_get_the_bottom_sheet() {
     for _ in 0..3 {
         let _ = run(&mut tab, narrow);
     }
-    tab.outline.show();
-    for _ in 0..3 {
-        let _ = run(&mut tab, narrow);
-    }
     let texts = run(&mut tab, narrow);
-    let y = text_at(&texts, "Outline")
-        .expect("the panel header is painted")
-        .y;
+    let header = panel_text_at(&texts, "Outline", narrow).expect("the sidebar header is painted");
     assert!(
-        y > 350.0,
-        "a narrow window docks the panel to the bottom: y={y}"
+        header.x > narrow.width() * 0.5,
+        "a narrow window still docks the sidebar to the right: {header:?}"
     );
-    // Widening the same window docks it back under the find bar: the panel
-    // is an overlay, so nothing about the document had to be re-laid out.
-    for _ in 0..3 {
-        let _ = run(&mut tab, screen());
-    }
-    let texts = run(&mut tab, screen());
-    let y = text_at(&texts, "Outline")
-        .expect("the panel header is painted")
-        .y;
     assert!(
-        y < 300.0,
-        "an ordinary window docks the panel to the top-right: y={y}"
+        header.y < 80.0,
+        "and starts at the top, never as a bottom sheet: {header:?}"
     );
 }
 
-/// Opening the panel never reflows the document: the outline is an overlay
-/// (a `Middle` area), so every document shape keeps its text, position and
-/// size, and only the panel's own shapes are added (mirrors
-/// `tests_find.rs::find_keeps_the_document_layout_identical`).
+/// Escape and presses outside the sidebar do not close it: it is permanent
+/// layout, not a dismissible surface.
 #[test]
-fn the_open_panel_never_moves_the_document() {
-    let ctx = egui::Context::default();
-    crate::ui::theme::apply(&ctx);
-    const MD: &str = "# Alpha\n\n\
-        A first paragraph with a [link](https://ex.com/x) and `code` in it.\n\n\
-        ## Beta\n\n\
-        The quick brown fox jumps over the lazy dog while the clever fox watches the other animals, and a cat sat on a mat.\n\n\
-        ## Gamma\n\n\
-        tail paragraph\n";
-    let mut tab = loaded_tab(MD);
-    let mut store = HistoryStore::in_memory();
-    let mut bookmarks = BookmarkStore::in_memory();
-    let mut favicons = FaviconCache::new();
-    // Tall enough that the whole document paints at once (nothing culled).
-    let tall = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 6000.0));
-    let mut run = |tab: &mut Tab| -> Vec<(String, egui::Pos2, egui::Vec2)> {
-        let input = egui::RawInput {
-            screen_rect: Some(tall),
-            ..Default::default()
-        };
-        let mut out = ctx.run_ui(input, |root| {
-            show_content(root, tab, &mut store, &mut bookmarks, &mut favicons);
-        });
-        out.textures_delta.clear();
-        out.shapes
-            .iter()
-            .filter_map(|c| match &c.shape {
-                egui::epaint::Shape::Text(t) => {
-                    Some((t.galley.text().to_string(), t.pos, t.galley.size()))
-                }
-                _ => None,
-            })
-            .collect()
-    };
-    for _ in 0..3 {
-        let _ = run(&mut tab);
-    }
-    let before = run(&mut tab);
-    let has_outline = |texts: &[(String, egui::Pos2, egui::Vec2)]| {
-        texts.iter().any(|(t, _, _)| t.contains("Outline"))
-    };
-    assert!(!has_outline(&before), "the closed panel paints nothing");
-    tab.outline.show();
-    let _ = run(&mut tab);
-    let after = run(&mut tab);
-    assert!(has_outline(&after), "the open panel paints its header");
-    assert!(
-        after.len() > before.len(),
-        "the panel adds text shapes of its own"
-    );
-    // Every document shape pairs up with the same text, position and size:
-    // the open panel only APPENDED its own shapes (drawn after the sheet).
-    for (i, (bt, bp, bs)) in before.iter().enumerate() {
-        let (at, ap, as_) = &after[i];
-        assert_eq!(at, bt, "shape {i} text changed");
-        assert!(
-            (ap.x - bp.x).abs() <= 0.5 && (ap.y - bp.y).abs() <= 0.5,
-            "shape {i} ({bt:?}) moved: {:?} -> {:?}",
-            bp,
-            ap
-        );
-        assert!(
-            (as_.x - bs.x).abs() <= 0.5 && (as_.y - bs.y).abs() <= 0.5,
-            "shape {i} ({bt:?}) resized: {bs:?} -> {as_:?}"
-        );
-    }
-}
-
-/// Escape and a primary press outside close the panel: the panel reads both
-/// itself, so direct rendering (without the app's key router) keeps the
-/// close behavior.
-#[test]
-fn escape_and_a_click_outside_close_the_panel() {
+fn escape_and_outside_presses_leave_the_sidebar_open() {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let md = "# T\n\nshort body\n";
@@ -406,11 +453,6 @@ fn escape_and_a_click_outside_close_the_panel() {
     for _ in 0..3 {
         let _ = run(&mut tab, Vec::new());
     }
-    tab.outline.show();
-    for _ in 0..3 {
-        let _ = run(&mut tab, Vec::new());
-    }
-    assert!(tab.outline.open);
     let _ = run(
         &mut tab,
         vec![egui::Event::Key {
@@ -421,22 +463,20 @@ fn escape_and_a_click_outside_close_the_panel() {
             modifiers: egui::Modifiers::NONE,
         }],
     );
-    assert!(!tab.outline.open, "Escape closes the panel");
-    // Reopen, then press in the reading area (outside the panel rect).
-    tab.outline.show();
-    for _ in 0..3 {
-        let _ = run(&mut tab, Vec::new());
-    }
-    assert!(tab.outline.open);
+    assert!(
+        panel_text_at(&run(&mut tab, Vec::new()), "Outline", screen()).is_some(),
+        "Escape leaves the permanent sidebar alone"
+    );
     let _ = run(&mut tab, click(egui::pos2(300.0, 300.0)));
-    assert!(!tab.outline.open, "a press outside closes the panel");
+    assert!(
+        panel_text_at(&run(&mut tab, Vec::new()), "Outline", screen()).is_some(),
+        "a press in the sheet leaves the sidebar alone"
+    );
 }
 
-/// A document without headings never keeps the panel open: the open flag can
-/// outlive its list (a live re-fetch replaces the document), and an empty
-/// card would be worse than nothing.
+/// A document without headings never draws an empty sidebar.
 #[test]
-fn a_headingless_document_closes_the_panel() {
+fn a_headingless_document_draws_no_sidebar() {
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let mut tab = loaded_tab("Just one paragraph, no headings at all.\n");
@@ -454,7 +494,6 @@ fn a_headingless_document_closes_the_panel() {
             Vec::new(),
         );
     }
-    tab.outline.show();
     let texts = frame(
         &ctx,
         screen(),
@@ -464,9 +503,46 @@ fn a_headingless_document_closes_the_panel() {
         &mut favicons,
         Vec::new(),
     );
-    assert!(!tab.outline.open, "the empty panel closes itself");
     assert!(
-        text_at(&texts, "Outline").is_none(),
-        "and paints nothing for the frame it was open"
+        panel_text_at(&texts, "Outline", screen()).is_none(),
+        "no headings, no sidebar"
+    );
+}
+
+/// The find bar docks left of the permanent sidebar instead of covering it.
+#[test]
+fn the_find_bar_docks_left_of_the_sidebar() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let md = "# T\n\nterm one\n\n## Two\n\nbody\n";
+    let mut tab = loaded_tab(md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            Vec::new(),
+        )
+    };
+    for _ in 0..2 {
+        let _ = run(&mut tab);
+    }
+    tab.find.open = true;
+    tab.find.query = "term".to_string();
+    let _ = run(&mut tab);
+    let texts = run(&mut tab);
+    let count = texts
+        .iter()
+        .find(|(t, p, _)| t.contains("/1") && p.y < 130.0)
+        .expect("the find bar paints its count");
+    assert!(
+        count.1.x < panel_left(screen()),
+        "the find bar stays left of the sidebar: {count:?}"
     );
 }

@@ -147,7 +147,6 @@ const SHORTCUT_GROUPS: &[(&str, &[(&str, &str)])] = &[
                 "Next / previous match",
                 "Enter / Shift+Enter (F3 / Shift+F3)",
             ),
-            ("Document outline", "Ctrl/Cmd + Shift + O"),
             ("Save page as Markdown", "Ctrl/Cmd + S"),
             ("Select all page text", "Ctrl/Cmd + A"),
             ("Copy selection or page", "Ctrl/Cmd + C"),

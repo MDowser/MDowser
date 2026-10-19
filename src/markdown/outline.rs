@@ -10,7 +10,7 @@
 //! - Every heading of the parsed body is one item (a heading the normalizer
 //!   left inside a quote, a list item or an MDX component included).
 //! - The item's `id` is the RESERVED heading id from
-//!   [`crate::markdown::anchors::AnchorIndex`], so the outline panel scrolls
+//!   [`crate::markdown::anchors::AnchorIndex`], so the outline sidebar scrolls
 //!   through the same mechanism as a `#id` link click (`Tab::pending_anchor`)
 //!   and a reserved slugless-heading id (`heading-N`) navigates too.
 //! - The item's `at` is the heading's own `Start` event index: the viewer
@@ -39,7 +39,7 @@ pub struct OutlineItem {
     /// for a heading whose text is empty, so the row is never blank).
     pub title: String,
     /// Reserved anchor id of the heading ([`AnchorIndex::heading_id_at`]):
-    /// the outline panel requests a scroll with this id.
+    /// the outline sidebar requests a scroll with this id.
     pub id: String,
     /// Event index of the heading's `Start` event (scrollspy key).
     pub at: usize,
@@ -57,8 +57,7 @@ pub struct Outline {
 }
 
 impl Outline {
-    /// True when the document has no headings (the outline panel and its
-    /// entry points stay disabled).
+    /// True when the document has no headings (no outline sidebar is drawn).
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }

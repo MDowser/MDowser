@@ -887,11 +887,11 @@ fn save_shortcut_writes_on_document_pages_only() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Esc ownership of the reading surfaces: with the find bar and the outline
-/// panel both up, one press closes exactly one surface — the bar first, then
-/// the panel.
+/// Esc ownership of the reading surfaces: the find bar owns its press. The
+/// permanent outline sidebar is layout, not a dismissible overlay, so it
+/// never competes for the key.
 #[test]
-fn esc_closes_one_reading_surface_per_press() {
+fn esc_closes_the_find_bar() {
     let ctx = eframe::egui::Context::default();
     crate::ui::theme::apply(&ctx);
     let mut app = app_with(
@@ -900,7 +900,6 @@ fn esc_closes_one_reading_surface_per_press() {
     );
     let generation = app.tabs[0].doc_generation;
     app.tabs[0].find.show(generation);
-    app.tabs[0].outline.show();
     let escape = || eframe::egui::Event::Key {
         key: eframe::egui::Key::Escape,
         physical_key: None,
@@ -908,30 +907,19 @@ fn esc_closes_one_reading_surface_per_press() {
         repeat: false,
         modifiers: eframe::egui::Modifiers::NONE,
     };
-    let frame =
-        |ctx: &eframe::egui::Context, app: &mut MdowserApp, events: Vec<eframe::egui::Event>| {
-            let input = eframe::egui::RawInput {
-                screen_rect: Some(eframe::egui::Rect::from_min_size(
-                    eframe::egui::Pos2::ZERO,
-                    eframe::egui::vec2(900.0, 700.0),
-                )),
-                events,
-                ..Default::default()
-            };
-            let mut out = ctx.run_ui(input, |root| {
-                app.handle_shortcuts(ctx);
-                let active = app.active;
-                crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
-                crate::viewer::overlays::outline::show_outline_panel(root, &mut app.tabs[active]);
-            });
-            out.textures_delta.clear();
-        };
-    frame(&ctx, &mut app, vec![escape()]);
-    assert!(!app.tabs[0].find.open, "the bar owned the first press");
-    assert!(app.tabs[0].outline.open, "the panel waited for its press");
-    frame(&ctx, &mut app, vec![escape()]);
-    assert!(
-        !app.tabs[0].outline.open,
-        "the panel owned the second press"
-    );
+    let input = eframe::egui::RawInput {
+        screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            eframe::egui::vec2(900.0, 700.0),
+        )),
+        events: vec![escape()],
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |root| {
+        app.handle_shortcuts(&ctx);
+        let active = app.active;
+        crate::viewer::overlays::find::show_find_bar(root, &mut app.tabs[active]);
+    });
+    out.textures_delta.clear();
+    assert!(!app.tabs[0].find.open, "the bar owned the press");
 }

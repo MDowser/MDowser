@@ -160,7 +160,7 @@ pub(crate) fn forget_tab(ctx: &egui::Context, tab_id: usize) {
     // Document scroll offsets: one state per visited URL, all recorded by
     // `viewer::show_content` through `remember_scroll` and dropped here.
     forget_scroll_state(ctx, DOC_SCROLL_ID, tab_id);
-    // Outline panel row list (`viewer::overlays::outline`).
+    // Outline sidebar row list (`viewer::outline_panel`).
     forget_scroll_state(ctx, OUTLINE_SCROLL_ID, tab_id);
 }
 
@@ -173,7 +173,7 @@ pub(crate) const ERROR_SCROLL_ID: &str = "error-scroll";
 /// URL, registered through [`remember_scroll`] so a closed tab drops them
 /// all (it used to accumulate for the whole process).
 pub(crate) const DOC_SCROLL_ID: &str = "doc-scroll";
-/// Row list of the outline panel (`viewer::overlays::outline`), registered
+/// Row list of the outline sidebar (`viewer::outline_panel`), registered
 /// through [`remember_scroll`] like the document sheet.
 pub(crate) const OUTLINE_SCROLL_ID: &str = "outline-scroll";
 
