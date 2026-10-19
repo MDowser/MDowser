@@ -13,6 +13,9 @@
 # - `make flatpak`  : Flatpak bundle (needs flatpak-builder).
 # - `make validate` : best-effort packaging metadata checks (SKIPs when tools
 #                     are missing, FAILs on real errors from installed tools).
+# - `make check-version` : fail when Cargo.toml, the committed AppStream
+#                     metainfo, the RPM changelog, CHANGELOG.md or the
+#                     SECURITY.md support line disagree.
 # - `make deps`     : install build/packaging dependencies (best-effort, idempotent).
 # - `make run`      : runs debug. `make clean`, `make help`, `make doctor`.
 # - `make icons`    : force-regenerates assets/icons from assets/icon.svg.
@@ -49,11 +52,13 @@ _BREW_CARGO := $(if $(_BREW_PREFIX),$(_BREW_PREFIX)/opt/rustup/bin/cargo)
 # THERE is reported by `make doctor`, never by a confusing "No such file".
 CARGO = $(or $(_WHICH_CARGO),$(firstword $(wildcard $(_RUSTUP_CARGO) $(HOME)/.cargo/bin/cargo $(HOME)/.rustup/toolchains/stable-*/bin/cargo $(HOME)/.rustup/toolchains/*/bin/cargo $(_BREW_CARGO))))
 # `doctor` must stay runnable exactly when cargo cannot be found (it is the
-# diagnosis path the error below points at), and `install`/`help` never run
-# cargo either (`install` only copies runtime files; the RPM %install calls
-# it in build environments that no longer need the toolchain). Every other
-# goal fails immediately with the hint.
-_CARGO_FREE_GOALS := doctor install help
+# diagnosis path the error below points at). `deps` is how a missing
+# toolchain gets installed, and `install`, `help`, `validate`,
+# `check-version`, `check-dist`, `sync-sites` and `check-sites` only run
+# POSIX tools or copy runtime files (the RPM %install calls `install` in a
+# build environment that no longer needs the toolchain). Every other goal
+# fails immediately with the hint.
+_CARGO_FREE_GOALS := doctor deps install help validate check-version check-dist sync-sites check-sites
 _NEEDS_CARGO := $(if $(MAKECMDGOALS),$(filter-out $(_CARGO_FREE_GOALS),$(MAKECMDGOALS)),needs-cargo)
 ifneq ($(_NEEDS_CARGO),)
 ifeq ($(CARGO),)
@@ -62,8 +67,14 @@ endif
 endif
 # cargo executes its sibling `rustc` on every build: lead PATH with cargo's
 # own directory so `could not execute process rustc -vV` never happens on
-# bare PATHs. Still relative: derived from the resolved binary, never hardcoded.
+# bare PATHs. Still relative: derived from the resolved binary, never
+# hardcoded. Guard the empty case: `$(dir )` is empty, and a leading `:`
+# would put the CURRENT DIRECTORY first on PATH for the cargo-free goals
+# (`make deps`/`install`/`help`/...), letting a planted `install` or `tar`
+# in the checkout shadow the real tool.
+ifneq ($(CARGO),)
 export PATH := $(dir $(CARGO)):$(PATH)
+endif
 
 # Install prefix for `make install` (the RPM %install passes PREFIX=%{_prefix}).
 PREFIX ?= /usr/local
@@ -75,7 +86,7 @@ SITES_UPSTREAM ?= https://raw.githubusercontent.com/MDowser/MDowser-Sites/main/b
 # List file validated by `make check-sites` (no download).
 SITES_FILE ?= assets/builtin_sites.txt
 
-.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-dist deps run clean fmt clippy audit icons sync-sites check-sites help doctor
+.PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-version check-dist deps run clean fmt clippy audit icons sync-sites check-sites help doctor
 
 # Default: install deps, build the host release binary, then the current-OS
 # dist. `dist-host` rebuilds dist/ from scratch on every host; on macOS it
@@ -135,6 +146,12 @@ flatpak:
 # xattrs). Missing tools are SKIPs, never failures.
 validate:
 	./scripts/validate.sh
+
+# Version consistency: Cargo.toml is the source of truth; the committed
+# metainfo, RPM changelog, CHANGELOG.md and SECURITY.md support line must
+# match it.
+check-version:
+	./scripts/check-version.sh
 
 # Privacy gate for built artifacts: fails when any dist/ archive carries the
 # builder's absolute paths or build-host metadata. Also run by `make dist`.
@@ -197,10 +214,10 @@ doctor:
 	@echo "cargo:      $(CARGO)"
 	@echo "rustc:      $(or $(firstword $(wildcard $(dir $(CARGO))rustc)),MISSING)"
 	@echo "nasm:       $(or $(shell command -v nasm 2>/dev/null),MISSING - needed on x86/x86_64 for rav1d + aws-lc-sys)"
-	@"$(CARGO)" --version || echo "ERROR: cargo not found; install rustup (see README)"
+	@if [ -n "$(CARGO)" ]; then "$(CARGO)" --version; else echo "ERROR: cargo not found; install rustup (see README)"; fi
 
 help:
-	@echo "make [all|build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|help|doctor]"
+	@echo "make [all|build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-version|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|help|doctor]"
 	@echo "  (no args)   deps + host release + current-OS dist into dist/"
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"
@@ -210,6 +227,7 @@ help:
 	@echo "  dist-rpm = RPM from source (needs rpmbuild)   |  flatpak/dist-flatpak = Flatpak bundle"
 	@echo "  install  = runtime files under PREFIX (DESTDIR/PREFIX honored; RPM %install)"
 	@echo "  validate = best-effort packaging metadata checks (SKIPs when tools missing)"
+	@echo "  check-version = Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md"
 	@echo "  check-dist = privacy gate: fail if dist/ carries builder paths/metadata"
 	@echo "  deps     = install build/packaging deps (SKIP_SETUP=1 dry run; DEPS=<group>)"
 	@echo "  audit = cargo audit + cargo deny (best-effort when installed)"

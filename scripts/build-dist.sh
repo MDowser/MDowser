@@ -63,6 +63,10 @@ if [ -z "$VER" ]; then
     echo "ERROR: could not parse version from Cargo.toml" >&2
     exit 1
 fi
+# Refuse to package a tree whose committed metainfo/changelog/security policy
+# still names another release. The packaged copies are rendered from
+# Cargo.toml, but the committed files are what Flatpak and readers see.
+./scripts/check-version.sh >/dev/null
 # macOS `cp`/`install` materialize AppleDouble `._name` sidecars for files
 # carrying extended attributes (`com.apple.provenance`, ...); tar then packed
 # them INTO the .deb payload and the .tar.gz artifacts as junk entries.

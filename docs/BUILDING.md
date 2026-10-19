@@ -86,7 +86,7 @@ make              # deps + host release + current-OS dist into dist/
                   #   Windows: .exe zip
 make build        # host release binary only (target/release/mdowser)
 make debug        # host debug (target/debug/mdowser)
-make test         # pipeline: sh syntax + fmt --check + clippy -D warnings + test + doc + debug
+make test         # pipeline: sh syntax + version consistency + fmt --check + clippy -D warnings + test + doc + debug
 make audit        # supply-chain audit (cargo audit + cargo deny, best-effort)
 make dist         # deps + host release + EVERY platform into dist/ (+ SHA256SUMS.txt)
 make dist-host | make dist-mac | make dist-linux | make dist-windows
@@ -95,6 +95,7 @@ make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak
 make install      # runtime files under PREFIX (DESTDIR honored; RPM %install)
 make flatpak      # alias of the Flatpak bundle build (needs flatpak-builder)
 make validate     # best-effort packaging metadata checks (SKIPs when tools missing)
+make check-version # Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md
 make check-dist   # privacy gate over dist/ (builder paths/metadata; after packaging)
 make deps         # install build/packaging dependencies (SKIP_SETUP=1 dry run)
 make fmt | make clippy | make run | make clean | make help | make icons | make doctor
@@ -104,13 +105,21 @@ make check-sites  # validate one builtin-sites list file (SITES_FILE, manual, ne
 
 `make doctor` prints the toolchain as the Makefile sees it (the `PATH` fixup,
 the resolved `cargo`/`rustc`, whether `nasm` is present) and stays runnable
-even when `cargo` cannot be found; every other target fails at parse time with
-the hint that points at it.
+even when `cargo` cannot be found, as do the tool-free `deps` (the install
+path for a missing toolchain), `install`, `help`, `validate`, `check-version`,
+`check-dist`, `sync-sites` and `check-sites` targets. The cargo-driven targets
+fail at parse time with the hint that points at `make doctor`. When no cargo
+is resolved the Makefile does not prepend an empty PATH entry, so the current
+directory is never searched for `install`/`tar`/similar tools first.
 
-`make` (the default target) and `make dist` both run `make deps` first;
-`SKIP_SETUP=1 make ...` keeps it to what is already present. Direct script
-invocations (`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that
-bootstrap. `make` builds the current platform's set only (macOS: the universal
+`make` (the default target) and `make dist` both run `make deps` first once
+`cargo` is resolvable; `SKIP_SETUP=1 make ...` keeps it to what is already
+present. A machine without Rust needs one explicit `make deps` first: the
+Makefile resolves `cargo` at startup and cannot pick up a binary installed
+later in the same run. Direct script invocations
+(`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that bootstrap.
+
+`make` builds the current platform's set only (macOS: the universal
 `.app.zip`; Linux: `.tar.gz` + `.deb`/`.rpm` + the Flatpak bundle; Windows:
 the `.exe` zip), while `make dist` builds every platform the host can.
 
@@ -312,8 +321,11 @@ own gate, not the merged one.
 ### Validating the packaging metadata
 
 `make validate` checks what the host can check and never fails on a missing
-tool (a SKIP names the install command): XML well-formedness of the AppStream
-metadata and of the version-rendered copy the packages install,
+tool (a SKIP names the install command): version consistency between
+`Cargo.toml` and the committed AppStream metainfo, the RPM changelog, the
+released `CHANGELOG.md` section and the supported line in `SECURITY.md`
+(`make check-version` runs the same gate on its own); XML well-formedness of
+the AppStream metadata and of the version-rendered copy the packages install,
 `appstreamcli` or `appstream-util`, `desktop-file-validate`, `rpmspec -P` and
 `rpmlint` when present, a YAML parse of the Flatpak manifest, and the `dist/`
 privacy gate when a build is present.

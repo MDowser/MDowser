@@ -6,7 +6,8 @@
 
 # build-test: local verification pipeline (fast, host only).
 # Usage: ./scripts/build-test.sh
-# Steps: sh syntax, fmt --check, clippy -D warnings, test, doc, debug build.
+# Steps: sh syntax, version consistency, fmt --check, clippy -D warnings,
+# test, doc, debug build.
 # Fails (exit != 0) at the first failing step. Untouched dist/.
 set -eu
 
@@ -22,6 +23,9 @@ step() { printf '\n==> %s\n' "$1"; }
 
 step "sh syntax"
 for f in scripts/*.sh; do sh -n "$f" || exit 1; done
+
+step "version consistency"
+./scripts/check-version.sh
 
 step "fmt --check"
 cargo fmt --all --check

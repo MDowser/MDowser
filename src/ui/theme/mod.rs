@@ -187,7 +187,11 @@ pub fn dark() -> Scheme {
         alert_warning: rgb(210, 153, 34),
         alert_caution: rgb(248, 81, 73),
         find_match: rgb(0x6b, 0x59, 0x00),
-        find_current: rgb(0xc7, 0x8a, 0x00),
+        // The current match is brighter than `find_match` but stays dark
+        // enough for the `on_surface` foreground forced by `find_text`:
+        // #8c6600 keeps light text at 4.8:1 (WCAG AA). The old #c78a00 was
+        // only 2.7:1, so the match being read was the hardest to read.
+        find_current: rgb(0x8c, 0x66, 0x00),
     }
 }
 

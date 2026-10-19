@@ -83,6 +83,30 @@ fn body_and_link_contrast_meet_wcag_aa() {
     }
 }
 
+/// In-page find washes sit BEHIND `on_surface` text (see `find_text`), so
+/// both the ordinary and the current match must keep that text readable.
+/// The current match stays a distinct, stronger wash than the ordinary one.
+#[test]
+fn find_washes_keep_reading_text_legible() {
+    for (name, scheme) in [("light", light()), ("dark", dark())] {
+        for (kind, wash) in [
+            ("match", scheme.find_match),
+            ("current", scheme.find_current),
+        ] {
+            let ratio = contrast(scheme.on_surface, wash);
+            assert!(
+                ratio >= 4.5,
+                "{name}/{kind}: find text contrast {ratio:.2} below WCAG AA"
+            );
+        }
+        let step = contrast(scheme.find_current, scheme.find_match);
+        assert!(
+            step >= 1.2,
+            "{name}: the current find wash must stand out from a match ({step:.2})"
+        );
+    }
+}
+
 /// The floating document scrollbar must be VISIBLE: the handle paints
 /// `widgets.inactive.fg_stroke` (with `foreground_color = true`) at the
 /// dormant opacity over the page, and it used to paint `container_high` —

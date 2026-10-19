@@ -1165,15 +1165,20 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   in Explorer is honored), the XDG `XDG_DOWNLOAD_DIR` from `user-dirs.dirs` on
   Linux/BSD (localized names work) — when it exists, else `~/Downloads`, else
   home, else the current directory; the first free name wins (`notes.md`,
-  `notes (1).md`, …), so an existing file is NEVER overwritten. A destination
-  that refuses the write with a permission error (the macOS Downloads prompt
-  denied, a read-only folder) falls back to the home directory, and the toast
-  distinguishes it (`Saved <name> in home (Downloads needs permission)`); any
+  `notes (1).md`, …), and the publish itself is no-replace (see below), so an
+  existing file is NEVER overwritten even if one appears after the name
+  check. A destination that refuses the write with a permission error (the
+  macOS Downloads prompt denied, a read-only folder) falls back to the home
+  directory, and the toast distinguishes it
+  (`Saved <name> in home (Downloads needs permission)`); any
   other failure surfaces as `Could not save: …`. Success, fallback and failure
   all go through the shared toast, so no dialog ever blocks the save.
-  The write is atomic (unique `create_new` temp beside the destination, then
-  `rename`), so a failed or interrupted save never truncates a file; a
-  replacement keeps the existing file's permissions.
+  On filesystems with hard links the write is atomic (unique `create_new`
+  temp beside the destination, then a no-replace hard-link publish);
+  filesystems without hard links fall back to an exclusive create. Either way
+  a failed or interrupted save neither truncates a file nor replaces one that
+  appeared after the name check; a replacement, used only by the explicit
+  atomic-replacement path, keeps the existing file's permissions.
   The file name derives from the page and is slugified and capped BEFORE it
   becomes a path component, so a hostile title or URL segment cannot add a
   separator, leave the downloads directory or name a Windows device.

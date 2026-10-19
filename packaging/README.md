@@ -19,6 +19,9 @@ Version handling: the metainfo's `<release>` is refreshed to the Cargo.toml
 version at package time (`render_metainfo` for the `.deb`/`.rpm`/`make
 install`; the Flatpak manifest renders its installed copy the same way in
 its build commands), so the committed file stays valid standalone and every
-packaged copy can never disagree with the binary. The Flatpak build also
-rewrites the launchable desktop id and the stock icon name to the app id,
-because Flatpak exports both under `dev.mdowser.app`.
+packaged copy can never disagree with the binary. `make check-version` (also
+part of `make test`, `make validate` and every `scripts/build-dist.sh` run)
+fails when the committed metainfo, RPM changelog, `CHANGELOG.md` release
+section or `docs/SECURITY.md` supported line disagrees with `Cargo.toml`.
+The Flatpak build also rewrites the launchable desktop id and the stock icon
+name to the app id, because Flatpak exports both under `dev.mdowser.app`.

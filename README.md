@@ -112,7 +112,7 @@ make install  # install into /usr/local (PREFIX/DESTDIR supported)
 make run      # debug build and run
 ```
 
-`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. Requirements include stable Rust ≥ 1.98 and a C compiler. NASM is also required on x86/x86_64 hosts; ARM64 hosts use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
+`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. If Rust itself is not installed yet, run `make deps` once first (the Makefile resolves the toolchain at startup). Requirements include stable Rust ≥ 1.98 and a C compiler. NASM is also required on x86/x86_64 hosts; ARM64 hosts use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
 
 The build guide covers full requirements, the `make test` pipeline, multi-platform packaging and native Windows setup: [**Building MDowser**](docs/BUILDING.md#native-windows).
 

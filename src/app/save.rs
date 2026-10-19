@@ -28,11 +28,15 @@
 //!   length-capped BEFORE it becomes a path component, so a hostile title or
 //!   URL segment cannot add a separator or `..`, leave the downloads
 //!   directory or name a Windows device.
-//! - The write is ATOMIC: the bounded document (at most `MAX_BODY_BYTES`)
-//!   lands in a unique sibling temp file (`create_new`, never following a
-//!   planted link) that is renamed into place, so a failure mid-write never
-//!   leaves a truncated document. A plain synchronous write on the UI thread
-//!   is acceptable at the fetch cap, like the stores' own bounded writes.
+//! - The write is ATOMIC and no-replace where the filesystem supports hard
+//!   links: the bounded document (at most `MAX_BODY_BYTES`) lands in a
+//!   unique sibling temp file (`create_new`, never following a planted
+//!   link) that is published through a hard link, so a failure mid-write
+//!   never leaves a truncated document and a file that appears after the
+//!   name check is never overwritten. Filesystems without hard links fall
+//!   back to an exclusive in-place create (also no replacement). A plain
+//!   synchronous write on the UI thread is acceptable at the fetch cap, like
+//!   the stores' own bounded writes.
 
 use crate::config;
 use std::path::{Path, PathBuf};
@@ -165,7 +169,7 @@ fn write_with(
 /// touching the real downloads folder).
 fn write_in(directory: &Path, payload: &Payload<'_>) -> Result<PathBuf, WriteError> {
     let path = unique_destination(directory, &payload.stem)?;
-    write_file(&path, payload.source).map(|()| path)
+    write_file(&path, payload.source, false).map(|()| path)
 }
 
 /// First free destination for `stem` in `directory`: the page's own name when
@@ -175,12 +179,12 @@ fn write_in(directory: &Path, payload: &Payload<'_>) -> Result<PathBuf, WriteErr
 /// copies exactly like a browser download does.
 fn unique_destination(directory: &Path, stem: &str) -> Result<PathBuf, WriteError> {
     let first = directory.join(format!("{stem}.{MARKDOWN_EXTENSION}"));
-    if !first.exists() {
+    if !destination_taken(&first) {
         return Ok(first);
     }
     for copy in 1..=MAX_NAME_COPIES {
         let candidate = directory.join(format!("{stem} ({copy}).{MARKDOWN_EXTENSION}"));
-        if !candidate.exists() {
+        if !destination_taken(&candidate) {
             return Ok(candidate);
         }
     }
@@ -189,13 +193,25 @@ fn unique_destination(directory: &Path, stem: &str) -> Result<PathBuf, WriteErro
     )))
 }
 
+/// Does a directory entry occupy `path`? `symlink_metadata` (lstat) counts a
+/// symlink itself, including a DANGLING one, so a planted link is treated as
+/// taken (the save moves to the next copy name) instead of being silently
+/// replaced by `rename`. `exists()` followed the link and reported a dangling
+/// one as free.
+fn destination_taken(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok()
+}
+
 /// Writes `bytes` to `path` through a unique sibling temp file.
 ///
-/// The destination is reserved by `unique_destination` and normally does not
-/// exist; the temp-then-rename still keeps a race (a file appearing between
-/// the `stat` and the write) from ever leaving a truncated document, and a
-/// replacement keeps the existing file's permissions.
-fn write_file(path: &Path, bytes: &str) -> Result<(), WriteError> {
+/// `replace` is only for callers that explicitly own the destination (the
+/// atomic-replacement test): a SAVE passes `false`, so a file that appeared
+/// after [`unique_destination`] checked the name is never overwritten. The
+/// no-replace publish is a hard link, which creates the destination only if
+/// it is still free and exposes the completed temp file atomically; a
+/// filesystem without hard links falls back to an exclusive create (still
+/// no replacement). A replacement keeps the existing file's permissions.
+fn write_file(path: &Path, bytes: &str, replace: bool) -> Result<(), WriteError> {
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
     // Unique per process + call: two saves never share a temp file, and a
     // leftover from a crash is never followed (create_new).
@@ -228,9 +244,12 @@ fn write_file(path: &Path, bytes: &str) -> Result<(), WriteError> {
             "Could not save: no unique temporary file".to_string(),
         ));
     };
+    if !replace {
+        return publish_new(path, &temp, bytes);
+    }
     // Replacing an existing file keeps its permissions (`fs::write` used to
     // truncate in place; the atomic rename must not silently widen or narrow
-    // them). New files keep the process umask.
+    // them).
     #[cfg(unix)]
     if let Ok(meta) = std::fs::metadata(path) {
         use std::os::unix::fs::PermissionsExt as _;
@@ -239,6 +258,51 @@ fn write_file(path: &Path, bytes: &str) -> Result<(), WriteError> {
     }
     if let Err(e) = std::fs::rename(&temp, path) {
         let _ = std::fs::remove_file(&temp);
+        return Err(WriteError::io(e));
+    }
+    Ok(())
+}
+
+/// Publishes the finished temp file at a destination that must still be
+/// free. [`std::fs::hard_link`] is atomic and fails with `AlreadyExists`
+/// instead of replacing the target, closing the check-then-rename race in
+/// [`unique_destination`]. Filesystems that do not support hard links
+/// (FAT/exFAT, some network shares) fall back to an exclusive create of the
+/// same bytes: still no replacement, and it cleans up after a failed write.
+fn publish_new(path: &Path, temp: &Path, bytes: &str) -> Result<(), WriteError> {
+    match std::fs::hard_link(temp, path) {
+        Ok(()) => {
+            let _ = std::fs::remove_file(temp);
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            let _ = std::fs::remove_file(temp);
+            Err(WriteError::plain(format!(
+                "Could not save: {} already exists",
+                path.display()
+            )))
+        }
+        Err(_) => {
+            let _ = std::fs::remove_file(temp);
+            write_exclusive(path, bytes)
+        }
+    }
+}
+
+/// Creates `path` exclusively and writes `bytes` into it. The fallback for
+/// filesystems without hard links: a destination that appeared in the
+/// meantime is never replaced; a failed write removes the partial file.
+fn write_exclusive(path: &Path, bytes: &str) -> Result<(), WriteError> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = options.open(path).map_err(WriteError::io)?;
+    use std::io::Write as _;
+    let result = file
+        .write_all(bytes.as_bytes())
+        .and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(e) = result {
+        let _ = std::fs::remove_file(path);
         return Err(WriteError::io(e));
     }
     Ok(())
@@ -624,6 +688,25 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A dangling symlink still OCCUPIES the page's file name: the save
+    /// picks the next browser-style copy instead of replacing the link (an
+    /// `exists()` check followed the link and reported it as free).
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_at_the_page_name_is_preserved() {
+        let dir = scratch("symlink");
+        let target = dir.join("notes.md");
+        std::os::unix::fs::symlink("missing-target", &target).expect("symlink");
+        let payload = Payload::new("notes".to_string(), "# Title\n");
+        let saved = write_in(&dir, &payload).expect("save");
+        assert_eq!(saved, dir.join("notes (1).md"));
+        assert_eq!(
+            std::fs::read_link(&target).expect("link kept"),
+            PathBuf::from("missing-target")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// The save write is ATOMIC: it replaces the destination through a
     /// sibling temp file and never leaves that temp behind, so an existing
     /// file is only ever swapped whole.
@@ -631,11 +714,42 @@ mod tests {
     fn write_file_replaces_atomically_and_cleans_up() {
         let dir = scratch("atomic");
         let target = dir.join("notes.md");
-        write_file(&target, "first\n").expect("write");
-        write_file(&target, "second\n").expect("replace");
+        write_file(&target, "first\n", false).expect("write");
+        write_file(&target, "second\n", true).expect("replace");
         assert_eq!(
             std::fs::read_to_string(&target).expect("file written"),
             "second\n"
+        );
+        let leftovers: Vec<String> = std::fs::read_dir(&dir)
+            .expect("scratch dir")
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".mdowser-save-"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The no-replace publish closes the check-then-rename race: a file that
+    /// appears after `unique_destination` checked the name must survive, and
+    /// the failed attempt must leave no temp file behind.
+    #[test]
+    fn an_existing_destination_is_never_replaced_by_a_new_save() {
+        let dir = scratch("no-replace");
+        let target = dir.join("notes.md");
+        std::fs::write(&target, "already here\n").expect("seed");
+        let error = write_file(&target, "new contents\n", false).expect_err("must not replace");
+        assert!(
+            error.message.contains("already exists"),
+            "{}",
+            error.message
+        );
+        assert_eq!(
+            std::fs::read_to_string(&target).expect("original kept"),
+            "already here\n"
         );
         let leftovers: Vec<String> = std::fs::read_dir(&dir)
             .expect("scratch dir")

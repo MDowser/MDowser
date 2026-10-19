@@ -7,11 +7,13 @@ See also: [`ARCHITECTURE.md`](ARCHITECTURE.md) for the internal contracts and
 
 | Version | Supported |
 | ------- | --------- |
-| 0.5.x   | Yes       |
-| < 0.5   | No        |
+| 0.6.x   | Yes       |
+| < 0.6   | No        |
 
-Only the latest `0.5.x` release (see the `Cargo.toml` version and
-`CHANGELOG.md`) receives security fixes.
+Only the latest `0.6.x` release line (see the `Cargo.toml` version and
+`CHANGELOG.md`) receives security fixes. The table is checked against
+`Cargo.toml` by `make check-version`, so a release cannot leave this policy
+advertising an older line.
 
 ## Scope
 
@@ -367,13 +369,17 @@ card and the bookmark/history stores.
   `..`, cannot leave the downloads directory and cannot produce a name the
   filesystem refuses (a Windows device name such as `aux` or `nul` gets a
   `-file` suffix). An existing file is NEVER overwritten: the first free
-  browser-style copy name (`notes.md`, `notes (1).md`, …) is picked instead.
-  The write is ATOMIC: the bounded document (at most `MAX_BODY_BYTES`) goes to
-  a unique sibling temp file (`create_new`, never following a planted link)
-  that is renamed into place, so a failure mid-write cannot leave a truncated
-  document; a replacement keeps the existing file's permissions and a new file
-  gets the process umask. The write happens on the UI thread, like the stores'
-  own bounded writes.
+  browser-style copy name (`notes.md`, `notes (1).md`, …) is picked, and the
+  publish is no-replace itself (a hard link that fails if the destination
+  appeared after the name check; an exclusive create on filesystems without
+  hard links), so a racing file is preserved instead of silently replaced.
+  On filesystems with hard links the write is ATOMIC: the bounded document
+  (at most `MAX_BODY_BYTES`) goes to a unique sibling temp file (`create_new`,
+  never following a planted link) that is published whole, so a failure
+  mid-write cannot leave a truncated document. Filesystems without hard links
+  fall back to an exclusive in-place create (never a replacement; a failed
+  write removes the partial file). A new file gets the process umask. The
+  write happens on the UI thread, like the stores' own bounded writes.
 
 ### Credentials and URL sanitization
 

@@ -13,6 +13,8 @@
 # tool that IS installed reports an error.
 #
 # Checks:
+#   - version consistency: Cargo.toml vs metainfo, RPM changelog,
+#     CHANGELOG.md and SECURITY.md.
 #   - dev.mdowser.app.metainfo.xml: XML well-formedness of the committed file
 #     AND of the version-rendered copy the packages install (catches a broken
 #     render), then appstreamcli (or appstream-util) validation.
@@ -62,6 +64,17 @@ bad() {
     printf '  FAIL  %s\n' "$1"
     FAILED=$((FAILED + 1))
 }
+
+# --- version consistency -----------------------------------------------------
+# The cheap, tool-free gate shared with `make test`: Cargo.toml owns the
+# version, and the committed metainfo, RPM changelog, CHANGELOG.md and
+# security policy must name the same release.
+step "version consistency"
+if "$ROOT/scripts/check-version.sh"; then
+    ok "Cargo.toml, metainfo, RPM changelog, CHANGELOG.md and SECURITY.md agree"
+else
+    bad "version consistency (see errors above)"
+fi
 
 # --- XML well-formedness (committed + version-rendered) ----------------------
 step "XML well-formedness"

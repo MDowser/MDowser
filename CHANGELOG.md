@@ -37,6 +37,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`src/app/save.rs`, `Cargo.toml`, `src/markdown/outline.rs`,
   `src/markdown/anchors.rs`, `src/viewer/outline.rs`,
   `src/viewer/outline_panel.rs`, `src/app/`, `docs/`.)
+- A version-consistency gate (`make check-version`, also run by `make test`
+  and `make validate`) fails when the committed AppStream metainfo, RPM
+  changelog, `CHANGELOG.md` release section or `docs/SECURITY.md` supported
+  line lags the `Cargo.toml` version, so packaged or documented release
+  information cannot drift. (`scripts/check-version.sh`, `Makefile`,
+  `scripts/`, `docs/`.)
 
 ### Changed
 
@@ -45,10 +51,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the `▸`/`▾` text characters, so the title column never shifts
   and disclosure no longer depends on font glyph coverage. (`src/ui/icons/`,
   `src/viewer/markdown/components.rs`, `docs/RENDERING.md`.)
-- Page saves are atomic: the captured Markdown source is written to a unique
-  sibling temp file and renamed into place, so a failed or interrupted save
-  can never leave a truncated document; a replacement keeps the existing
-  file's permissions. (`src/app/save.rs`, `docs/`.)
+- Page saves are atomic and no-replace on filesystems with hard links: the
+  captured Markdown source is written to a unique sibling temp file and
+  published through a link that fails if the destination appeared after the
+  name check. Filesystems without hard links use an exclusive create (also
+  no replacement), so a failed or interrupted save can never leave a
+  truncated document and a racing file is never silently overwritten.
+  (`src/app/save.rs`, `docs/`.)
 - The floating Preferences dialog shares one dialog shadow and one hairline
   rule (`theme::dialog_shadow` / `theme::hairline`). (`src/ui/theme/`,
   `src/ui/preferences/`.)
@@ -60,6 +69,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The in-page find highlight keeps the `on_surface` text it sits behind at
+  WCAG AA in dark mode: the current match was a bright amber at ~2.7:1 while
+  the darker ordinary match was easier to read, so the match being read was
+  the least legible. (`src/ui/theme/mod.rs`, `src/ui/theme/tests.rs`.)
+- `docs/SECURITY.md` advertised the previous `0.5.x` line as supported; it
+  now tracks the current `0.6.x` release, and the new version gate prevents
+  the same drift at the next release. (`docs/SECURITY.md`,
+  `scripts/check-version.sh`.)
+- Tool-free Make targets (`deps`, `install`, `help`, `validate`,
+  `check-version`, `check-dist`, `sync-sites`, `check-sites`, `doctor`) work
+  without a resolved toolchain, and the Makefile no longer puts the current
+  directory first on `PATH` in that case (a planted `install`/`tar` could
+  shadow the real tool). `make doctor` now reports an absent cargo without
+  spawning an empty command. (`Makefile`, `docs/BUILDING.md`.)
 - The bookmark grid and the history list use checked indexing, so a mid-frame
   store change can never panic the UI thread. (`src/ui/bookmarks/`,
   `src/ui/history_page/`.)

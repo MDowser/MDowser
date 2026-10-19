@@ -458,7 +458,9 @@ write — the macOS "Downloads folder" permission prompt denied, a read-only
 folder, a filesystem policy — the save completes in the home directory instead
 and the toast says where (`Saved notes.md in home (Downloads needs
 permission)`), so a permission prompt never turns into a lost page. Any other
-failure reports itself in the same toast. The save is atomic: the file is
-written to a unique sibling temp file and renamed into place, so an interrupted
-or failed save never leaves a truncated document. No native save dialog is
-involved.
+failure reports itself in the same toast. On filesystems with hard links the
+save is atomic: the file is written to a unique sibling temp file and
+published with a no-replace link, so an interrupted or failed save never
+leaves a truncated document. Filesystems without hard links use an exclusive
+in-place create instead (also no replacement). Either way a file that appeared
+after the name check is never replaced. No native save dialog is involved.
