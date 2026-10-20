@@ -296,11 +296,14 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
             },
         ));
         ui.add_space(theme::spacing::XS);
-        // Bounded scroll log: readable mono, never pushes Retry off-screen.
+        // Bounded scroll log: readable mono, and it SHRINKS to its lines
+        // (up to 320px). Reserving the full cap on every error pushed Retry
+        // a hollow 320px below Details, off-screen on a short window; the
+        // action sat at the page's bottom border instead of beside the log.
         // The outer page already scrolls: keep the inner bar automatic so
         // two always-visible bars never sit side by side.
         egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
+            .auto_shrink([false, true])
             .max_height(320.0)
             .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded)
             .show(ui, |ui| {

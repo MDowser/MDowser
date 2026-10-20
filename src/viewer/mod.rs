@@ -496,33 +496,54 @@ pub fn show_content(
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                     .content_margin(egui::Margin::same(gutter as i8))
                     .show(ui, |ui| {
-                        if let TabState::Failed { asked, lines } = &tab.state {
-                            crate::ui::error_view::show_error(ui, asked, lines, kind);
-                            ui.add_space(theme::spacing::M);
-                            let resp = theme::tonal_button_sized(
-                                ui,
-                                retry_label,
-                                egui::vec2(160.0, 36.0),
-                                can_retry,
-                            );
-                            let resp = crate::ui::hover_tooltip_lazy(resp, || {
-                                if retry_local_error {
-                                    "Fix the address first: retrying a local rejection cannot succeed"
-                                        .to_string()
-                                } else if can_retry {
-                                    "Retry loading this page".to_string()
-                                } else {
-                                    format!("Retry in {}s (cooldown...)", tab.refresh_remaining())
+                        // Same centered reading column as a document: Copy log
+                        // and Retry belong to the text, not to the sheet's
+                        // borders (at the window edge Copy log could even share
+                        // the floating scrollbar's hit lane, so pressing near
+                        // its edge panned the page instead of copying).
+                        let avail = ui.available_width();
+                        let col_w = theme::content_max_width(avail).max(0.0);
+                        let pad = ((avail - col_w) / 2.0).max(0.0);
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            if pad > 0.5 {
+                                ui.add_space(pad);
+                            }
+                            ui.vertical(|ui| {
+                                ui.set_max_width(col_w);
+                                ui.set_min_width(col_w);
+                                if let TabState::Failed { asked, lines } = &tab.state {
+                                    crate::ui::error_view::show_error(ui, asked, lines, kind);
+                                    ui.add_space(theme::spacing::M);
+                                    let resp = theme::tonal_button_sized(
+                                        ui,
+                                        retry_label,
+                                        egui::vec2(160.0, 36.0),
+                                        can_retry,
+                                    );
+                                    let resp = crate::ui::hover_tooltip_lazy(resp, || {
+                                        if retry_local_error {
+                                            "Fix the address first: retrying a local rejection cannot succeed"
+                                                .to_string()
+                                        } else if can_retry {
+                                            "Retry loading this page".to_string()
+                                        } else {
+                                            format!(
+                                                "Retry in {}s (cooldown...)",
+                                                tab.refresh_remaining()
+                                            )
+                                        }
+                                    });
+                                    if resp.clicked() && can_retry {
+                                        retry_asked = Some(asked.clone());
+                                    }
+                                    // Blank margin after the last element (same
+                                    // `spacing::PAGE_END` as a document): the error
+                                    // page scrolls too.
+                                    ui.add_space(theme::spacing::PAGE_END);
                                 }
                             });
-                            if resp.clicked() && can_retry {
-                                retry_asked = Some(asked.clone());
-                            }
-                            // Blank margin after the last element (same
-                            // `spacing::PAGE_END` as a document): the error
-                            // page scrolls too.
-                            ui.add_space(theme::spacing::PAGE_END);
-                        }
+                        });
                     });
                 crate::ui::remember_scroll(
                     ui.ctx(),

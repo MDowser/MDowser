@@ -74,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Error pages keep their actions off the sheet borders: the screen now uses
+  the same centered reading column as a document, so "Copy log" no longer
+  shares the floating scrollbar's hit lane at the right edge, and a short
+  attempt log no longer reserves the full 320px log box (which pushed Retry to
+  the page's bottom edge and off-screen at the minimum window height).
+  (`src/viewer/mod.rs`, `src/ui/error_view.rs`, `docs/INTERFACE.md`.)
 - The outline scrollspy no longer jumps to the deepest visible heading at the
   page end: with many headings together, the intermediate rows could never be
   selected by scrolling because the sheet cannot move further. It now points at

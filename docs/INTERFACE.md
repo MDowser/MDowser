@@ -333,8 +333,13 @@ sheet, not a raw log:
   pasted credentials are stripped before the OS sees it; no other family offers
   the action.
 - Details is a bounded scroll of one monospace line per route candidate, in
-  tried order, `https://`/`file://` stripped and userinfo removed. A "Copy log"
-  button copies that text prefixed by `Requested: <address>`.
+  tried order, `https://`/`file://` stripped and userinfo removed. The box takes
+  the log's own height (up to 320px), so a short log does not reserve empty
+  space below it. A "Copy log" button copies that text prefixed by
+  `Requested: <address>`.
+- The whole error screen uses the same centered reading column as a document
+  (up to 760px), so "Copy log" and Retry stay on the text's side of the sheet
+  rather than on the window borders.
 - A Retry button re-runs the page under the same 5s cooldown as Refresh
   (anti-hammer): while cooling down it is disabled and its tooltip counts the
   seconds. A local address rejection (invalid URL, non-`https`) can never

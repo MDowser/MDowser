@@ -504,3 +504,94 @@ fn fresh_navigation_starts_a_seen_page_at_the_top() {
         "the title must sit at the top edge, not mid-page: {title_y:?}"
     );
 }
+
+/// Laid-out rect of one painted label (its full galley box).
+fn painted_text(out: &egui::FullOutput, label: &str) -> Option<egui::Rect> {
+    out.shapes.iter().find_map(|c| match &c.shape {
+        egui::epaint::Shape::Text(t) if t.galley.text() == label => {
+            Some(egui::Rect::from_min_size(t.pos, t.galley.size()))
+        }
+        _ => None,
+    })
+}
+
+/// Run `show_content` on a Failed tab for `frames` frames and return the
+/// last frame's painted shapes.
+fn failed_page(screen: egui::Rect, lines: Vec<String>, frames: usize) -> egui::FullOutput {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let input = egui::RawInput {
+        screen_rect: Some(screen),
+        ..Default::default()
+    };
+    let mut tab = Tab::new(1);
+    tab.state = TabState::Failed {
+        asked: "https://ex.com/docs/".to_string(),
+        lines,
+    };
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut out = None;
+    for _ in 0..frames {
+        let mut frame = ctx.run_ui(input.clone(), |root| {
+            show_content(root, &mut tab, &mut store, &mut bookmarks, &mut favicons);
+        });
+        frame.textures_delta.clear();
+        out = Some(frame);
+    }
+    out.expect("at least one frame ran")
+}
+
+/// The error page uses the same centered reading column as a document:
+/// Copy log and Retry stay on the text's side of the sheet instead of
+/// hugging the window borders, where Copy log also shared the floating
+/// scrollbar's hit lane (pressing near its edge panned the page).
+#[test]
+fn error_actions_use_the_reading_column() {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 900.0));
+    let out = failed_page(
+        screen,
+        vec!["access to https://ex.com/docs/ network error: dns".to_string()],
+        3,
+    );
+    // Same column geometry `render_doc` uses: the gutter the scroll content
+    // keeps from the sheet edges, then the centered 760px measure.
+    let gutter = crate::ui::theme::content_margin(screen.width()) as f32;
+    let avail = screen.width() - 2.0 * gutter;
+    let col = crate::ui::theme::content_max_width(avail);
+    let left = gutter + ((avail - col) / 2.0).max(0.0);
+    let right = left + col;
+
+    let copy = painted_text(&out, "Copy log").expect("Copy log is painted");
+    let retry = painted_text(&out, "Retry").expect("Retry is painted");
+    assert!(
+        copy.right() <= right + 0.5 && copy.left() >= right - 100.0,
+        "Copy log is not at the reading column's right edge: {copy:?} vs column {left}..{right}"
+    );
+    let retry_center = retry.center().x;
+    assert!(
+        (retry_center - (left + 80.0)).abs() < 2.0,
+        "Retry is not at the reading column's left edge: {retry_center} vs {left}"
+    );
+}
+
+/// A short attempt log must not reserve the full 320px scroll box: it
+/// pushed Retry a hollow box below Details and off-screen at the minimum
+/// window height, so the action lived at the page's bottom border and the
+/// reader had to scroll to reach it.
+#[test]
+fn short_error_log_keeps_retry_on_screen() {
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 480.0));
+    let out = failed_page(
+        screen,
+        vec!["access to https://ex.com/docs/ does not exist (404)".to_string()],
+        3,
+    );
+    let retry =
+        painted_text(&out, "Retry").expect("Retry is painted inside the minimum-size window");
+    assert!(
+        retry.center().y < screen.height() - 20.0,
+        "Retry sits at the bottom border: {retry:?} in {screen:?}"
+    );
+}
