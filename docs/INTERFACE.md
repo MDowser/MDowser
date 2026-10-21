@@ -431,7 +431,13 @@ they need (the full text also stays in the hover tooltip and the accessible
 name), and a heading that slugs to nothing still gets a navigable row (anchors
 reserve a positional id for it). The row of the section being read carries the
 accent bar; the list keeps that row in view as the reader scrolls and scrolls
-on its own when the outline is long.
+on its own when the outline is long. The cursor only names a heading that is
+actually laid out: one hidden in a collapsed section or an unselected tab is
+skipped until revealed, and a page whose headings are all hidden lights no
+row. At the page end the last visible heading that reached the reading line
+stays current (the nearest visible one is the fallback when no reached
+heading is on screen), so a heading the sheet can no longer scroll into
+place never steals the cursor from the section being read.
 
 The slot stays on every document page, including one without headings (a short
 "No headings" state replaces the rows) and the page still visible while the
@@ -439,15 +445,18 @@ next one loads ("Loading..."), so navigation never widens or narrows the
 reading column.
 
 A row click scrolls its heading to the top of the sheet through the same
-mechanism as a `#anchor` link click. The scrollspy accounts for the page END:
-the heading nearest the reading line among those on screen wins, so a cluster
-of headings at the foot of the page is walked row by row instead of the cursor
-leaping to the deepest visible row, and a heading that truly cannot reach the
-line still becomes current when it is the one on screen. A just-clicked row
-stays selected until the reader scrolls by hand. The sidebar has no close
-control and does not own `Esc`; navigation and tab switches reset its cursor
-with the rest of the page state. The find bar docks just left of the sidebar
-instead of covering it.
+mechanism as a `#anchor` link click. If the heading lives in a closed
+`<Accordion>` or an unselected `<Tabs>` panel, that container opens/selects
+first and the heading then consumes the same request; a cross-page `#fragment`
+into such content does the same. The scrollspy accounts for the page END: a
+visible heading that reached the line wins over a nearer one below it, so a
+heading the sheet can no longer scroll into place does not steal the cursor,
+while a dense cluster at the foot of the page is still walked row by row
+(the nearest visible heading is the fallback when no reached heading is on
+screen). A just-clicked row stays selected until the reader scrolls by hand.
+The sidebar has no close control and does not own `Esc`; navigation and tab
+switches reset its cursor with the rest of the page state. The find bar docks
+just left of the sidebar instead of covering it.
 
 ## Save page
 

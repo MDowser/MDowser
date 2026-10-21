@@ -339,6 +339,17 @@ fn render_tabs(
     }
     let id = tabs_state_id(ctx.doc_salt, at, &labels);
     let mut sel = get_usize(ui, id).min(tabs.len() - 1);
+    // An outline row or cross-page fragment may target a heading inside a
+    // panel that is not selected: select that panel before walking it, so
+    // the heading can consume the request and scroll into view.
+    if let Some(target) = ctx.pending_heading_at {
+        if let Some(index) = tabs
+            .iter()
+            .position(|(start, stop)| (*start..*stop).contains(&target))
+        {
+            sel = index;
+        }
+    }
     let scheme = theme::scheme_ref(ui);
     let full_w = ui.available_width().max(1.0);
     // Cap each cell at an equal share of the strip: a long label (or many
@@ -411,7 +422,14 @@ fn render_section(
         title.clone()
     };
     let id = section_state_id(ctx.doc_salt, at, &label);
-    let mut open = get_bool(ui, id);
+    // A pending target inside this section must be rendered before it can
+    // scroll: open the accordion for the frame (and persist that state), even
+    // when the reader had closed it. An outline row for a hidden heading then
+    // works instead of selecting a row that never appears in the sheet.
+    let holds_pending = ctx
+        .pending_heading_at
+        .is_some_and(|target| (*i..close).contains(&target));
+    let mut open = holds_pending || get_bool(ui, id);
     if section_header(ui, &label, open) {
         open = !open;
     }

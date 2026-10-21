@@ -1171,13 +1171,14 @@ fn same_titled_accordions_toggle_independently() {
     );
 }
 
-/// A `#fragment` whose target EXISTS but is not rendered this pass (inside
-/// an unselected `<Tab>` panel here) must stay pending — it used to be
-/// dropped at the end of the frame, so the request could never be applied
-/// when the reader opened that tab. An unknown target is still dropped
-/// instead of being retried every frame.
+/// A `#fragment` whose target EXISTS but lives in content the walk would
+/// skip (inside an unselected `<Tab>` panel here) reveals that content: the
+/// container selects the panel and the heading consumes the request in the
+/// same pass. It used to stay pending until the reader opened the tab by
+/// hand, so the link appeared to do nothing. An unknown target is still
+/// dropped instead of being retried every frame.
 #[test]
-fn known_but_unrendered_anchor_stays_pending() {
+fn known_anchor_opens_the_tab_that_holds_it() {
     let md = "<Tabs>\n<Tab label=\"Uno\">\n\n# Uno heading\n\nuno body\n\n</Tab>\n<Tab label=\"Dos\">\n\n# Dos heading\n\ndos body\n\n</Tab>\n</Tabs>\n";
     let ctx = egui::Context::default();
     crate::ui::theme::install_test_fonts(&ctx);
@@ -1220,15 +1221,25 @@ fn known_but_unrendered_anchor_stays_pending() {
             });
         });
         out.textures_delta.clear();
+        out.shapes
+            .iter()
+            .filter_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
     };
-    // The target exists (in the unselected panel): keep it for the frame
-    // that actually renders it.
+    // The target exists in the unselected panel: select that panel, render
+    // the heading and consume the request in this same frame.
     let mut pending = Some("dos-heading".to_string());
-    frame(&mut pending);
+    let texts = frame(&mut pending);
     assert_eq!(
-        pending.as_deref(),
-        Some("dos-heading"),
-        "a known target that was not rendered this pass stays pending"
+        pending, None,
+        "the revealed tab rendered the target and consumed the request"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("dos body")),
+        "the panel holding the target is now on screen: {texts:?}"
     );
     // An unknown target is not retried forever.
     let mut unknown = Some("does-not-exist".to_string());

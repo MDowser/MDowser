@@ -56,7 +56,9 @@ STRUCTURE and never evaluates it:
   code tab per fenced child (label from the fence `title=`, else its language).
   A section's disclosure chevron is a themed vector glyph (`ui::icons`,
   right when collapsed, down when expanded) in a fixed slot, so the title
-  column never moves and no font fallback is involved.
+  column never moves and no font fallback is involved. An outline row or a
+  `#fragment` targeting a heading inside a closed accordion or an unselected
+  tab opens/selects that content before scrolling to it.
 - `<Tabs items={["A", "B"]}>` labels its `<Tab>` children with no
   `label`/`title`, so tab sets relying on it show real names instead of
   `Tab 1…N`. A very long label (tab cell, accordion header, step title) is
@@ -118,7 +120,8 @@ STRUCTURE and never evaluates it:
 - In-document anchors navigate: `[text](#heading)` scrolls to the heading whose
   slug (or explicit `{#id}` / `[#id]` marker) matches; `[^N]` jumps to its
   footnote. A missing anchor renders as plain text. A
-  `#fragment` on another document survives the load and scrolls when resolved.
+  `#fragment` on another document survives the load and scrolls when resolved,
+  revealing a closed accordion or unselected tab that holds the heading.
   A heading that slugs to nothing (punctuation/emoji only) reserves a
   positional `heading-N` id, so `#heading-1` and its document-outline row still
   reach it.

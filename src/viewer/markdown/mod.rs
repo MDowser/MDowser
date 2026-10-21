@@ -144,8 +144,14 @@ struct RenderCtx<'a> {
     dests: &'a crate::protocol::rewrite::DestCache,
     /// Requested scroll target (from an anchor click or a cross-page
     /// fragment). Consumed by the matching heading/footnote; cleared at the
-    /// end of the document when nothing claimed it.
+    /// end of the document when no target of that name exists.
     pending_anchor: &'a mut Option<String>,
+    /// Event index of the heading `pending_anchor` names this frame, when it
+    /// names one. Structural containers compare it with their child ranges
+    /// and open/select the content that holds the target, so a heading hidden
+    /// in a closed accordion or an unselected tab can be revealed and
+    /// scrolled to instead of leaving the request pending.
+    pending_heading_at: Option<usize>,
     selected: bool,
     interactive: bool,
     /// Current document theme (`ui.visuals().dark_mode`): a light/dark image
@@ -250,7 +256,7 @@ impl<'a> RenderCtx<'a> {
 /// - `dests`: link/image destinations resolved once at fetch time
 ///   (`Fetched.dests`); the per-frame tree does no URL parsing.
 /// - `pending_anchor`: requested scroll target; consumed by the first
-///   matching element and cleared here when nothing matches.
+///   matching element and cleared here when no target of that name exists.
 /// - `doc_salt`: per-document widget id salt. The caller mixes the URL hash
 ///   with the TAB id, so two tabs on the same document keep independent
 ///   scroll/table/code state.
@@ -312,10 +318,14 @@ pub(crate) fn show_markdown_with_find(
     if let Some(outline) = outline.as_deref_mut() {
         outline.begin_frame();
     }
+    let pending_heading_at = pending_anchor
+        .as_deref()
+        .and_then(|target| anchors.heading_event_at(target));
     let mut ctx = RenderCtx {
         anchors,
         dests,
         pending_anchor,
+        pending_heading_at,
         selected,
         interactive,
         dark: ui.visuals().dark_mode,
@@ -356,11 +366,10 @@ pub(crate) fn show_markdown_with_find(
         render_truncation_notice(ui);
     }
     // A target that no element claimed is dropped so it is not retried every
-    // frame — but only when the document does not KNOW it. Content skipped
-    // this pass (an unselected `<Tab>` panel, a closed `<Accordion>`, the
-    // block budget) can hold the target legitimately: dropping it there made
-    // a cross-page `…/page#heading-inside-a-tab` scroll nowhere, and the
-    // request could never be applied when the reader later opened that tab.
+    // frame — but only when the document does not KNOW it. A known heading
+    // inside hidden `<Tabs>`/`<Accordion>` content was revealed by the walk
+    // above, so the only legitimate skip left is the block budget: dropping
+    // its request would lose a cross-page `…/page#heading` for good.
     if let Some(target) = ctx.pending_anchor.as_deref() {
         if !anchors.contains(target) {
             *ctx.pending_anchor = None;

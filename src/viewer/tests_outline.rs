@@ -51,6 +51,15 @@ fn screen() -> egui::Rect {
     egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0))
 }
 
+/// Whether the outline cursor names a heading the last walk rendered (the
+/// sidebar only lights that row).
+fn current_outline_row_lit(tab: &Tab) -> bool {
+    match &tab.state {
+        TabState::Loaded { fetched } => tab.outline.current_is_rendered(&fetched.outline),
+        _ => false,
+    }
+}
+
 /// Left edge of the sidebar on `screen`.
 fn panel_left(screen: egui::Rect) -> f32 {
     screen.right() - super::outline_panel::panel_width(screen.width())
@@ -265,6 +274,193 @@ fn a_row_click_scrolls_its_heading_into_view() {
         "the heading must sit at the top of the viewport: y={y}"
     );
     assert_eq!(tab.pending_anchor, None, "the walk consumed the request");
+}
+
+/// A collapsed section still contributes its headings to the outline. The
+/// first such heading must not take the cursor while it is hidden: the reader
+/// is above every rendered heading, and that row can never be reached by
+/// scrolling.
+#[test]
+fn a_collapsed_heading_never_takes_the_cursor() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let md = "<Accordion title=\"More\">\n\n# Hidden section\n\nhidden body\n\n</Accordion>\n\n# Visible section\n\nvisible body\n";
+    let mut tab = loaded_tab(md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            Vec::new(),
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab);
+    }
+    assert_eq!(
+        tab.outline.current, 1,
+        "the cursor points at the first section that actually renders"
+    );
+    assert!(
+        current_outline_row_lit(&tab),
+        "the rendered section's row is the one lit"
+    );
+}
+
+/// A page whose only headings live in a closed section has no row to light:
+/// the internal cursor stays at the first item, but the sidebar must not
+/// claim a section that is not on the page. Opening the section gives the
+/// cursor a rendered heading and the row lights again.
+#[test]
+fn a_page_with_only_hidden_headings_lights_no_row() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let md = "<Accordion title=\"More\">\n\n# Hidden section\n\nhidden body\n\n</Accordion>\n";
+    let mut tab = loaded_tab(md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let before = run(&mut tab, Vec::new());
+    assert!(
+        !current_outline_row_lit(&tab),
+        "a hidden heading lights no row"
+    );
+    let header = document_text_at(&before, "More", screen()).expect("accordion header");
+    let _ = run(&mut tab, click(header + egui::vec2(20.0, 8.0)));
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert!(
+        current_outline_row_lit(&tab),
+        "the now-rendered heading gives the cursor a row to light"
+    );
+}
+
+/// Clicking an outline row whose heading lives in a closed `<Accordion>` must
+/// reveal it: the click opens the section and the same anchor request scrolls
+/// the heading into view. It used to select the row, leave the content
+/// collapsed and keep the request pending forever.
+#[test]
+fn a_row_click_opens_a_closed_accordion_and_scrolls_to_its_heading() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let filler: String = (0..140).map(|i| format!("filler {i:03}\n\n")).collect();
+    let md = format!(
+        "# Top\n\n{filler}<Accordion title=\"More\">\n\n## Hidden section\n\nhiddenmark paragraph\n\n</Accordion>\n\n{filler}"
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let before = run(&mut tab, Vec::new());
+    assert!(
+        document_text_at(&before, "hiddenmark", screen()).is_none(),
+        "the collapsed section hides its body"
+    );
+    let row = panel_text_at(&before, "Hidden section", screen()).expect("outline row");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    let y = document_text_at(&texts, "hiddenmark", screen())
+        .expect("the click opened the accordion and scrolled its heading into view")
+        .y;
+    assert!(
+        (0.0..700.0).contains(&y),
+        "the revealed heading stays in the viewport: y={y}"
+    );
+    assert_eq!(
+        tab.pending_anchor, None,
+        "the revealed heading consumed the anchor request"
+    );
+}
+
+/// The same for an unselected `<Tabs>` panel: the row click selects the tab
+/// that holds the heading before scrolling, instead of silently doing nothing
+/// while the request stays pending.
+#[test]
+fn a_row_click_selects_the_tab_that_holds_the_heading() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let filler: String = (0..140).map(|i| format!("filler {i:03}\n\n")).collect();
+    let md = format!(
+        "# Top\n\n{filler}<Tabs>\n<Tab label=\"First\">\n\n## First section\n\nfirstmark\n\n</Tab>\n<Tab label=\"Second\">\n\n{filler}## Second section\n\nsecondmark paragraph\n\n</Tab>\n</Tabs>\n\n{filler}"
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen(),
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let before = run(&mut tab, Vec::new());
+    assert!(
+        document_text_at(&before, "secondmark", screen()).is_none(),
+        "the unselected tab hides its body"
+    );
+    let row = panel_text_at(&before, "Second section", screen()).expect("outline row");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    let y = document_text_at(&texts, "secondmark", screen())
+        .expect("the click selected the tab and scrolled its heading into view")
+        .y;
+    assert!(
+        (0.0..700.0).contains(&y),
+        "the revealed heading stays in the viewport: y={y}"
+    );
+    assert_eq!(
+        tab.pending_anchor, None,
+        "the revealed heading consumed the anchor request"
+    );
 }
 
 /// Wheel-scrolling the document moves the outline cursor section by section:

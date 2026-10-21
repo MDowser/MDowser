@@ -115,7 +115,12 @@ pub(crate) fn show(
             if outline.is_empty() {
                 empty_state(ui, empty_label);
             } else {
-                clicked = list(ui, outline, state, tab_id, doc_generation);
+                // The panel draws before this frame's document walk: these
+                // are the rects that produced the current cursor. A skipped
+                // page (all headings folded away) keeps the cursor but must
+                // not light a row that is not on screen.
+                let current_rendered = state.current_is_rendered(outline);
+                clicked = list(ui, outline, state, tab_id, doc_generation, current_rendered);
             }
         });
     let rect = response.response.rect;
@@ -157,6 +162,7 @@ fn list(
     state: &mut OutlineState,
     tab_id: usize,
     doc_generation: u64,
+    current_rendered: bool,
 ) -> Option<usize> {
     let rows = outline.items.len();
     let width = ui.available_width().max(1.0);
@@ -209,7 +215,17 @@ fn list(
                 let item = &outline.items[index];
                 let indent = outline.indent_steps(item) as f32 * INDENT_STEP;
                 let id = egui::Id::new(("outline-row", tab_id, index));
-                if row(ui, id, item, indent, index == current, width, *height).clicked() {
+                if row(
+                    ui,
+                    id,
+                    item,
+                    indent,
+                    current_rendered && index == current,
+                    width,
+                    *height,
+                )
+                .clicked()
+                {
                     clicked = Some(index);
                 }
             }

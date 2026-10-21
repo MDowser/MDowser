@@ -74,17 +74,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Clicking an outline row whose heading sits inside a closed `<Accordion>` or
+  an unselected `<Tabs>` panel now opens/selects that content before scrolling
+  to the heading; the same applies to a cross-page `#fragment`. It used to
+  select the row, leave the content closed and keep the anchor pending
+  indefinitely, so the click appeared to do nothing. (`src/markdown/anchors.rs`,
+  `src/viewer/markdown/`, `docs/INTERFACE.md`, `docs/RENDERING.md`,
+  `docs/ARCHITECTURE.md`.)
 - Error pages keep their actions off the sheet borders: the screen now uses
   the same centered reading column as a document, so "Copy log" no longer
   shares the floating scrollbar's hit lane at the right edge, and a short
   attempt log no longer reserves the full 320px log box (which pushed Retry to
   the page's bottom edge and off-screen at the minimum window height).
   (`src/viewer/mod.rs`, `src/ui/error_view.rs`, `docs/INTERFACE.md`.)
-- The outline scrollspy no longer jumps to the deepest visible heading at the
-  page end: with many headings together, the intermediate rows could never be
-  selected by scrolling because the sheet cannot move further. It now points at
-  the on-screen heading nearest the reading line, walking a dense cluster row
-  by row. (`src/viewer/outline.rs`, `docs/INTERFACE.md`,
+- The outline scrollspy follows the section actually being read: a heading
+  that did not render (a collapsed `<Accordion>`, an unselected `<Tabs>`
+  panel) is never selected, and a page whose headings are all hidden lights
+  no row. At the page end the last visible heading that reached the reading
+  line wins over a nearer heading below it that the sheet can no longer
+  scroll into place. A dense cluster at the foot of the page is still walked
+  row by row (the nearest visible heading is the fallback when no reached
+  heading is on screen). (`src/viewer/outline.rs`,
+  `src/viewer/outline_panel.rs`, `docs/INTERFACE.md`,
   `docs/ARCHITECTURE.md`.)
 - The in-page find highlight keeps the `on_surface` text it sits behind at
   WCAG AA in dark mode: the current match was a bright amber at ~2.7:1 while

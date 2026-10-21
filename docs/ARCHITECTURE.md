@@ -718,7 +718,10 @@ Key contracts per area (the module map above names every module):
   share a selection or open state). A component label (tab cell, accordion
   header, step title) is capped at `MAX_COMPONENT_LABEL_CHARS`, full text in the
   hover tooltip, so one long label cannot push the strip outside the reading
-  sheet. A `<Badge>` inside a heading draws the same pill, scaled with the
+  sheet. While an anchor request targets a heading inside a container, the
+  tab strip selects the panel that holds it and an accordion opens before its
+  content is walked, so outline rows and cross-page fragments reveal hidden
+  headings. A `<Badge>` inside a heading draws the same pill, scaled with the
   heading (capped).
 - Every display cap that elides text — suggestion/history/bookmark titles and
   URLs, footnote labels, window titles, block text, component labels — goes
@@ -1130,13 +1133,18 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 - `viewer::outline` is the scrollspy state: the document walk records each
   rendered heading's screen rect by that event index, `current_section` merges
   the heading list and the recorded rects in ONE ordered pass (the last heading
-  above the viewport top, with a small pad). At the page end, where the sheet
-  cannot put every heading on that line, it picks the on-screen heading nearest
-  the line instead of the deepest visible one, so a dense cluster at the foot
-  of the page is walked row by row rather than skipped in one jump; a clicked
-  row is pinned until the spy reaches it or the reader scrolls by hand.
-  `reveal_offset` computes the sidebar list offset from the measured variable
-  row heights.
+  above the viewport top, with a small pad). A heading with no rect (collapsed
+  content, an unselected tab, the block budget) is never a candidate; when no
+  heading has reached the line yet the first heading that DID render wins, not
+  the first row of the outline. A frame that rendered no heading lights no row
+  (the cursor is kept for when content renders). At the page end, where the
+  sheet cannot put every heading on that line, the last VISIBLE heading that
+  reached the line keeps the cursor and the nearest visible one is only the
+  fallback, so a nearer heading below the line does not steal the section
+  being read while a dense cluster at the foot of the page is still walked
+  row by row; a clicked row is pinned until the spy reaches it or the reader
+  scrolls by hand. `reveal_offset` computes the sidebar list offset from the
+  measured variable row heights.
 - `viewer::outline_panel` draws the permanent sidebar BEFORE the central
   panel, so it is layout, not an overlay: `Panel::right`, proportional width
   176-240px, full height, on every document page (a headingless page or the
@@ -1147,8 +1155,12 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   the visible rows are laid out on each frame. The current row carries the
   accent bar. A row click selects the row at once and sets `Tab::pending_anchor`,
   the same request a `#id` link click makes; the sheet's own walk consumes it
-  and scrolls. The sidebar publishes its screen rect so the find bar docks just
-  left of it. It has no close state and owns no keyboard key.
+  and scrolls. A target inside a closed `<Accordion>` or an unselected
+  `<Tabs>` panel first reveals that content (see
+  `AnchorIndex::heading_event_at` and `viewer::markdown::components`), so the
+  row can never leave the request pending on content that is not laid out.
+  The sidebar publishes its screen rect so the find bar docks just left of it.
+  It has no close state and owns no keyboard key.
 
 ## Save page
 

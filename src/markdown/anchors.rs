@@ -83,6 +83,24 @@ impl AnchorIndex {
             .filter(|id| !id.is_empty())
     }
 
+    /// Event index of the heading whose reserved id matches `fragment`
+    /// (raw, percent-encoded or mixed case), or `None` for a footnote target
+    /// or an unknown id.
+    ///
+    /// The viewer uses this while walking the document: a target heading can
+    /// sit inside content it would otherwise skip (an unselected `<Tabs>`
+    /// panel, a closed `<Accordion>`). The container compares this index
+    /// with its child ranges and opens/selects the one that holds the target,
+    /// so an outline row or a cross-page `#fragment` can reveal it instead of
+    /// leaving the request pending on hidden content.
+    pub fn heading_event_at(&self, fragment: &str) -> Option<usize> {
+        self.heading_ids
+            .iter()
+            .zip(&self.heading_at)
+            .find(|(id, _)| !id.is_empty() && fragment_matches(id, fragment))
+            .map(|(_, at)| *at)
+    }
+
     /// Reserved anchor id for footnote `label` (`fn-<label>`, deduped when a
     /// heading claimed the plain id), when the definition exists within the
     /// anchor cap. Callers must bound `label` exactly like [`build`] does
@@ -304,6 +322,29 @@ mod tests {
         assert_eq!(idx.heading_id_at(one_at), Some("one"));
         assert_eq!(idx.heading_id_at(one_at + 1), None, "not a heading start");
         assert_eq!(idx.heading_id_at(99), None, "past the end");
+    }
+
+    /// The viewer resolves a pending fragment to the heading's own event
+    /// index before walking, so structural containers can reveal hidden
+    /// content that holds it. Matching follows `fragment_matches`: raw,
+    /// percent-encoded or mixed case. A footnote or unknown id has no
+    /// heading event.
+    #[test]
+    fn resolves_a_heading_event_by_fragment() {
+        let events = parse_events("# One\n\n## Caf\u{e9} {#cafe}\n").expect("parse");
+        let idx = build(&events);
+        let headings: Vec<usize> = events
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| matches!(e, Event::Start(Tag::Heading { .. })))
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(idx.heading_event_at("one"), Some(headings[0]));
+        assert_eq!(idx.heading_event_at("ONE"), Some(headings[0]));
+        assert_eq!(idx.heading_event_at("cafe"), Some(headings[1]));
+        assert_eq!(idx.heading_event_at("%63afe"), Some(headings[1]));
+        assert_eq!(idx.heading_event_at("fn-note"), None);
+        assert_eq!(idx.heading_event_at("missing"), None);
     }
 
     /// A heading with no usable slug reserves a generated id (`heading-N`,
