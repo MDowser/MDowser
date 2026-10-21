@@ -113,8 +113,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
-* Wed Oct 21 2026 MDowser <noreply@mdowser.invalid> - 0.6.2-1
-- Offline cache reading, outline sidebar, Save page and reader hardening (see CHANGELOG.md 0.6.2).
+* Wed Oct 21 2026 MDowser <noreply@mdowser.invalid> - 0.6.3-1
+- Offline cache reading, outline sidebar, Save page and reader hardening (see CHANGELOG.md 0.6.3).
 * Mon Oct 19 2026 MDowser <noreply@mdowser.invalid> - 0.6.0-1
 - Encrypted HTTP disk cache, --help/--version flags, dependency and supply-chain refresh (see CHANGELOG.md 0.6.0).
 * Fri Oct 16 2026 MDowser <noreply@mdowser.invalid> - 0.5.4-1
