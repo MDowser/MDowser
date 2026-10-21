@@ -24,9 +24,9 @@
 .PARAMETER Validate
     Also run scripts/validate.sh (same as `make validate`).
 .PARAMETER SkipBuild
-    Skip the release build (deps + dist only).
+    Skip the release build and dist packaging (setup/tests only).
 .PARAMETER SkipDist
-    Skip the dist packaging (deps + build only).
+    Build the release binary but skip dist packaging.
 .PARAMETER SkipSetup
     Install nothing, use what is present (like SKIP_SETUP=1).
 .PARAMETER NoElevate
@@ -61,6 +61,9 @@ function Has-Cmd($Name) {
 }
 
 function Has-Winget($Id) {
+    # -SkipSetup must work on a machine without winget: never invoke a
+    # missing command (PowerShell would throw) while merely probing.
+    if (-not (Has-Cmd winget)) { return $false }
     if (-not $script:WingetCache) { $script:WingetCache = @{} }
     if ($script:WingetCache.ContainsKey($Id)) {
         return $script:WingetCache[$Id]
@@ -133,12 +136,23 @@ function Ensure-Package($Id, $Cmd, [string]$WingetArgs = "",
 }
 
 function Get-VsToolsPath {
-    # Install path of a VS/BuildTools instance WITH the C++ tools, else "".
+    # Install path of a VS/BuildTools instance WITH a native C++ toolset,
+    # else "". An ARM64 host uses the ARM64 compiler (the x86.x64 component
+    # is not guaranteed there), so accept either component.
     $vw = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $vw)) { return "" }
-    $found = & $vw -products * `
-        -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-        -property installationPath 2>$null | Select-Object -First 1
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+        $found = & $vw -products * `
+            -requiresAny `
+            Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
+            -property installationPath 2>$null | Select-Object -First 1
+    }
+    else {
+        $found = & $vw -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath 2>$null | Select-Object -First 1
+    }
     if ([string]::IsNullOrWhiteSpace($found)) { return "" }
     return $found.Trim()
 }
@@ -318,7 +332,7 @@ function Get-GitBash {
     throw "Git Bash not found (winget install Git.Git first)"
 }
 
-if (-not (Has-Cmd winget)) {
+if (-not $SkipSetup -and -not (Has-Cmd winget)) {
     throw "winget missing: install App Installer from Microsoft Store"
 }
 $isAdmin = ([Security.Principal.WindowsPrincipal] `
@@ -458,7 +472,11 @@ if (-not $SkipBuild) {
 
 $bashArgs = @()
 if ($Test) { $bashArgs += "./scripts/build-test.sh" }
-if (-not $SkipDist) { $bashArgs += "./scripts/build-dist.sh --host-only" }
+# build-dist.sh compiles the release binary itself, so -SkipBuild cannot
+# honestly pair with a dist run: both flags suppress packaging.
+if (-not $SkipDist -and -not $SkipBuild) {
+    $bashArgs += "./scripts/build-dist.sh --host-only"
+}
 if ($Validate) { $bashArgs += "./scripts/validate.sh" }
 if ($bashArgs.Count -eq 0) { Write-Host "OK: setup only."; return }
 if ($SkipSetup) { $env:SKIP_SETUP = "1" }

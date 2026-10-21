@@ -63,8 +63,18 @@ pub(super) fn marker_at(events: &[Event<'static>], j: usize) -> Option<(Vec<Stri
 /// one to different tabs. Shared with the tests, which select a tab by
 /// writing the state directly.
 pub(super) fn tabs_state_id(doc_salt: u64, at: usize, labels: &[String]) -> egui::Id {
-    let key = labels.join("\u{1f}");
-    egui::Id::new((doc_salt, "mdx-tabs", at, crate::media::fnv1a(&key)))
+    // Hash the labels incrementally: joining them allocated a String for
+    // every <Tabs> block on every frame just to feed `fnv1a`. The separators
+    // go BETWEEN labels, so the hash is identical to the old `join("\x1f")`
+    // and an update keeps the reader's remembered tab.
+    let mut key = crate::media::fnv1a_offset();
+    for (idx, label) in labels.iter().enumerate() {
+        if idx > 0 {
+            key = crate::media::fnv1a_update(key, b"\x1f");
+        }
+        key = crate::media::fnv1a_update(key, label.as_bytes());
+    }
+    egui::Id::new((doc_salt, "mdx-tabs", at, key))
 }
 
 /// State key of one `<Accordion>` instance: document salt + the marker's own
@@ -352,34 +362,58 @@ fn render_tabs(
     }
     let scheme = theme::scheme_ref(ui);
     let full_w = ui.available_width().max(1.0);
-    // Cap each cell at an equal share of the strip: a long label (or many
-    // tabs) must elide inside the sheet, never push later tabs past its edge.
-    let cell_cap = (full_w / labels.len().max(1) as f32).max(48.0);
+    // Equal cells inside the reading column. The 48px minimum keeps click
+    // and touch targets usable; when that minimum cannot fit on one line the
+    // strip WRAPS instead of painting tabs past the sheet edge (eight tabs at
+    // minimum width / maximum zoom already overflowed the old single row).
+    let per_row = ((full_w / 48.0).floor() as usize).max(1);
+    let multi_row = labels.len() > per_row;
     let mut rects: Vec<egui::Rect> = Vec::with_capacity(labels.len());
     let mut hovers: Vec<bool> = Vec::with_capacity(labels.len());
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 0.0;
-        for (idx, label) in labels.iter().enumerate() {
-            let text = if label.is_empty() {
-                format!("Tab {}", idx + 1)
-            } else {
-                label.clone()
-            };
-            let (rect, hovered, clicked) = tab_label(ui, &text, idx == sel, cell_cap);
-            if clicked {
-                sel = idx;
+    let mut rules: Vec<egui::Rect> = Vec::new();
+    let mut clicked_sel = None;
+    for (row, chunk) in labels.chunks(per_row).enumerate() {
+        let base = row * per_row;
+        // Multi-row strips keep one column width across rows (the last row
+        // stays left-aligned instead of stretching one tab across the sheet);
+        // a single row still fills the column exactly as before.
+        let cell_cap = if multi_row {
+            (full_w / per_row as f32).max(48.0)
+        } else {
+            (full_w / chunk.len().max(1) as f32).max(48.0)
+        };
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for (offset, label) in chunk.iter().enumerate() {
+                let idx = base + offset;
+                let text = if label.is_empty() {
+                    format!("Tab {}", idx + 1)
+                } else {
+                    label.clone()
+                };
+                let (rect, hovered, clicked) = tab_label(ui, &text, idx == sel, cell_cap);
+                if clicked {
+                    clicked_sel = Some(idx);
+                }
+                rects.push(rect);
+                hovers.push(hovered);
             }
-            rects.push(rect);
-            hovers.push(hovered);
-        }
-    });
-    ui.ctx().data_mut(|d| d.insert_temp(id, sel));
-    // The strip's bottom border, full reading column, with the active tab's
-    // underline sitting ON it (a browser-tab look, not buttons).
-    let (line, _) = ui.allocate_exact_size(egui::vec2(full_w, 1.0), egui::Sense::hover());
-    ui.painter()
-        .rect_filled(line, egui::CornerRadius::ZERO, scheme.outline_variant);
+        });
+        // One rule per row; the underlines are painted after every row so a
+        // click on the last row moves the accent off the first row in the
+        // same frame.
+        let (line, _) = ui.allocate_exact_size(egui::vec2(full_w, 1.0), egui::Sense::hover());
+        ui.painter()
+            .rect_filled(line, egui::CornerRadius::ZERO, scheme.outline_variant);
+        rules.push(line);
+    }
+    if let Some(idx) = clicked_sel {
+        sel = idx;
+    }
     for (idx, rect) in rects.iter().enumerate() {
+        let Some(line) = rules.get(idx / per_row) else {
+            continue;
+        };
         if idx == sel {
             let u = egui::Rect::from_min_max(
                 egui::pos2(rect.min.x, line.max.y - 2.0),
@@ -396,6 +430,7 @@ fn render_tabs(
                 .rect_filled(u, egui::CornerRadius::ZERO, scheme.on_surface_variant);
         }
     }
+    ui.ctx().data_mut(|d| d.insert_temp(id, sel));
     ui.add_space(theme::spacing::M);
     let (start, stop) = tabs[sel];
     render_range(ui, events, start, stop, ctx);

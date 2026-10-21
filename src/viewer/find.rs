@@ -177,8 +177,32 @@ pub fn find_ranges_capped(text: &str, needle_lower: &str) -> (Vec<(usize, usize)
     if needle_lower.is_empty() {
         return (Vec::new(), false);
     }
-    let lower = text.to_lowercase();
     let mut out = Vec::new();
+    // ASCII fast path: byte offsets are identical before and after ASCII
+    // lowercasing, so the common code/prose path never allocates a full
+    // lowercased copy per visible fragment per frame.
+    if text.is_ascii() && needle_lower.is_ascii() {
+        let (hay, needle) = (text.as_bytes(), needle_lower.as_bytes());
+        let mut from = 0usize;
+        let mut capped = false;
+        while from + needle.len() <= hay.len() {
+            let Some(rel) = hay[from..]
+                .windows(needle.len())
+                .position(|w| w.eq_ignore_ascii_case(needle))
+            else {
+                break;
+            };
+            if out.len() >= crate::config::MAX_FIND_MATCHES {
+                capped = true;
+                break;
+            }
+            let start = from + rel;
+            out.push((start, start + needle.len()));
+            from = start + needle.len();
+        }
+        return (out, capped);
+    }
+    let lower = text.to_lowercase();
     let mut from = 0usize;
     let mut capped = false;
     while let Some(rel) = lower[from..].find(needle_lower) {

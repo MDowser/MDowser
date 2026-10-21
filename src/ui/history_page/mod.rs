@@ -443,7 +443,7 @@ pub fn show_history_page(
                                         // borrow of `favicons` ends here, so
                                         // the row painter stays `&`-only.
                                         let favicon = favicons.texture_for_url(&visit.url);
-                                        match history_row(ui, index, visit, now, favicon.as_ref()) {
+                                        match history_row(ui, visit, now, favicon.as_ref()) {
                                             RowAction::Open => {
                                                 navigate = Some(visit.url.clone());
                                             }
@@ -888,7 +888,6 @@ fn delete_button(ui: &mut egui::Ui, label: &str) -> egui::Response {
 /// globe/file fallback glyph instead.
 fn history_row(
     ui: &mut egui::Ui,
-    index: usize,
     visit: &Visit,
     now: u64,
     favicon: Option<&egui::TextureHandle>,
@@ -1009,10 +1008,13 @@ fn history_row(
         let name = visit.title.as_deref().unwrap_or(visit.url.as_str());
         format!("Remove {name} from history")
     };
+    // Stable per-VISIT identity: an index-keyed id was re-used by whichever
+    // visit moved into that slot after a removal, so keyboard focus (and a
+    // repeated Enter) could delete the wrong entry.
     let remove = icons::icon_button_at_named_lazy(
         ui,
         remove_rect,
-        ("history-remove", index),
+        ("history-remove", visit.visited_at, visit.url.as_str()),
         icons::Icon::Close,
         remove_name,
         || "Remove from history".to_string(),

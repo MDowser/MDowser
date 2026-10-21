@@ -383,7 +383,9 @@ Key contracts per area (the module map above names every module):
   Ctrl+H / Cmd+Y) creates a NEW tab after the active one and activates it, so
   the page being read is never replaced; a row click navigates that same tab to
   the visit, Back returning to the list (a repeat request while the active tab
-  shows the page is a no-op).
+  shows the page is a no-op). Each row's remove control is keyed by the visit
+  `(timestamp, URL)`, never its position, so deletion cannot move keyboard
+  focus to a neighbouring row.
 - The internal licenses page (`about:licenses`) shares that bookkeeping
   (`Tab::open_internal_page` backs `open_history`, `open_licenses` and
   `open_home`). The new-tab page is the third internal page (`about:home`,
@@ -421,7 +423,9 @@ Key contracts per area (the module map above names every module):
 - A drag keeps the overlay open wherever the pointer goes, the dragged tab's id
   self-heals when its row closes mid-gesture (so `ui::forget_tab` needs no
   entry), and `App::move_tab` is the grid's remove+insert with `active`
-  re-indexed so the shown page never changes.
+  re-indexed so the shown page never changes. The overlay's hit rectangle is
+  stored at its CURRENT animated clipped width, so the space a row vacates
+  during open/close never swallows a click.
 - The session snapshot compares URLs per index, so a reorder persists through
   "restore tabs on startup" with no file-format change.
 
@@ -461,7 +465,9 @@ Key contracts per area (the module map above names every module):
   hover pencil opens the rename field whose same spot becomes a check that
   saves. Enter or a click elsewhere commits (sanitized by the store, saved
   debounced), Esc drops the draft (`Tab::tile_editing` keeps the shortcut
-  handler off the key) and the hover X removes the tile. With a tile focused,
+  handler off the key) and the hover X removes the tile. The pencil/X ids are
+  keyed by the bookmark URL (not the grid slot), so a live reorder or removal
+  keeps focus on the same bookmark. With a tile focused,
   `Tab` reaches the pencil and the X (the frame that moves focus off the tile
   keeps the hover-only buttons allocated: tile → pencil → X → next tile).
 - The URL index forgets a URL only when NO entry carries it any more (`toggle`
@@ -919,7 +925,10 @@ Key contracts per area (the module map above names every module):
 - A clean click on the field selects the whole address; a drag keeps the range
   built from the press point. The popup is a foreground `Area`: it never shifts
   the capsule and its row clicks survive the frame egui surrenders the
-  TextEdit's focus on.
+  TextEdit's focus on. Its rows live in a vertical `ScrollArea` capped by the
+  window content rect (scrollbar only when needed), and the selected row calls
+  `scroll_to_me`, so keyboard navigation stays visible at the minimum window
+  height.
 - The list is cached per field in egui memory, rebuilt only while the field is
   EDITING and only when the query or the
   `HistoryStore`/`BookmarkStore` `generation()` changes, so the 20 000-entry

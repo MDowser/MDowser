@@ -12,7 +12,8 @@
 # `Cargo.toml` is the single source of truth. This cheap, tool-free gate runs
 # as part of `make test`/`scripts/build-test.sh` and `make validate`:
 #   - the committed AppStream metainfo advertises the current release,
-#   - the RPM spec's newest changelog entry names it,
+#   - the RPM spec's newest changelog entry names it (RPM version form:
+#     `0.7.0-alpha.1` is written `0.7.0~alpha.1`),
 #   - CHANGELOG.md has a released section for it,
 #   - docs/SECURITY.md supports its major.minor line.
 # Packaged copies are rendered from `Cargo.toml` at package time (see
@@ -40,7 +41,9 @@ fail() {
 }
 
 # Numeric major.minor only (a pre-release suffix stays on the full version).
-MINOR="$(printf '%s' "$VER" | cut -d. -f1-2)"
+BASE_VER="$(version_base "$VER")"
+RPM_PKG_VER="$(version_rpm "$VER")"
+MINOR="$(printf '%s' "$BASE_VER" | cut -d. -f1-2)"
 
 METAINFO="packaging/linux/dev.mdowser.app.metainfo.xml"
 INSTALLER_VER="$(sed -n 's/.*<release[^>]*version="\([^"]*\)".*/\1/p' "$METAINFO" | head -1)"
@@ -50,8 +53,8 @@ fi
 
 SPEC="packaging/rpm/mdowser.spec"
 RPM_VER="$(sed -n 's/^\* .* - \([0-9][^ ]*\)-.*$/\1/p' "$SPEC" | head -1)"
-if [ "$RPM_VER" != "$VER" ]; then
-    fail "$SPEC's newest changelog entry is '${RPM_VER:-<none>}', expected '$VER'"
+if [ "$RPM_VER" != "$RPM_PKG_VER" ]; then
+    fail "$SPEC's newest changelog entry is '${RPM_VER:-<none>}', expected '$RPM_PKG_VER' (RPM form of $VER)"
 fi
 
 CHANGELOG="CHANGELOG.md"

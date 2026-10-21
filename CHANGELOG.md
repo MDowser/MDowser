@@ -71,9 +71,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guards carry a documented `#[allow]`. Failure paths stay typed or degrade
   gracefully. (`src/main.rs`, `src/assets.rs`, `src/builtin_sites.rs`,
   `docs/CONTRIBUTING.md`.)
+- Scrollbars are operable controls, not decoration: the handle now uses the
+  muted-text token, so the dormant 0.75 opacity keeps at least 3:1 contrast
+  against both themes (WCAG 1.4.11). (`src/ui/theme/`, `docs/INTERFACE.md`.)
+- `<Tabs>` labels keep a 48px minimum cell and wrap onto further full-width
+  rows instead of painting tabs past the sheet edge; the tab-set state hash is
+  built incrementally instead of joining every label per frame.
+  (`src/viewer/markdown/components.rs`, `docs/RENDERING.md`.)
+- The find bar adapts to narrow windows and high zoom: the query field shrinks
+  to a usable floor, and the bar moves over the outline instead of clipping
+  its controls when it cannot fit beside it. (`src/viewer/overlays/find.rs`,
+  `docs/INTERFACE.md`.)
+- Omnibox suggestions scroll inside a window-bounded popup and keep the
+  keyboard-selected row visible, so the list stays reachable at the minimum
+  window height. (`src/ui/omnibox/`, `docs/INTERFACE.md`,
+  `docs/ARCHITECTURE.md`.)
+- The in-page finder scans ASCII documents without allocating per match and
+  the media hash helpers reuse an incremental FNV update; repeated find and
+  tab-set work no longer copies text just to hash or compare it.
+  (`src/viewer/find.rs`, `src/media/mod.rs`.)
+- Build and release hardening: `make` serializes its shared `target/`/`dist/`
+  recipes, `make check-dist` requires a real `dist/` (no silent SKIP), the
+  release workflow gates every build on the full test pipeline, verifies both
+  Windows resource sections and the complete artifact set, and the Flatpak
+  wrapper rejects stale `cargo-sources.json`/bundles. The macOS archive keeps
+  its `.app` wrapper (`ditto --keepParent`) instead of flattening it into the
+  zip root. Pre-release versions are
+  normalized per package format (`0.7.0-alpha.1` → plist `0.7.0`, deb/RPM
+  `0.7.0~alpha.1`), and `windows.ps1` no longer requires winget under
+  `-SkipSetup`, detects the ARM64 C++ toolset, and makes `-SkipBuild` mean
+  setup/tests only. (`Makefile`, `scripts/`, `.github/workflows/release.yml`,
+  `windows.ps1`, `docs/BUILDING.md`.)
 
 ### Fixed
 
+- Bookmark edit/remove and history remove widgets keep their keyboard focus on
+  the item they belong to: their egui ids are keyed by the bookmark URL or the
+  visit `(timestamp, URL)` instead of the row index, so removing or reordering
+  an entry no longer moves focus to a different row.
+  (`src/ui/bookmarks/`, `src/ui/history_page/`.)
+- The tab rail's overlay hit region now follows the animated clipped width
+  instead of the full allocated area, so a click in the empty space revealed
+  while a tab opens/closes no longer activates it. (`src/ui/tabs/mod.rs`.)
 - Clicking an outline row whose heading sits inside a closed `<Accordion>` or
   an unselected `<Tabs>` panel now opens/selects that content before scrolling
   to the heading; the same applies to a cross-page `#fragment`. It used to

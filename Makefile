@@ -32,6 +32,12 @@
 
 SHELL := /bin/sh
 
+# Targets share `target/` and `dist/` (deps, the release build and packaging
+# all write them). `make -j all` used to start those recipes concurrently and
+# race the same cargo output tree; serialize recipe execution instead. cargo
+# still parallelizes the actual compilation internally.
+.NOTPARALLEL:
+
 # rustup installs cargo into ~/.cargo/bin, which interactive shells add to
 # PATH but make recipe shells frequently do NOT inherit (hence the classic
 # "cargo: No such file or directory"). Resolve the binary to the first path
@@ -154,9 +160,11 @@ check-version:
 	./scripts/check-version.sh
 
 # Privacy gate for built artifacts: fails when any dist/ archive carries the
-# builder's absolute paths or build-host metadata. Also run by `make dist`.
+# builder's absolute paths or build-host metadata, and when dist/ is absent
+# (`--require`: a silent SKIP must never look like a passed release gate).
+# Also run by `make dist`.
 check-dist:
-	./scripts/check-dist.sh
+	./scripts/check-dist.sh --require
 
 # Install build/packaging dependencies, best-effort and idempotent (Homebrew on
 # macOS; apt-get/dnf/pacman on Linux). `SKIP_SETUP=1 make deps` reports only;
@@ -228,7 +236,7 @@ help:
 	@echo "  install  = runtime files under PREFIX (DESTDIR/PREFIX honored; RPM %install)"
 	@echo "  validate = best-effort packaging metadata checks (SKIPs when tools missing)"
 	@echo "  check-version = Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md"
-	@echo "  check-dist = privacy gate: fail if dist/ carries builder paths/metadata"
+	@echo "  check-dist = privacy gate: fail if dist/ is absent or carries builder paths/metadata"
 	@echo "  deps     = install build/packaging deps (SKIP_SETUP=1 dry run; DEPS=<group>)"
 	@echo "  audit = cargo audit + cargo deny (best-effort when installed)"
 	@echo "  icons = force-regenerate assets/icons from assets/icon.svg"

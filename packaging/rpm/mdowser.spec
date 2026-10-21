@@ -6,14 +6,16 @@
 # RPM spec for MDowser. Builds from the FULL source tree (the .deb, .tar.gz
 # and .zip artifacts `make dist` produces ship the prebuilt binary instead).
 #
-# Build from the repository root with the version pinned by the caller (single
-# source of truth is Cargo.toml, scoped to `[package]` like
-# `scripts/packaging.sh` `app_version`):
+# Build from the repository root with the version pinned by the caller in RPM
+# form (single source of truth is Cargo.toml, scoped to `[package]` like
+# `scripts/packaging.sh` `app_version`). RPM rejects `-` in Version, so a
+# semver pre-release becomes `0.7.0~alpha.1` (the `~` sorts before 0.7.0):
 #
 #   VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)
+#   RPM_VER=$(printf '%s' "$VER" | sed -e 's/+.*$//' -e 's/-/~/g')
 #   rpmbuild -bb packaging/rpm/mdowser.spec \
 #       --define "_topdir $PWD/dist/.rpmbuild" \
-#       --define "ver $VER" \
+#       --define "ver $RPM_VER" \
 #       --define "_sourcedir $PWD/dist/.rpmbuild/SOURCES" \
 #       --define "_builddir $PWD/dist/.rpmbuild/BUILD" \
 #       --define "_rpmdir $PWD/dist/.rpmbuild/RPMS" \

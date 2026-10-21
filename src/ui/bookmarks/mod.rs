@@ -295,7 +295,6 @@ pub fn show_bookmarks(
                                     match bookmark_tile(
                                         ui,
                                         &TileRef {
-                                            index,
                                             bookmark,
                                             tile_w,
                                             dragging,

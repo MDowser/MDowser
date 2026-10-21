@@ -1076,6 +1076,43 @@ fn tabs_show_only_the_selected_panel() {
     );
 }
 
+/// Eight tabs at a narrow width wrap onto a second row instead of painting
+/// the last cells past the sheet edge (the old single-row strip did).
+#[test]
+fn narrow_tabs_wrap_inside_the_sheet() {
+    let mut md = String::from("<Tabs>\n");
+    for i in 1..=8 {
+        md.push_str(&format!("<Tab label=\"T{i}\">\n\nPanel {i}\n\n</Tab>\n"));
+    }
+    md.push_str("</Tabs>\n");
+    let shapes = render_shapes(&md, 300.0, 800.0);
+    let mut last_y = 0.0;
+    for i in 1..=8 {
+        let label = format!("T{i}");
+        let (pos, galley) = galley_at(&shapes, &label);
+        assert!(
+            pos.x >= 0.0 && pos.x + galley.size().x <= 300.5,
+            "{label} paints outside the 300px sheet: {pos:?} + {w:.1}px",
+            w = galley.size().x
+        );
+        if i > 1 {
+            assert!(
+                pos.y >= last_y,
+                "{label} jumped back above the previous cell"
+            );
+        }
+        last_y = pos.y;
+    }
+    let (first, _) = galley_at(&shapes, "T1");
+    let (last, _) = galley_at(&shapes, "T8");
+    assert!(
+        last.y > first.y + 20.0,
+        "the last tabs must wrap onto another row: T1 y={:.1}, T8 y={:.1}",
+        first.y,
+        last.y
+    );
+}
+
 /// `<Accordion>` starts collapsed: the title shows, the body does not.
 #[test]
 fn accordion_section_starts_collapsed() {

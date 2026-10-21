@@ -7,7 +7,7 @@ make test          # sh syntax + version consistency + fmt --check + clippy -D w
 make run           # debug GUI
 make audit         # cargo audit + cargo deny (best-effort when installed)
 make check-version # Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md
-make check-dist    # privacy gate over dist/ (builder paths/metadata; after packaging)
+make check-dist    # privacy gate over dist/ (fails if dist/ is absent; after packaging)
 make check-sites   # validate assets/builtin_sites.txt as the browser resolves it (network; manual)
 ```
 

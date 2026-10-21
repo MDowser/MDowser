@@ -23,6 +23,30 @@ app_version() {
         "${ROOT:?ROOT must be set}/Cargo.toml" | head -1
 }
 
+# Semver base `X.Y.Z`: drops a `-prerelease` suffix and `+build` metadata.
+# Apple's CFBundleVersion/CFBundleShortVersionString only accept numeric
+# components, so the .app uses this while the artifact filename keeps the
+# full version.
+version_base() {
+    printf '%s' "$1" | sed 's/[-+].*$//'
+}
+
+# Debian version: `-` is dpkg's revision separator, so a semver pre-release
+# (`0.7.0-alpha.1`) becomes `0.7.0~alpha.1`. `~` also sorts BEFORE the final
+# `0.7.0` release, which is what a pre-release must do; a literal `-` would
+# sort after it. Semver `+build` metadata does not participate in precedence,
+# so it is dropped instead of changing the package order.
+version_deb() {
+    printf '%s' "$1" | sed -e 's/+.*$//' -e 's/-/~/g'
+}
+
+# RPM version: the `Version:` tag rejects `-` outright. `~` is RPM's own
+# pre-release marker (sorts first); `+build` metadata is dropped for the same
+# precedence reason as in `version_deb`.
+version_rpm() {
+    printf '%s' "$1" | sed -e 's/+.*$//' -e 's/-/~/g'
+}
+
 # Renders `packaging/linux/dev.mdowser.app.metainfo.xml` to $1 with the
 # <release> version pinned to $2 and its date to today (UTC). The committed
 # file keeps its own value so it stays valid standalone (Flatpak, appstream

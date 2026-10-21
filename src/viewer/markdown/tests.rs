@@ -6,6 +6,7 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
+use super::components::tabs_state_id;
 use super::{doc_id_salt, menu_items, quote_indent_id, show_markdown, Frag};
 use eframe::egui;
 use std::sync::Arc;
@@ -22,6 +23,17 @@ pub(super) fn plain(text: &str) -> Frag<'static> {
         image: None,
         badge: None,
     }
+}
+
+/// The incremental labels hash must stay identical to the old
+/// `join("\x1f")` key: changing it would silently forget the tab a reader
+/// selected before updating the app.
+#[test]
+fn tabs_state_id_matches_the_joined_labels_key() {
+    let labels = vec!["First".to_string(), String::new(), "Third".to_string()];
+    let joined = labels.join("\u{1f}");
+    let old = egui::Id::new((7u64, "mdx-tabs", 3usize, crate::media::fnv1a(&joined)));
+    assert_eq!(tabs_state_id(7, 3, &labels), old);
 }
 
 /// A fragment that WAS a link but whose destination was dropped (`""`).

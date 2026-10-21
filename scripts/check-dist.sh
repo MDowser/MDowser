@@ -85,7 +85,17 @@ add_needle("USERPROFILE", os.environ.get("USERPROFILE", ""))
 # socket.gethostname() is portable (os.uname() does not exist on Windows,
 # where this checker also runs under Git Bash via windows.ps1).
 host = socket.gethostname()
-if len(host) >= 5 and host not in ("localhost", "localhost.localdomain"):
+# `/build` and `/cargo` are the remap targets rustc writes into every
+# release binary; a machine whose hostname happens to be one of these (or
+# another generic build word) would otherwise flag every artifact. Those
+# short generic names carry no identifying information anyway.
+GENERIC_HOSTNAMES = {
+    "build", "builder", "cargo", "home", "linux", "mac", "macos",
+    "root", "runner", "user", "users", "windows", "workspace",
+}
+if (len(host) >= 5
+        and host not in ("localhost", "localhost.localdomain")
+        and host.lower() not in GENERIC_HOSTNAMES):
     add_needle("hostname", host)
 
 problems = []
@@ -121,6 +131,14 @@ def scan_tar(label, tf):
                 problems.append(
                     f"{label}: {member.name} carries xattr PAX header {key!r}"
                 )
+        # A symlink's target is metadata, not payload, but an absolute
+        # builder path there still leaks the build account (and points at a
+        # file the target machine does not have).
+        if member.issym() or member.islnk():
+            scan_bytes(
+                f"{label}!{member.name}",
+                member.linkname.encode("utf-8", "surrogateescape"),
+            )
         if member.isfile():
             handle = tf.extractfile(member)
             if handle is not None:

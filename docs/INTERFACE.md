@@ -155,6 +155,9 @@ capsule while the field is editing (`src/suggest.rs`), capped at
   first (a second `Esc` reverts the field). The popup is an overlay and never
   shifts the capsule or neighbours. A row's accessible name carries URL and
   title, letting a screen reader distinguish same-titled pages.
+- The popup is height-bounded by the window (`ScrollArea`, scrollbar only when
+  needed) and follows the selected row, so the full suggestion list stays
+  reachable at the minimum window height instead of running off-screen.
 - The list is cached per field in egui memory, rebuilt only when the query or
   the `HistoryStore`/`BookmarkStore` generations change, so typing filters live
   history and bookmarks without a per-frame rescan.
@@ -258,8 +261,9 @@ per origin on first display).
 ## Reading surface
 
 Content: a fluid centered column (max 760px, 8/12/16px gutters) with an
-always-visible scrollbar (a border-tone handle at 0.75 dormant opacity, readable
-against both themes). A `spacing::PAGE_END` (24px) blank pad closes every
+always-visible scrollbar (a muted-text handle at 0.75 dormant opacity, at
+least 3:1 against both themes: it is an operable control, not decoration). A
+`spacing::PAGE_END` (24px) blank pad closes every
 scrolling page under its last element (documents, Home, the error view), so the
 end keeps a small margin. The previous page stays visible until the new one
 resolves (no white flash).
@@ -351,10 +355,13 @@ Minimal: Copy (the drag selection when one exists, else the whole page), Select
 all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`) and Save page
 (`Ctrl/Cmd+S`), below a separator; over a link it adds Open link in new tab at
 the top. `Cmd/Ctrl+click` on a link opens it in a background tab directly (an
-in-page `#anchor` becomes its absolute URL plus the fragment). All body text is
-natively selectable (drag + `Cmd/Ctrl+C`) with readable selection colors.
-Right-clicking preserves an existing selection (its press is intercepted before
-egui), so menu Copy copies exactly the selected text.
+in-page `#anchor` becomes its absolute URL plus the fragment). Prose, headings,
+lists, quotes and table cells are natively selectable (drag + `Cmd/Ctrl+C`)
+with readable selection colors. A highlighted code block is virtualized and
+painted row by row, so it has no per-line drag selection; its Copy button (or
+menu Copy with no selection) copies the whole block verbatim. Right-clicking
+preserves an existing selection (its press is intercepted before egui), so menu
+Copy copies exactly the selected text.
 
 Opening the menu with the pointer leaves NO row highlighted (only the keyboard
 lights one). A primary press outside it — including the start of a drag
@@ -399,7 +406,10 @@ focusing with the accent ring), the `n/m` count in a fixed muted slot and
 circular previous/next/close buttons, identical in hover fill, glyph animation
 and tooltips to the toolbar's (lighter shadow than menu popups, since the bar
 stays on screen). On a document with an outline sidebar, the bar docks just
-left of the sidebar instead of covering it.
+left of the sidebar instead of covering it. The query field shrinks on narrow
+windows and high zoom to keep every control usable; if the fixed-width bar
+still cannot fit beside the outline, it moves over the outline rather than
+clipping the previous/next/close buttons.
 
 Matching is a case-insensitive substring over rendered text — prose, headings,
 list items, quotes, tables and fenced code bodies — every match washed amber,

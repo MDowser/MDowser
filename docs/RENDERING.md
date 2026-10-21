@@ -48,10 +48,13 @@ STRUCTURE and never evaluates it:
   body first.
 - `<Tabs>`/`<Tab>` render as a tab strip (labels over a full-width rule, the
   active one underlined in the accent, only the selected panel laid out, the
-  choice remembered per document and tab set); `<Accordion>` as a collapsible
-  section (collapsed by default, toggled by title, each section keeping its own
-  state, so two same-titled or untitled sections — both shown as `Details` —
-  never toggle each other); `<Card>` as a bordered box (`title` first line,
+  choice remembered per document and tab set). Labels keep a 48px minimum
+  cell and WRAP onto further full-width rows when they cannot fit on one line
+  at the current width/zoom, so no tab is painted past the sheet edge.
+  `<Accordion>` renders as a collapsible section (collapsed by default, toggled
+  by title, each section keeping its own state, so two same-titled or untitled
+  sections — both shown as `Details` — never toggle each other); `<Card>` as a
+  bordered box (`title` first line,
   linked with `href`); `<Steps>`/`<Step>` as numbered rows; `<CodeGroup>` as one
   code tab per fenced child (label from the fence `title=`, else its language).
   A section's disclosure chevron is a themed vector glyph (`ui::icons`,

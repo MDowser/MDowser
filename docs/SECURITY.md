@@ -472,8 +472,10 @@ spec pins `%_buildhost` and `%defattr(-, root, root, -)`.
 `scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist` and
 `make validate`) fails the build if any `dist/` artifact carries the builder's
 paths, hostname, uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member.
-`make dist` and CI pass `--require`, so a missing inspector (no python3) is a
-hard failure, not a silent SKIP.
+`make check-dist`, `make dist` and CI pass `--require`, so a missing `dist/`
+or inspector (no python3) is a hard failure, not a silent SKIP. Generic
+hostnames that collide with the `/build` and `/cargo` remap targets are never
+used as needles.
 See [`BUILDING.md#build-artifact-privacy`](BUILDING.md#build-artifact-privacy).
 
 Release builds run in CI (`.github/workflows/release.yml`) on fresh

@@ -42,6 +42,7 @@ if [ -z "$VER" ]; then
     exit 1
 fi
 
+RPM_VER="$(version_rpm "$VER")"
 METAINFO="packaging/linux/dev.mdowser.app.metainfo.xml"
 DESKTOP="packaging/linux/mdowser.desktop"
 SPEC="packaging/rpm/mdowser.spec"
@@ -178,8 +179,8 @@ step "RPM spec"
 if have rpmspec; then
     # `-P` only parses/expands macros: a portable SYNTAX check (a real build
     # needs rpmbuild on Linux, see docs/BUILDING.md).
-    if rpmspec -P "$SPEC" --define "ver $VER" >/dev/null 2>&1; then
-        ok "rpmspec -P (ver=$VER)"
+    if rpmspec -P "$SPEC" --define "ver $RPM_VER" >/dev/null 2>&1; then
+        ok "rpmspec -P (ver=$RPM_VER)"
     else
         bad "rpmspec -P $SPEC"
     fi

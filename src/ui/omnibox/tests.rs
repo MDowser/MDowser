@@ -12,7 +12,8 @@ use crate::browser::tab::Tab;
 use crate::history::HistoryStore;
 use eframe::egui;
 
-/// One omnibox frame; returns `(submitted, painted shapes)`.
+/// One omnibox frame at a 900x600 viewport; returns `(submitted, painted
+/// shapes)`.
 fn frame(
     ctx: &egui::Context,
     tab: &mut Tab,
@@ -21,10 +22,23 @@ fn frame(
     focus: bool,
     events: Vec<egui::Event>,
 ) -> (bool, Vec<egui::epaint::ClippedShape>) {
+    frame_sized(ctx, tab, history, bookmarks, focus, events, 600.0)
+}
+
+/// One omnibox frame at a custom viewport height.
+fn frame_sized(
+    ctx: &egui::Context,
+    tab: &mut Tab,
+    history: &HistoryStore,
+    bookmarks: &BookmarkStore,
+    focus: bool,
+    events: Vec<egui::Event>,
+    screen_h: f32,
+) -> (bool, Vec<egui::epaint::ClippedShape>) {
     let input = egui::RawInput {
         screen_rect: Some(egui::Rect::from_min_size(
             egui::Pos2::ZERO,
-            egui::vec2(900.0, 600.0),
+            egui::vec2(900.0, screen_h),
         )),
         events,
         ..Default::default()
@@ -46,6 +60,15 @@ fn frame(
     });
     out.textures_delta.clear();
     (submitted, out.shapes)
+}
+
+/// The framed popup rect stored by the last frame.
+fn popup_rect(ctx: &egui::Context) -> egui::Rect {
+    let key = address_id(1, "address-bar")
+        .with("suggest")
+        .with("popup-rect");
+    ctx.data_mut(|d| d.get_temp(key))
+        .expect("the popup was recorded")
 }
 
 /// Every painted text run.
@@ -444,16 +467,60 @@ fn popup_matches_the_capsule_width() {
     for _ in 0..3 {
         let _ = frame(&ctx, &mut tab, &history, &bookmarks, true, Vec::new());
     }
-    let key = address_id(1, "address-bar")
-        .with("suggest")
-        .with("popup-rect");
-    let popup: egui::Rect = ctx
-        .data_mut(|d| d.get_temp(key))
-        .expect("the popup was recorded");
+    let popup = popup_rect(&ctx);
     assert!(
         (popup.width() - 400.0).abs() < 0.5,
         "popup {w:.1}px wide for a 400px capsule",
         w = popup.width()
+    );
+}
+
+/// The popup follows its content (three suggestions do not reserve the
+/// eight-row maximum) and is capped by the viewport, with the rows living in
+/// a scroll area instead of being clipped by the Area.
+#[test]
+fn popup_shrinks_to_its_rows_and_caps_to_the_viewport() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let (history, bookmarks) = stores();
+    let mut tab = Tab::new(1);
+    for _ in 0..3 {
+        let _ = frame(&ctx, &mut tab, &history, &bookmarks, true, Vec::new());
+    }
+    let three_rows = popup_rect(&ctx).height();
+
+    let mut many = BookmarkStore::in_memory();
+    for i in 0..8 {
+        let url = format!("https://ex.com/site-{i}/");
+        let title = format!("Site {i}");
+        many.toggle(&url, Some(&title));
+    }
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    for _ in 0..3 {
+        let _ = frame(&ctx, &mut tab, &history, &many, true, Vec::new());
+    }
+    let eight_rows = popup_rect(&ctx).height();
+    assert!(
+        three_rows + 20.0 < eight_rows,
+        "a short list must not reserve the full popup: {three_rows:.1}px vs {eight_rows:.1}px"
+    );
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    for _ in 0..3 {
+        let _ = frame_sized(&ctx, &mut tab, &history, &many, true, Vec::new(), 220.0);
+    }
+    let capped = popup_rect(&ctx).height();
+    assert!(
+        capped < eight_rows,
+        "a short viewport must cap the popup: {capped:.1}px vs {eight_rows:.1}px"
+    );
+    assert!(
+        capped <= 220.0,
+        "the capped popup must stay inside the viewport: {capped:.1}px"
     );
 }
 

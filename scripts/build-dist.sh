@@ -26,8 +26,10 @@
 # Artifacts in dist/ (ver = Cargo.toml version):
 #   Host (current OS, no cross): the SAME set as that OS's group below.
 #   macOS:   MDowser-<ver>-macos-universal.app.zip (universal .app ONLY)
-#   Linux:   mdowser-<ver>-linux-<arch>.tar.gz + mdowser_<ver>_<debarch>.deb
-#            (+ mdowser-<ver>-*.rpm when rpmbuild is available)
+#   Linux:   mdowser-<ver>-linux-<arch>.tar.gz + mdowser_<debver>_<debarch>.deb
+#            (`<debver>` is `<ver>` with `+build` dropped and `-` normalized
+#            to `~`; RPM uses the same normalization)
+#            (+ mdowser-<rpmver>-*.rpm when rpmbuild is available)
 #            + mdowser-<ver>.flatpak (when flatpak-builder is available)
 #   Windows: mdowser-<ver>-windows-<arch>.zip (with .exe; x86_64, or
 #            aarch64 on Windows on ARM, native MSVC)
@@ -63,6 +65,20 @@ if [ -z "$VER" ]; then
     echo "ERROR: could not parse version from Cargo.toml" >&2
     exit 1
 fi
+# Packagers do not all accept semver suffixes: the .app plist wants numeric
+# components, Debian treats `-` as a revision separator (and would sort a
+# pre-release AFTER its final release) and RPM rejects `-` in `Version:`.
+# Keep the full `VER` in artifact names and the AppStream metainfo, and use
+# the format-specific forms below for the package metadata.
+BASE_VER="$(version_base "$VER")"
+DEB_VER="$(version_deb "$VER")"
+RPM_VER="$(version_rpm "$VER")"
+case "$BASE_VER" in
+    ''|*[!0-9.]*)
+        echo "ERROR: version '$VER' has no numeric X.Y.Z base for packaging" >&2
+        exit 1
+        ;;
+esac
 # Refuse to package a tree whose committed metainfo/changelog/security policy
 # still names another release. The packaged copies are rendered from
 # Cargo.toml, but the committed files are what Flatpak and readers see.
@@ -341,6 +357,8 @@ mk_app() {
     # and fonts, inside the .app bundle.
     cp "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/LICENSE" \
         "$app/Contents/Resources/" || return 1
+    # Both plist keys take numeric components only; a semver pre-release
+    # keeps its full spelling in the artifact file name instead.
     cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -350,8 +368,8 @@ mk_app() {
     <key>CFBundleIdentifier</key><string>dev.mdowser.app</string>
     <key>CFBundleName</key><string>$APP_UI</string>
     <key>CFBundleIconFile</key><string>icon</string>
-    <key>CFBundleVersion</key><string>$VER</string>
-    <key>CFBundleShortVersionString</key><string>$VER</string>
+    <key>CFBundleVersion</key><string>$BASE_VER</string>
+    <key>CFBundleShortVersionString</key><string>$BASE_VER</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>13.0</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -445,7 +463,7 @@ mk_deb() {
     # `#` line here with "field name '#' must be followed by colon".)
     cat > "$stage/control/control" <<EOF
 Package: $APP_LC
-Version: $VER
+Version: $DEB_VER
 Section: web
 Priority: optional
 Architecture: $2
@@ -579,7 +597,11 @@ zip_of() {
         fi
     elif have ditto; then
         rm -f "$2"
-        ditto -c -k --norsrc --noqtn "$1" "$2" 2>/dev/null || ditto -c -k "$1" "$2"
+        # `--keepParent` is what makes a directory archive contain the
+        # directory itself (the `.app` bundle); without it ditto puts the
+        # bundle CONTENTS at the zip root and the result cannot be launched.
+        ditto -c -k --keepParent --norsrc --noqtn "$1" "$2" 2>/dev/null \
+            || ditto -c -k --keepParent "$1" "$2"
     else
         need_python3 "the zip fallback" || return 1
         rm -f "$2"
@@ -665,6 +687,18 @@ do_mac() {
         unset arm_bin x64_bin
         return 0
     fi
+    # `lipo -create` exits 0 even for an input it could not read completely:
+    # prove BOTH slices landed instead of shipping a single-arch "universal"
+    # app that dies on the other Mac.
+    _lipo_archs="$(lipo -archs "$DIST/.universal-bin" 2>/dev/null || true)"
+    if ! printf '%s\n' "$_lipo_archs" | tr ' ' '\n' | grep -qx "arm64" \
+        || ! printf '%s\n' "$_lipo_archs" | tr ' ' '\n' | grep -qx "x86_64"; then
+        warn "mac-app-universal (lipo produced '${_lipo_archs:-no}'; expected arm64 and x86_64)"
+        rm -f "$DIST/.universal-bin"
+        unset arm_bin x64_bin _lipo_archs
+        return 0
+    fi
+    unset _lipo_archs
     if ! mk_app "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/.universal-bin"; then
         warn "mac-app-universal (staging the .app failed)"
         rm -f "$DIST/.universal-bin"
@@ -752,7 +786,7 @@ do_linux() {
                 "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
             # Best-effort packaging: a failed .deb keeps the .tar.gz and
             # skips only this artifact (never aborts the multi-OS run).
-            mk_deb "$b" "$debarch" "$DIST/${APP_LC}_${VER}_${debarch}.deb" ||
+            mk_deb "$b" "$debarch" "$DIST/${APP_LC}_${DEB_VER}_${debarch}.deb" ||
                 warn "linux-$arch (.deb failed; .tar.gz kept)"
             BUILT="$BUILT linux-$arch"
         else
@@ -775,7 +809,7 @@ do_rpm() {
     # runs `make install`, which stages the SAME packaging/linux/ desktop
     # entry, AppStream metadata, icons and man page the .deb carries, so the
     # two packages cannot drift.
-    log "RPM: $APP_LC $VER (rpmbuild, from source)"
+    log "RPM: $APP_LC $RPM_VER (rpmbuild, from source)"
     if ! have rpmbuild; then
         warn "rpm (rpmbuild not found; install rpm-build, or run make dist-rpm on a Fedora/RHEL host)"
         return 0
@@ -792,7 +826,7 @@ do_rpm() {
     # Excludes are the build output and the AI/editor scratch AGENTS.md
     # keeps untracked, plus the local-secret files `.gitignore` already
     # treats as sensitive (`.env*`) and the Aider scratch dir.
-    _pkg="$APP_LC-$VER"
+    _pkg="$APP_LC-$RPM_VER"
     if tar --version 2>/dev/null | grep -qi 'gnu tar'; then
         _tar_root="--transform=s,^\.,$_pkg,"
     else
@@ -822,7 +856,7 @@ do_rpm() {
     cp "$ROOT/packaging/rpm/$APP_LC.spec" "$_top/SPECS/$APP_LC.spec"
     if rpmbuild -bb "$_top/SPECS/$APP_LC.spec" \
         --define "_topdir $_top" \
-        --define "ver $VER" \
+        --define "ver $RPM_VER" \
         --define "_sourcedir $_top/SOURCES" \
         --define "_builddir $_top/BUILD" \
         --define "_rpmdir $_top/RPMS" \
@@ -1018,7 +1052,7 @@ do_host() {
                 *) _hdeb="" ;;
             esac
             if [ -n "$_hdeb" ]; then
-                if mk_deb "$_host_bin" "$_hdeb" "$DIST/${APP_LC}_${VER}_${_hdeb}.deb"; then
+                if mk_deb "$_host_bin" "$_hdeb" "$DIST/${APP_LC}_${DEB_VER}_${_hdeb}.deb"; then
                     BUILT="$BUILT host-deb"
                 else
                     warn "host-linux-$_host_arch (.deb failed; .tar.gz kept)"
@@ -1089,7 +1123,8 @@ for _stale in "$DIST"/*; do
     _stale_name="$(basename "$_stale")"
     case "$_stale_name" in
         SHA256SUMS.txt|.*) ;;
-        *"$VER"*) ;;
+        # Debian/RPM artifacts use the normalized form, not the full semver.
+        *"$VER"*|*"$DEB_VER"*|*"$RPM_VER"*) ;;
         *) echo "WARN: dist/$_stale_name does not carry version $VER (left by an earlier run; remove it before publishing)" ;;
     esac
 done

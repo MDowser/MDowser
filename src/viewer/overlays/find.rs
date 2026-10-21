@@ -28,8 +28,12 @@ const BAR_H: f32 = 34.0;
 const CAPSULE_PAD: f32 = 6.0;
 /// Magnifier slot inside the capsule.
 const ICON: f32 = 22.0;
-/// Width of the query field (one line of text, like every other cap).
+/// Preferred width of the query field (one line of text, like every other
+/// cap). Narrow windows and high zoom shrink it down to `MIN_FIELD_W`.
 const FIELD_W: f32 = 220.0;
+/// Smallest query field kept usable before the bar falls back to the whole
+/// content width (covering the outline panel) instead of clipping controls.
+const MIN_FIELD_W: f32 = 72.0;
 /// Fixed width of the count column (`12/34`, `120/340+`): a fixed slot keeps
 /// the buttons from shifting as the numbers change while typing.
 const COUNT_W: f32 = 72.0;
@@ -61,9 +65,29 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
     // instead of covering it. `panel_rect` is this frame's (the viewer draws
     // the sidebar before this bar); a page without an outline keeps the
     // sheet-edge offset.
-    let right_inset = tab.outline.panel_rect.map_or(12.0, |panel| {
+    let desired_inset = tab.outline.panel_rect.map_or(12.0, |panel| {
         (ctx.content_rect().right() - panel.left() + 12.0).max(12.0)
     });
+    // The bar is fixed-width chrome. At the minimum window size with the
+    // maximum zoom (and the outline panel present) a 450pt bar cannot fit
+    // beside the panel: shrink the field first, then fall back over the
+    // outline rather than clipping the prev/next/close controls. The
+    // fallback triggers only when even `MIN_FIELD_W` no longer fits.
+    let fixed_w = CAPSULE_PAD * 2.0
+        + ICON
+        + 2.0
+        + COUNT_W
+        + 3.0 * icons::BUTTON
+        + 3.0 * theme::spacing::XS
+        + 16.0;
+    let content_w = ctx.content_rect().width();
+    let min_bar_w = fixed_w + MIN_FIELD_W + 12.0;
+    let right_inset = if content_w - desired_inset >= min_bar_w {
+        desired_inset
+    } else {
+        12.0
+    };
+    let field_w = FIELD_W.min((content_w - right_inset - 12.0 - fixed_w).max(MIN_FIELD_W));
     egui::Area::new(egui::Id::new(("find-bar", tab_id)))
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-right_inset, 48.0))
         .order(egui::Order::Foreground)
@@ -96,7 +120,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                         // after the field, like the omnibox).
                         let can_step = !tab.find.query.is_empty() && tab.find.total > 0;
                         let s = theme::scheme_ref(ui);
-                        let cap_w = CAPSULE_PAD + ICON + 2.0 + FIELD_W + CAPSULE_PAD;
+                        let cap_w = CAPSULE_PAD + ICON + 2.0 + field_w + CAPSULE_PAD;
                         let (cap_rect, cap_resp) =
                             ui.allocate_exact_size(egui::vec2(cap_w, BAR_H), egui::Sense::click());
                         let bg_idx = ui.painter().add(egui::Shape::Noop);

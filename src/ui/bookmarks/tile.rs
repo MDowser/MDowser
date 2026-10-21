@@ -50,8 +50,6 @@ pub(super) enum TileAction {
 /// `bookmark_tile` stays under the `too_many_arguments` budget.
 #[derive(Clone, Copy)]
 pub(super) struct TileRef<'a> {
-    /// Store index (position in `entries`, oldest first).
-    pub(super) index: usize,
     /// The bookmark itself.
     pub(super) bookmark: &'a Bookmark,
     /// Column width for this pass.
@@ -127,7 +125,6 @@ pub(super) fn bookmark_tile(
     favicons: &mut FaviconCache,
 ) -> TileAction {
     let TileRef {
-        index,
         bookmark,
         tile_w,
         dragging,
@@ -357,8 +354,12 @@ pub(super) fn bookmark_tile(
     // `focused_before`/button focus keep them allocated for keyboard
     // traversal (see above); without either, a Tab press could never reach
     // the pencil or the X.
-    let edit_button_id = ui.id().with(("bookmark-edit", index));
-    let remove_button_id = ui.id().with(("bookmark-remove", index));
+    // Stable per BOOKMARK identity, never the display index: after a removal
+    // or reorder the same index belongs to a different tile, so index-keyed
+    // ids silently moved keyboard focus onto another row's Remove button (a
+    // second Enter could delete the wrong bookmark).
+    let edit_button_id = ui.id().with(("bookmark-edit", bookmark.url.as_str()));
+    let remove_button_id = ui.id().with(("bookmark-remove", bookmark.url.as_str()));
     let action_focused =
         ui.memory(|m| m.has_focus(edit_button_id) || m.has_focus(remove_button_id));
     let mut edit_rect = None;
@@ -393,7 +394,7 @@ pub(super) fn bookmark_tile(
         if icons::icon_button_at_named_lazy(
             ui,
             er,
-            ("bookmark-edit", index),
+            ("bookmark-edit", bookmark.url.as_str()),
             icon,
             || {
                 if editing {
@@ -416,7 +417,7 @@ pub(super) fn bookmark_tile(
         if icons::icon_button_at_named_lazy(
             ui,
             rr,
-            ("bookmark-remove", index),
+            ("bookmark-remove", bookmark.url.as_str()),
             icons::Icon::Close,
             || format!("Remove bookmark {tile_name}"),
             || "Remove bookmark".to_string(),

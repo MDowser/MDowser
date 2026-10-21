@@ -71,10 +71,21 @@ pub(crate) fn try_acquire_image_slot() -> Option<ImageSlot> {
 
 /// FNV-1a hash used to name textures and cache keys (deterministic, tiny).
 pub(crate) fn fnv1a(value: &str) -> u64 {
-    const OFFSET: u64 = 0xcbf29ce484222325;
+    fnv1a_update(fnv1a_offset(), value.as_bytes())
+}
+
+/// Seed for an incremental FNV-1a hash. Callers that would otherwise build a
+/// joined temporary string (for example `<Tabs>` labels every frame) can feed
+/// each piece through [`fnv1a_update`] instead.
+pub(crate) fn fnv1a_offset() -> u64 {
+    0xcbf29ce484222325
+}
+
+/// Folds `bytes` into an FNV-1a hash seeded by [`fnv1a_offset`] or a
+/// previous [`fnv1a_update`] result.
+pub(crate) fn fnv1a_update(mut hash: u64, bytes: &[u8]) -> u64 {
     const PRIME: u64 = 0x100000001b3;
-    let mut hash = OFFSET;
-    for b in value.as_bytes() {
+    for b in bytes {
         hash ^= u64::from(*b);
         hash = hash.wrapping_mul(PRIME);
     }

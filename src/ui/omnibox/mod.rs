@@ -662,27 +662,51 @@ pub(crate) fn show_omnibox(
         // At most one field edits at a time and the position/size are
         // re-specified every frame, so sharing is behavior-preserving.
         let area_id = egui::Id::new((id_salt, "suggest-popup"));
+        // The list is bounded by the viewport too: eight 46pt rows plus the
+        // frame exceed a minimum-height window at high zoom. Without a
+        // scroll area the Area kept itself on screen but clipped the lower
+        // rows (and the close/Enter targets with them). The selected row is
+        // scrolled into view so keyboard stepping always shows the pick.
+        let popup_top = rect.max.y + 4.0;
+        let max_h = (ctx.content_rect().bottom() - popup_top - 12.0).max(96.0);
         let area = egui::Area::new(area_id)
-            .fixed_pos(egui::pos2(rect.min.x, rect.max.y + 4.0))
+            .fixed_pos(egui::pos2(rect.min.x, popup_top))
             .order(egui::Order::Foreground)
             .show(&ctx, |ui| {
                 frame.show(ui, |ui| {
                     ui.set_min_width(content_w);
                     ui.set_max_width(content_w);
-                    ui.spacing_mut().item_spacing.y = theme::spacing::XXS;
-                    for (index, item) in suggest.items.iter().enumerate() {
-                        // Paint the highlight only for an EXPLICIT pick: an
-                        // untouched list shows no selected row, so the
-                        // highlight always means "Enter opens this".
-                        let picked = suggest.explicit && index == suggest.selected;
-                        let row = suggest_row(ui, item, picked);
-                        if row.clicked() {
-                            clicked = Some(index);
-                        }
-                        if row.hovered() {
-                            hovered_row = Some(index);
-                        }
-                    }
+                    egui::ScrollArea::vertical()
+                        .id_salt((id_salt, "suggest-scroll"))
+                        .max_height(max_h)
+                        // Fixed width, shrink to the rows: a two-item list
+                        // must not reserve the eight-row maximum as blank
+                        // popup height.
+                        .auto_shrink([false, true])
+                        .scroll_bar_visibility(
+                            egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+                        )
+                        .show(ui, |ui| {
+                            ui.set_min_width(content_w);
+                            ui.set_max_width(content_w);
+                            ui.spacing_mut().item_spacing.y = theme::spacing::XXS;
+                            for (index, item) in suggest.items.iter().enumerate() {
+                                // Paint the highlight only for an EXPLICIT pick:
+                                // an untouched list shows no selected row, so
+                                // the highlight always means "Enter opens this".
+                                let picked = suggest.explicit && index == suggest.selected;
+                                let row = suggest_row(ui, item, picked);
+                                if picked {
+                                    row.scroll_to_me(Some(egui::Align::Center));
+                                }
+                                if row.clicked() {
+                                    clicked = Some(index);
+                                }
+                                if row.hovered() {
+                                    hovered_row = Some(index);
+                                }
+                            }
+                        });
                 });
             });
         // Exposed for the width test below (and harmless otherwise): the

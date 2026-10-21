@@ -96,7 +96,7 @@ make install      # runtime files under PREFIX (DESTDIR honored; RPM %install)
 make flatpak      # alias of the Flatpak bundle build (needs flatpak-builder)
 make validate     # best-effort packaging metadata checks (SKIPs when tools missing)
 make check-version # Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md
-make check-dist   # privacy gate over dist/ (builder paths/metadata; after packaging)
+make check-dist   # privacy gate over dist/ (fails when dist/ is absent; after packaging)
 make deps         # install build/packaging dependencies (SKIP_SETUP=1 dry run)
 make fmt | make clippy | make run | make clean | make help | make icons | make doctor
 make sync-sites   # sync curated omnibox list from MDowser-Sites (manual, network)
@@ -179,7 +179,11 @@ host binary in `target/release/mdowser` plus this.
 `dist/` semantics: the COMPLETE modes (`--all`, the default, and
 `--host-only`) rebuild `dist/` from scratch; a single-group flag (`--mac`,
 `--linux`, `--windows`, `--rpm`, `--flatpak`) ADDS its artifacts to what is
-already there.
+already there. Make recipe execution is serialized (`.NOTPARALLEL`): the
+goals share `target/` and `dist/`, so `make -j` must not race them (cargo
+still compiles in parallel internally). The Flatpak wrapper regenerates
+`cargo-sources.json` when `Cargo.lock` is newer and removes/verifies the
+bundle path, so a stale dependency set or old bundle is never reused.
 
 `--all` generates all of the above plus (the version comes from `Cargo.toml`;
 shown here as `<ver>`):
@@ -210,6 +214,13 @@ and license under `Contents/Resources/`, the `.deb` under
 next to the artifacts. Before the checksums, `scripts/check-dist.sh --require`
 enforces the privacy rules below.
 
+A pre-release version such as `0.7.0-alpha.1` keeps its full spelling in the
+artifact names and AppStream metadata, while each package format gets the form
+it accepts: the `.app` plist uses the numeric base `0.7.0` (Apple's version
+keys are numeric), Debian uses `0.7.0~alpha.1` and RPM uses the same `~` form
+(RPM rejects `-` in `Version:` and `~` sorts before the final release). The
+version gate compares the normalized RPM form with the spec changelog.
+
 ### Native Windows
 
 On native Windows no `make` or `/bin/sh` is needed: `windows.ps1` (repo root)
@@ -232,11 +243,12 @@ powershell -ExecutionPolicy Bypass -File windows.ps1 -SkipSetup   # use what is 
 ```
 
 Flags: `-Test` (also run `scripts/build-test.sh`), `-Validate` (also
-`scripts/validate.sh`), `-SkipBuild` (deps + dist only), `-SkipDist` (deps +
-build only), `-SkipSetup` (install nothing, fail when a tool is missing),
-`-NoElevate` (no UAC self-elevation; installs may fail). `-SkipBuild` with
-`-SkipDist` (and neither `-Test` nor `-Validate`) is setup-only; `-SkipDist`
-alone still runs the release build.
+`scripts/validate.sh`), `-SkipBuild` (setup/tests only: no release build and
+no dist, because packaging always compiles the release binary), `-SkipDist`
+(release build, no packaging), `-SkipSetup` (install nothing; also skips the
+winget requirement, fail only when a required tool is missing), `-NoElevate`
+(no UAC self-elevation; installs may fail). `-SkipBuild` with `-SkipDist`
+(and neither `-Test` nor `-Validate`) is setup-only.
 
 ### Desktop integration and package formats
 
@@ -306,8 +318,11 @@ and `%defattr(-, root, root, -)`.
 
 `make check-dist` is the gate: it scans every file in `dist/` for the real
 `$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
-non-zero on any hit. `.tar.gz`, `.deb` and `.zip` are unpacked and their
-payload files inspected; AppleDouble `._*`/`__MACOSX/` members are a breach.
+non-zero on any hit (or when `dist/` is missing, so a SKIP can never pass for
+a release gate). Generic hostnames that collide with the `/build` and `/cargo`
+remap targets are not used as needles. `.tar.gz`, `.deb` and `.zip` are
+unpacked and their payload files inspected; AppleDouble `._*`/`__MACOSX/`
+members are a breach.
 The `.rpm`'s xz cpio payload and the ostree `.flatpak` bundle are byte-scanned
 only (best-effort). `scripts/build-dist.sh` runs the gate with `--require`
 before writing `SHA256SUMS.txt`, so `make dist` fails instead of publishing,
@@ -354,7 +369,8 @@ docker run --rm -v "$PWD:/w" -w /w debian:bookworm bash -lc '
 docker run --rm -v "$PWD:/w" -w /w fedora:latest bash -lc '
   dnf -y install rpm-build rpmlint &&
   VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1) &&
-  rpmspec -P packaging/rpm/mdowser.spec --define "ver $VER" >/dev/null &&
+  RPM_VER=$(printf '%s' "$VER" | sed -e 's/+.*$//' -e 's/-/~/g') &&
+  rpmspec -P packaging/rpm/mdowser.spec --define "ver $RPM_VER" >/dev/null &&
   rpmlint packaging/rpm/mdowser.spec'
 ```
 
@@ -375,6 +391,7 @@ the single `SHA256SUMS.txt`.
 
 | Job | Runner | Builds |
 | --- | --- | --- |
+| `verify` | ubuntu-24.04 | `scripts/build-test.sh` (sh syntax, version, fmt, clippy, tests, doc, debug); every build job needs it |
 | `linux-x64` | ubuntu-24.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
 | `linux-arm64` | ubuntu-24.04-arm | Linux arm64 `.tar.gz` + `.deb` |
 | `windows-arm64` | windows-11-arm | Windows arm64 `.zip` (native MSVC) |
@@ -382,6 +399,13 @@ the single `SHA256SUMS.txt`.
 | `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
+
+A tag cannot publish a tree that fails `make test`: the `verify` job runs the
+full pipeline and every build job declares `needs: verify`. The publish job
+also checks that the merged set contains every advertised target (macOS,
+Linux x86_64/arm64 archives and debs, both Windows zips, RPM and Flatpak)
+before writing checksums; the x86_64 Windows build asserts its `.rsrc` section
+(icon/version/manifest) like the native arm64 job does.
 
 Artifact names are identical to `make dist`, plus the Windows arm64 `.zip`
 (native MSVC on a Windows on ARM runner; not cross-built, so only CI or a

@@ -384,16 +384,16 @@ fn apply_spacing_type(style: &mut egui::Style) {
     style.spacing.item_spacing = egui::Vec2::new(8.0, 8.0);
     style.spacing.indent = 20.0;
 
-    // Scrollbars: subtle gray handles.
+    // Scrollbars: quiet but clearly visible handles.
     //
     // `foreground_color = true` picks `widgets.inactive.fg_stroke`, which
-    // the ramp below sets to the border tone: the handle used to paint
+    // the ramp below sets to the muted text tone. It used to paint
     // `inactive.bg_fill` (`container_high`) with `foreground_color = false`,
-    // the SAME tone as the chrome behind it, so the document bar rendered at
-    // ~1.1:1 contrast — a scrollbar the reader could not see. epaint's own
-    // default (`fg_stroke` = near-black `on_surface`) is what the old code
-    // avoided by painting `bg_fill`; the border tone is the visible middle
-    // ground, in both themes.
+    // the SAME tone as the chrome behind it (~1.1:1); the first fix used the
+    // border tone, still only ~1.3:1 light / ~1.6:1 dark after blending.
+    // A scrollbar is an operable control, so the handle now uses the muted
+    // text token: at the dormant opacity it measures ~3.5:1 light / ~4.1:1
+    // dark against the page (WCAG 1.4.11 non-text contrast, 3:1).
     style.spacing.scroll.foreground_color = true;
     style.spacing.scroll.bar_width = 10.0;
     style.spacing.scroll.handle_min_length = 24.0;
@@ -526,10 +526,11 @@ fn apply_visuals(style: &mut egui::Style, theme: egui::Theme, scheme: &Scheme) {
     v.widgets.noninteractive.corner_radius = r;
     v.widgets.inactive.bg_fill = scheme.container_high;
     v.widgets.inactive.weak_bg_fill = scheme.container_low;
-    // The border tone doubles as the scrollbar handle (`foreground_color`):
-    // on_surface was a hard black line, container_high was invisible on the
-    // chrome, the border tone is visible but quiet in both themes.
-    v.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
+    // The muted text tone doubles as the scrollbar handle (`foreground_color`)
+    // and as the foreground of stock inactive widgets. It is readable on
+    // every chrome tone in both themes; the former border tone was not
+    // (see the scrollbar comment in `apply_spacing_type`).
+    v.widgets.inactive.fg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.on_surface_variant);
     v.widgets.inactive.bg_stroke = egui::Stroke::new(stroke::HAIRLINE, scheme.outline_variant);
     v.widgets.inactive.corner_radius = r;
     v.widgets.inactive.expansion = 0.0;

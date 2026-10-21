@@ -568,7 +568,14 @@ pub fn show_tabs(
             );
             paint_edge_separator(ui.painter(), ui.visuals().dark_mode, edge, s, t);
         });
-    *overlay_rect = Some(area.response.rect);
+    // Store the ANIMATED clip, not the Area's final-size rect: during the
+    // close tween the right-hand strip is already invisible, but the full
+    // rect kept `inside_overlay` true there, so the pointer could hold the
+    // overlay open (or reopen it) over empty space.
+    *overlay_rect = Some(egui::Rect::from_min_max(
+        area.response.rect.min,
+        egui::pos2(rail_rect.min.x + width, area.response.rect.max.y),
+    ));
 
     // Drag reorder, applied LIVE like the bookmark grid: the rail follows the
     // pointer instead of jumping on release. `from` is looked up by ID (the

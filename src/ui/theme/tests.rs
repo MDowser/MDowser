@@ -107,16 +107,14 @@ fn find_washes_keep_reading_text_legible() {
     }
 }
 
-/// The floating document scrollbar must be VISIBLE: the handle paints
+/// The floating document scrollbar must meet WCAG 1.4.11: the handle paints
 /// `widgets.inactive.fg_stroke` (with `foreground_color = true`) at the
-/// dormant opacity over the page, and it used to paint `container_high` —
-/// the same gray as the chrome — at ~1.1:1. There is no WCAG minimum for a
-/// decorative component, so the assertion pins only that the handle is a
-/// real, visible step above the old chrome-gray value (which measured
-/// ~1.09 light / ~1.13 dark); a regression back to the chrome tone fails
-/// here.
+/// dormant opacity over the page. It used to paint `container_high` (~1.1:1)
+/// and then the border tone (~1.3:1 light / ~1.6:1 dark after blending); a
+/// scrollbar is an operable UI component, not decoration, so the handle now
+/// uses the muted text tone and must stay at or above 3:1 in both themes.
 #[test]
-fn scrollbar_handle_stays_visible_in_both_themes() {
+fn scrollbar_handle_meets_non_text_contrast() {
     let ctx = egui::Context::default();
     super::apply(&ctx);
     for (theme, scheme) in [(egui::Theme::Light, light()), (egui::Theme::Dark, dark())] {
@@ -126,7 +124,7 @@ fn scrollbar_handle_stays_visible_in_both_themes() {
         assert!(scroll.foreground_color, "{theme:?}: handle color");
         assert!(opacity > 0.0, "{theme:?}: a dormant handle must paint");
         // Blend the handle over the page it floats on (the sheet surface)
-        // and require a visible contrast step.
+        // and require the WCAG non-text contrast minimum.
         let handle = blend(
             style.visuals.widgets.inactive.fg_stroke.color,
             scheme.surface,
@@ -134,8 +132,8 @@ fn scrollbar_handle_stays_visible_in_both_themes() {
         );
         let ratio = contrast(handle, scheme.surface);
         assert!(
-            ratio >= 1.2,
-            "{theme:?}: dormant scrollbar handle contrast {ratio:.2} is invisible on the page"
+            ratio >= 3.0,
+            "{theme:?}: dormant scrollbar handle contrast {ratio:.2} is below WCAG 1.4.11"
         );
     }
 }

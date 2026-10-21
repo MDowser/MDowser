@@ -287,7 +287,8 @@ TMP_LIST="$(mktemp "${TMPDIR:-/tmp}/mdowser-sites.XXXXXX")" || exit 1
 trap 'rm -f "${TMP_LIST:-}" "${TMP_OUT:-}"' EXIT INT TERM
 TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/mdowser-sites-filtered.XXXXXX")" || exit 1
 
-if ! curl -fsSL --max-time 60 -A "$UA" "$SITES_UPSTREAM" -o "$TMP_LIST"; then
+if ! curl -fsSL --proto '=https' --proto-redir '=https' --max-time 60 \
+    -A "$UA" "$SITES_UPSTREAM" -o "$TMP_LIST"; then
     echo "ERROR: download failed: $SITES_UPSTREAM (keeping $ASSET)" >&2
     exit 1
 fi

@@ -7,6 +7,7 @@
 #
 # Jobs (fresh GitHub-hosted runners, NO Actions cache: every release compiles
 # from scratch and only the packaged files travel between jobs):
+#   verify       full `make test` pipeline; every build job depends on it
 #   linux-x64    Linux x86_64 (.tar.gz + .deb) + Windows x86_64 (.zip, mingw)
 #   linux-arm64  Linux arm64 (.tar.gz + .deb)
 #   windows-arm64 Windows arm64 (.zip, native MSVC on a windows-11-arm runner)
@@ -49,11 +50,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    name: Verify (test pipeline)
+    # Gate every release build on the same checks a local `make test` runs:
+    # fmt, clippy -D warnings, tests, rustdoc and the debug build. Without
+    # this, a tag could publish binaries that never compiled under the
+    # release-gating lints (or failed the version/documentation checks).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Build dependencies (NASM for the x86_64 assembly)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm
+      - name: Full verification pipeline
+        run: ./scripts/build-test.sh
+
   linux-x64:
     name: Linux x86_64 + Windows x86_64
     # The x64 environment does all the x64 work; the Windows .exe keeps the
     # very same mingw cross path a local `make dist` uses today.
     runs-on: ubuntu-24.04
+    needs: verify
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -64,7 +83,7 @@ jobs:
       - name: System dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm mingw-w64 zip
+          sudo apt-get install -y nasm mingw-w64 binutils-mingw-w64-x86-64 zip
       - name: Free disk space (two release builds need several GB)
         run: |
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /usr/local/.ghcup \
@@ -86,6 +105,14 @@ jobs:
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh --require dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
+      # build.rs only WARNS when windres is missing: prove the icon,
+      # VERSIONINFO and manifest survived the mingw link (the arm64 job has
+      # the equivalent VersionInfo check for the native MSVC build).
+      - name: Windows x86_64 resources embedded
+        run: |
+          set -eu
+          x86_64-w64-mingw32-objdump -h \
+            target/x86_64-pc-windows-gnu/release/mdowser.exe | grep -q '\.rsrc'
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: dist-linux-x64
@@ -98,6 +125,7 @@ jobs:
     name: Linux arm64
     # aarch64 uses the system assembler: no nasm needed here.
     runs-on: ubuntu-24.04-arm
+    needs: verify
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -137,6 +165,7 @@ jobs:
     # Windows on ARM host uses, no cross toolchain involved. NASM is not
     # needed (arm64 assembles with the system toolchain).
     runs-on: windows-11-arm
+    needs: verify
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -191,6 +220,7 @@ jobs:
   macos:
     name: macOS universal
     runs-on: macos-15
+    needs: verify
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -218,6 +248,7 @@ jobs:
     # The spec builds from the FULL source tree and needs a Fedora/RHEL host
     # (see docs/BUILDING.md); the container provides it.
     runs-on: ubuntu-24.04
+    needs: verify
     timeout-minutes: 60
     container: fedora:44
     defaults:
@@ -254,6 +285,7 @@ jobs:
   flatpak:
     name: Flatpak
     runs-on: ubuntu-24.04
+    needs: verify
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -342,6 +374,29 @@ jobs:
       - name: Privacy gate over the merged set + single SHA256SUMS.txt
         run: |
           set -eu
+          cd dist
+          # The merged set must contain EVERY advertised target: an upload
+          # that silently produced nothing (or an artifact-name change) would
+          # otherwise publish a release with a gap while the checksums still
+          # look complete.
+          require_artifact() {
+            label="$1"; pattern="$2"
+            for candidate in $pattern; do
+              if [ -f "$candidate" ]; then return 0; fi
+            done
+            echo "ERROR: missing $label ($pattern)" >&2
+            exit 1
+          }
+          require_artifact "macOS universal .app.zip" "MDowser-*-macos-universal.app.zip"
+          require_artifact "Linux x86_64 .tar.gz" "mdowser-*-linux-x86_64.tar.gz"
+          require_artifact "Linux arm64 .tar.gz" "mdowser-*-linux-aarch64.tar.gz"
+          require_artifact "Debian amd64 .deb" "mdowser_*_amd64.deb"
+          require_artifact "Debian arm64 .deb" "mdowser_*_arm64.deb"
+          require_artifact "Windows x86_64 .zip" "mdowser-*-windows-x86_64.zip"
+          require_artifact "Windows arm64 .zip" "mdowser-*-windows-aarch64.zip"
+          require_artifact "RPM" "mdowser-*.rpm"
+          require_artifact "Flatpak bundle" "mdowser-*.flatpak"
+          cd ..
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh --require dist
           (cd dist && sha256sum * > SHA256SUMS.txt)
@@ -363,13 +418,19 @@ jobs:
 
           macOS 13+: the `.app` is ad-hoc signed, not notarized. Double-click it once so Gatekeeper registers the block, then allow it in System Settings > Privacy & Security > Open Anyway.
 
-          Linux: `sudo dpkg -i mdowser_@VERSION@_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-@VERSION@-*.rpm`, or `flatpak install mdowser-@VERSION@.flatpak`; the `.tar.gz` is a portable alternative.
+          Linux: `sudo dpkg -i mdowser_@DEB_VERSION@_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-@VERSION@-*.rpm`, or `flatpak install mdowser-@VERSION@.flatpak`; the `.tar.gz` is a portable alternative.
 
           Windows: pick the `x86_64` or `aarch64` zip for your PC; the `.exe` is unsigned, so on the SmartScreen warning click More info > Run anyway.
 
           **Disclaimer:** Binaries are built in CI and some targets are cross-compiled; they may not work correctly on every platform. You can try [building from source](https://github.com/MDowser/MDowser/blob/main/docs/BUILDING.md). This software is provided as-is, with no guarantees or warranties of any kind, including stability, compatibility, reliability, or security. Use at your own risk.
           EOF
-          sed "s/@VERSION@/${GITHUB_REF_NAME#v}/g" "$NOTES" > "$NOTES.tmp"
+          # Debian filenames use `~` for a semver pre-release (see
+          # version_deb in scripts/packaging.sh); the other formats keep the
+          # full tag version.
+          VER="${GITHUB_REF_NAME#v}"
+          DEB_VERSION="$(printf '%s' "$VER" | sed -e 's/+.*$//' -e 's/-/~/g')"
+          sed -e "s/@VERSION@/$VER/g" -e "s/@DEB_VERSION@/$DEB_VERSION/g" \
+            "$NOTES" > "$NOTES.tmp"
           mv "$NOTES.tmp" "$NOTES"
           # Pre-release tags stay out of the repo page's "Latest release".
           PRERELEASE=()
