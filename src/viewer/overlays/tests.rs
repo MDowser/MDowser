@@ -556,7 +556,12 @@ fn menu_renders_the_minimal_actions() {
     }
     // The hints are painted next to the labels, so a reader learns the
     // shortcut without opening the menu bar.
-    for hint in ["Cmd+C", "Cmd+A", "Cmd+F", "Cmd+S"] {
+    let hints = if cfg!(target_os = "macos") {
+        ["Cmd+C", "Cmd+A", "Cmd+F", "Cmd+S"]
+    } else {
+        ["Ctrl+C", "Ctrl+A", "Ctrl+F", "Ctrl+S"]
+    };
+    for hint in hints {
         assert!(joined.contains(hint), "{hint:?} missing: {joined}");
     }
     for gone in [
