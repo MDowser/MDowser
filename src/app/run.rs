@@ -37,8 +37,8 @@ impl eframe::App for MdowserApp {
     /// still clear the selection, and a plain right-click still takes the
     /// normal path.
     ///
-    /// On macOS it also injects the menu bar commands [`Self::poll_menu`]
-    /// queued, as the raw key events they stand for.
+    /// On macOS it also injects the menu bar commands queued by the platform
+    /// menu, as the raw key events they stand for.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         // macOS menu bar: replay each queued command as its keyboard event,
         // into the raw input egui is about to process.
