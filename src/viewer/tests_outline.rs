@@ -879,3 +879,300 @@ fn the_find_bar_docks_left_of_the_sidebar() {
         "the find bar stays left of the sidebar: {count:?}"
     );
 }
+
+/// A page whose last headings can never reach the viewport top (the sheet
+/// runs out of content first) still walks them in order as the reader scrolls
+/// to the bottom, and scrolling back up walks them in reverse. This is the
+/// www.cloudflare.com case: its final three sections share the last
+/// screenful, so a spy that only marks headings crossing the top line left
+/// the last rows unreachable.
+#[test]
+fn the_cursor_walks_the_page_end_and_follows_a_manual_scroll() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body = |n: usize| -> String { (0..n).map(|i| format!("body {i:03}\n\n")).collect() };
+    let md = format!(
+        "# One\n\n{}## Two\n\n{}## Three\n\n{}## Four\n\n{}## Five\n\ntail\n",
+        body(80),
+        body(40),
+        body(20),
+        body(10)
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0));
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen,
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(
+        tab.outline.current, 0,
+        "the page opens on its first section"
+    );
+    // The wheel scrolls the hovered area: keep it over the sheet, away from
+    // the sidebar's own scrollable list.
+    let _ = run(
+        &mut tab,
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 450.0))],
+    );
+    let mut seen = Vec::new();
+    let mut last = tab.outline.current;
+    for _ in 0..500 {
+        let _ = run(&mut tab, vec![wheel(-30.0)]);
+        if tab.outline.current != last {
+            seen.push(tab.outline.current);
+            last = tab.outline.current;
+        }
+        if tab.outline.current == 4 {
+            break;
+        }
+    }
+    assert_eq!(
+        seen,
+        (1..=4).collect::<Vec<_>>(),
+        "every tail heading became current in order"
+    );
+    assert_eq!(
+        tab.outline.current, 4,
+        "the last section is current at the page end"
+    );
+    // Clicking the last row must select it, then a real scroll up must hand
+    // the cursor back to the spy instead of leaving the click pinned.
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    let row = panel_text_at(&texts, "Five", screen).expect("the last outline row is painted");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    assert_eq!(
+        tab.outline.current, 4,
+        "the clicked row is selected at once"
+    );
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(tab.outline.current, 4, "the page end keeps it selected");
+    let _ = run(
+        &mut tab,
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 450.0))],
+    );
+    let mut seen = Vec::new();
+    let mut last = tab.outline.current;
+    for _ in 0..800 {
+        let _ = run(&mut tab, vec![wheel(30.0)]);
+        if tab.outline.current != last {
+            seen.push(tab.outline.current);
+            last = tab.outline.current;
+        }
+        if tab.outline.current == 0 {
+            break;
+        }
+    }
+    assert_eq!(
+        seen,
+        vec![3, 2, 1, 0],
+        "scrolling up walks the tail back and reaches the first section"
+    );
+}
+
+/// Clicking a page-end heading that cannot reach the top keeps THAT row
+/// selected once the sheet settles at the bottom. The page-end reading line
+/// must not hand the cursor to a deeper section after the click's scroll
+/// finishes: the reader asked for this row, not for the document tail.
+#[test]
+fn a_clicked_page_end_heading_stays_selected_after_the_scroll_settles() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body = |n: usize| -> String { (0..n).map(|i| format!("body {i:03}\n\n")).collect() };
+    let md = format!(
+        "# One\n\n{}## Two\n\n{}## Three\n\n{}## Four\n\n{}## Five\n\ntail\n",
+        body(80),
+        body(40),
+        body(20),
+        body(10)
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0));
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen,
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let texts = run(&mut tab, Vec::new());
+    let row = panel_text_at(&texts, "Four", screen).expect("the row is painted");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    assert_eq!(
+        tab.outline.current, 3,
+        "the clicked row is selected at once"
+    );
+    // Let the requested scroll run to the end of the document: `Five` becomes
+    // the deepest visible section, but the clicked `Four` stays current.
+    for _ in 0..80 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(
+        tab.outline.current, 3,
+        "the clicked page-end row stays selected after the scroll settles"
+    );
+}
+
+/// Clicking a tail row that is ALREADY the current section must keep it
+/// selected too: the click's scroll to the clamped page end moves the
+/// reading line on to the deeper row, but not the reader's choice.
+#[test]
+fn a_clicked_tail_row_that_is_already_current_stays_current() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body = |n: usize| -> String { (0..n).map(|i| format!("body {i:03}\n\n")).collect() };
+    let md = format!(
+        "# One\n\n{}## Two\n\n{}## Three\n\n{}## Four\n\n{}## Five\n\ntail\n",
+        body(80),
+        body(40),
+        body(20),
+        body(10)
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0));
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen,
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    let _ = run(
+        &mut tab,
+        vec![egui::Event::PointerMoved(egui::pos2(300.0, 450.0))],
+    );
+    // Reach the bottom, then step back up until `Four` (the second-to-last
+    // heading) is the current section at rest. Its own scroll target is the
+    // clamped page end, so clicking it must not let `Five` take over.
+    for _ in 0..500 {
+        let _ = run(&mut tab, vec![wheel(-30.0)]);
+        if tab.outline.current == 4 {
+            break;
+        }
+    }
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(tab.outline.current, 4, "the page reached its bottom");
+    for _ in 0..500 {
+        let _ = run(&mut tab, vec![wheel(30.0)]);
+        if tab.outline.current == 3 {
+            break;
+        }
+    }
+    for _ in 0..40 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(tab.outline.current, 3, "the test rests on the clicked row");
+    let texts = run(&mut tab, Vec::new());
+    let row = panel_text_at(&texts, "Four", screen).expect("the row is painted");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    assert_eq!(
+        tab.outline.current, 3,
+        "the clicked row is selected at once"
+    );
+    for _ in 0..80 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(
+        tab.outline.current, 3,
+        "the clicked tail row stays selected after its scroll settles"
+    );
+}
+
+/// A row click requests a smooth scroll and pins the row while it settles.
+/// A manual scroll in the meantime must release the pin: the wheel delta is
+/// read BEFORE the document walk, because the sheet's `ScrollArea` consumes
+/// and zeroes it. Reading it after the walk leaves the clicked row pinned
+/// even though the spy already points at the section on screen.
+#[test]
+fn a_manual_scroll_releases_a_row_click_still_settling() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let body = |n: usize| -> String { (0..n).map(|i| format!("body {i:03}\n\n")).collect() };
+    let md = format!(
+        "# One\n\n{}## Two\n\n{}## Three\n\ntail\n",
+        body(80),
+        body(80)
+    );
+    let mut tab = loaded_tab(&md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 900.0));
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        frame(
+            &ctx,
+            screen,
+            tab,
+            &mut store,
+            &mut bookmarks,
+            &mut favicons,
+            events,
+        )
+    };
+    for _ in 0..3 {
+        let _ = run(&mut tab, Vec::new());
+    }
+    assert_eq!(
+        tab.outline.current, 0,
+        "the page opens on its first section"
+    );
+    // Click `## Two` far below: the sheet starts a smooth scroll toward it
+    // and the click pin keeps the row current while it settles.
+    let texts = run(&mut tab, Vec::new());
+    let row = panel_text_at(&texts, "Two", screen).expect("the row is painted");
+    let _ = run(&mut tab, click(row + egui::vec2(20.0, 8.0)));
+    assert_eq!(tab.outline.current, 1, "the click pins the requested row");
+    // Before that scroll reaches the heading, the reader wheels back up over
+    // the sheet. The spy still points at the first section; only the manual
+    // scroll can hand the cursor back to it.
+    let _ = run(
+        &mut tab,
+        vec![
+            egui::Event::PointerMoved(egui::pos2(300.0, 450.0)),
+            wheel(30.0),
+        ],
+    );
+    assert_eq!(
+        tab.outline.current, 0,
+        "the manual scroll releases the pin to the section on screen"
+    );
+}

@@ -1142,18 +1142,31 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 - `viewer::outline` is the scrollspy state: the document walk records each
   rendered heading's screen rect by that event index, `current_section` merges
   the heading list and the recorded rects in ONE ordered pass (the last heading
-  above the viewport top, with a small pad). A heading with no rect (collapsed
+  above the reading line: the viewport top plus a small pad, lowered through
+  the page's last screenful). A heading with no rect (collapsed
   content, an unselected tab, the block budget) is never a candidate; when no
   heading has reached the line yet the first heading that DID render wins, not
   the first row of the outline. A frame that rendered no heading lights no row
-  (the cursor is kept for when content renders). At the page end, where the
-  sheet cannot put every heading on that line, the last VISIBLE heading that
-  reached the line keeps the cursor and the nearest visible one is only the
-  fallback, so a nearer heading below the line does not steal the section
-  being read while a dense cluster at the foot of the page is still walked
-  row by row; a clicked row is pinned until the spy reaches it or the reader
-  scrolls by hand. `reveal_offset` computes the sidebar list offset from the
-  measured variable row heights.
+  (the cursor is kept for when content renders). Across the page's last
+  screenful the reading line descends from the viewport top to its bottom
+  (`DocViewport::end_progress`, 0 at the start of that stretch and 1 at the
+  maximum offset), so headings the sheet can never put on the top line are
+  still walked in document order, the deepest visible section wins at the
+  very bottom, and scrolling back up walks them in reverse. A dense cluster
+  at the foot of the page is therefore still selected row by row. A clicked
+  row is pinned until the sheet has SETTLED at the row's scroll target (its
+  top at the viewport top, or the sheet at its maximum offset) and the spy
+  reaches it, or the reader scrolls by hand. The settled check
+  (`DocViewport::sheet_settled`: the offset has not moved since the previous
+  walk and there is no kinetic velocity) keeps a page-end pin through the
+  requested scroll, so the descending line crossing that row on the way to
+  the bottom cannot hand the cursor to a deeper section; the target check
+  keeps a row that is ALREADY current from being released on the click frame,
+  before that scroll starts. The viewer checks for a wheel/scrollbar scroll
+  BEFORE the document walk because the sheet's `ScrollArea` consumes and
+  zeroes `smooth_scroll_delta`.
+  `reveal_offset` computes the sidebar list offset from the measured variable
+  row heights.
 - `viewer::outline_panel` draws the permanent sidebar BEFORE the central
   panel, so it is layout, not an overlay: `Panel::right`, proportional width
   176-240px, full height, on every document page (a headingless page or the

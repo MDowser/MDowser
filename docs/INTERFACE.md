@@ -444,10 +444,12 @@ accent bar; the list keeps that row in view as the reader scrolls and scrolls
 on its own when the outline is long. The cursor only names a heading that is
 actually laid out: one hidden in a collapsed section or an unselected tab is
 skipped until revealed, and a page whose headings are all hidden lights no
-row. At the page end the last visible heading that reached the reading line
-stays current (the nearest visible one is the fallback when no reached
-heading is on screen), so a heading the sheet can no longer scroll into
-place never steals the cursor from the section being read.
+row. Across the page's last screenful the reading line descends from the
+viewport top to its bottom as the sheet approaches its maximum offset, so
+headings that can never reach the top (the document's final sections) still
+become current in order; at the very bottom the deepest visible section is
+current. Scrolling back up raises the line again, walking those last rows in
+reverse.
 
 The slot stays on every document page, including one without headings (a short
 "No headings" state replaces the rows) and the page still visible while the
@@ -458,12 +460,17 @@ A row click scrolls its heading to the top of the sheet through the same
 mechanism as a `#anchor` link click. If the heading lives in a closed
 `<Accordion>` or an unselected `<Tabs>` panel, that container opens/selects
 first and the heading then consumes the same request; a cross-page `#fragment`
-into such content does the same. The scrollspy accounts for the page END: a
-visible heading that reached the line wins over a nearer one below it, so a
-heading the sheet can no longer scroll into place does not steal the cursor,
-while a dense cluster at the foot of the page is still walked row by row
-(the nearest visible heading is the fallback when no reached heading is on
-screen). A just-clicked row stays selected until the reader scrolls by hand.
+into such content does the same. The scrollspy accounts for the page END: its
+reading line descends through the last screenful, so a dense cluster at the
+foot of the page is walked row by row and headings the sheet can no longer
+scroll to the top still become current. A just-clicked row stays selected
+while its requested scroll runs and, once the sheet stops, whenever the spy has
+not landed on it: a page-end row the moving line crossed on the way down stays
+selected even though the deepest visible section is current. The row is
+released when the spy reaches it at rest after its requested scroll has
+finished (its heading at the top, or the sheet at its maximum offset), or the
+reader scrolls by hand; wheel and scrollbar scrolling then hand the cursor
+back to the spy, including the reverse walk through the last rows.
 The sidebar has no close control and does not own `Esc`; navigation and tab
 switches reset its cursor with the rest of the page state. The find bar docks
 just left of the sidebar instead of covering it.

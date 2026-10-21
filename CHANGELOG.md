@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-21
+
+Offline reading from the encrypted cache, a permanent document outline
+sidebar, Save page, and reader and release hardening.
+
 ### Added
 
 - Offline reading: when no fresh copy of a page can be obtained (unreachable
@@ -129,12 +134,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The outline scrollspy follows the section actually being read: a heading
   that did not render (a collapsed `<Accordion>`, an unselected `<Tabs>`
   panel) is never selected, and a page whose headings are all hidden lights
-  no row. At the page end the last visible heading that reached the reading
-  line wins over a nearer heading below it that the sheet can no longer
-  scroll into place. A dense cluster at the foot of the page is still walked
-  row by row (the nearest visible heading is the fallback when no reached
-  heading is on screen). (`src/viewer/outline.rs`,
-  `src/viewer/outline_panel.rs`, `docs/INTERFACE.md`,
+  no row. Across the page's last screenful the reading line descends from the
+  viewport top to its bottom, so headings that can never reach the top (the
+  document's final sections, as on www.cloudflare.com) still become current
+  in order; the deepest visible section is current at the very bottom and
+  scrolling back up walks those rows in reverse. A dense cluster at the foot
+  of the page is still walked row by row. A clicked row is now released by a
+  real wheel or scrollbar scroll again: the check used to run after the
+  sheet's `ScrollArea` had consumed and zeroed the wheel delta, which left
+  the clicked row pinned and the sidebar frozen until the page reached the
+  top. A click pin now also survives the requested scroll itself: the page-end
+  line may cross the clicked row on the way down, but the row stays selected
+  once the sheet settles (clicking `Getting Started` no longer hands the
+  cursor to `Resources` on www.cloudflare.com). (`src/viewer/outline.rs`,
+  `src/viewer/mod.rs`, `src/viewer/outline_panel.rs`, `docs/INTERFACE.md`,
   `docs/ARCHITECTURE.md`.)
 - The in-page find highlight keeps the `on_surface` text it sits behind at
   WCAG AA in dark mode: the current match was a bright amber at ~2.7:1 while

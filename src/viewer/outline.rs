@@ -17,18 +17,21 @@
 //!   by the heading's own `Start` event index
 //!   ([`OutlineState::record_rect`], into the state's reusable scratch
 //!   buffer). [`OutlineState::update_current`] then picks the last outline
-//!   item whose heading top reached the viewport top. Rects, not offsets: a
+//!   item whose heading top reached the reading line. Rects, not offsets: a
 //!   heading inside an unselected `<Tabs>` panel (or one dropped by the
 //!   block budget) simply renders no rect, so it can never shift another
-//!   heading's position. At the page END the cursor keeps the last visible
-//!   heading that reached the reading line; only when none is on screen does
-//!   the nearest visible row win, so a dense cluster at the foot of the page
-//!   is walked row by row while a heading below the line cannot steal the
-//!   section being read.
+//!   heading's position. During the page's LAST screenful the line descends
+//!   from the viewport top to its bottom as the sheet approaches its maximum
+//!   offset, so headings that can never reach the top are still selected in
+//!   order (and in reverse while scrolling back up), and the deepest visible
+//!   section is current at the very end.
 //! - Row clicks scroll through the SAME mechanism as a `#id` link
 //!   (`Tab::pending_anchor`), so the sidebar needs no scroll code of its own.
 //!   A clicked row becomes current immediately and the scrollspy keeps it
-//!   pinned while the page settles.
+//!   pinned while the page settles; the pin is released only once that scroll
+//!   has stopped at its target (the top, or the page end) and the spy agrees,
+//!   so a page-end click is not overtaken by a deeper section after the sheet
+//!   reaches the bottom.
 
 use crate::config;
 use crate::markdown::outline::Outline;
@@ -54,14 +57,18 @@ pub struct OutlineState {
     pub reveal: bool,
     /// A row the reader just clicked: the scrollspy keeps it current while
     /// the requested scroll settles (including a page-end heading that can
-    /// never reach the top). Cleared once the heading reaches the spy line
-    /// or a manual scroll takes over.
+    /// never reach the top). Cleared once that scroll has settled at its
+    /// target (the heading at the top, or the sheet at its maximum offset)
+    /// and the spy agrees, or when a manual scroll takes over.
     pinned: Option<usize>,
     /// Heading rects collected by this frame's document walk: `(event index
     /// of the heading's `Start`, screen rect it painted)`, in document
     /// order. Cleared by [`Self::begin_frame`]; kept across frames so an
     /// open sidebar costs no per-frame allocation.
     rects: Vec<(usize, egui::Rect)>,
+    /// The sheet's scroll offset last frame, used by [`Self::sheet_settled`]
+    /// to keep a clicked row pinned until the requested scroll has stopped.
+    last_scroll_offset: Option<f32>,
     /// Measured heights of the wrapped sidebar rows, in item order. Cached
     /// because the panel is always on screen: remeasuring every title every
     /// frame would be pure churn. Keyed by [`Self::row_heights_key`].
@@ -89,6 +96,25 @@ impl OutlineState {
         self.pinned = None;
     }
 
+    /// Records this frame's sheet scroll offset and reports whether the sheet
+    /// has come to rest: the offset has not moved since the previous frame
+    /// and there is no kinetic velocity left.
+    ///
+    /// A click pin may only be released once this is `true`. A page-end row
+    /// that cannot reach the top is crossed by the moving reading line while
+    /// the click's smooth scroll is still running; clearing the pin at that
+    /// moment would hand the cursor to a deeper section by the time the sheet
+    /// stops. Waiting for the settled frame lets the pin outlive the scroll,
+    /// so the clicked row stays selected at the bottom.
+    pub(crate) fn sheet_settled(&mut self, offset: f32, velocity: f32) -> bool {
+        let settled = self
+            .last_scroll_offset
+            .is_some_and(|previous| (offset - previous).abs() <= 0.5)
+            && velocity.abs() <= 0.5;
+        self.last_scroll_offset = Some(offset);
+        settled
+    }
+
     /// Drops everything (navigation/tab switch: the cursor belongs to the
     /// page that was visible).
     pub fn reset(&mut self) {
@@ -99,6 +125,7 @@ impl OutlineState {
         self.reveal = true;
         self.pinned = None;
         self.rects.clear();
+        self.last_scroll_offset = None;
         self.row_heights.clear();
         self.row_heights_key = None;
         self.panel_rect = None;
@@ -122,14 +149,15 @@ impl OutlineState {
     }
 
     /// Recomputes [`Self::current`] from this frame's recorded rects: the
-    /// last item whose heading top sits at or above `viewport_top + PAD`.
+    /// last item whose heading top sits at or above the reading line.
     ///
-    /// `at_bottom` says the sheet has reached its maximum offset: the last
-    /// VISIBLE heading that reached the reading line keeps the cursor, so a
-    /// heading below it (which the sheet can no longer scroll into place)
-    /// cannot steal the section being read. Only when no reached heading is
-    /// on screen does the nearest visible row win, so a dense cluster of
-    /// headings at the page end is still walked row by row.
+    /// `end_progress` is how far the sheet has travelled through its LAST
+    /// screenful (0 at the start of that stretch, 1 at the maximum offset).
+    /// It lowers the reading line from the viewport top to its bottom, so a
+    /// heading that can never reach the top still becomes current as the
+    /// reader scrolls the page end into view, and the deepest visible section
+    /// wins at the very bottom. The line walks back up with the sheet, so the
+    /// tail headings are selected in reverse on the way up too.
     ///
     /// Keeps the previous cursor when the walk recorded NO heading (a
     /// manually unselected `<Tabs>` panel, a closed accordion or the block
@@ -138,30 +166,50 @@ impl OutlineState {
     /// [`Self::current_is_rendered`] tells the panel whether that cursor has
     /// a row to light this frame. Sets `reveal` only when the section
     /// actually moved, so the sidebar is never yanked around mid-scroll.
+    ///
+    /// `sheet_settled` reports whether the sheet's scroll came to rest
+    /// ([`Self::sheet_settled`]). A click pin is only released on a settled
+    /// frame AND after the clicked heading reached its target (its top at the
+    /// viewport top, or the sheet at its maximum offset). While the requested
+    /// scroll is still running (or has not started yet), the reading line may
+    /// cross the clicked row and keep going, so the pin must not hand the
+    /// cursor over until the scroll has finished where it was going.
     pub fn update_current(
         &mut self,
         outline: &Outline,
         viewport_top: f32,
         viewport_bottom: f32,
-        at_bottom: bool,
+        end_progress: f32,
+        sheet_settled: bool,
     ) {
         let Some(spied) = current_section(
             outline,
             &self.rects,
             viewport_top,
             viewport_bottom,
-            at_bottom,
+            end_progress,
         ) else {
             return;
         };
         // A just-clicked row stays selected while its scroll is still in
-        // flight. Once the spy agrees, the pin has done its job. At the end
-        // of the page the pin keeps covering headings that can never reach
-        // the top, which is exactly the case it exists for.
+        // flight. Once the sheet has stopped AND the spy agrees, the pin has
+        // done its job ONLY if the row actually reached its scroll target:
+        // its top is at the viewport top, or the sheet is at its maximum
+        // offset. A page-end row the line moved past never agrees at rest, so
+        // it stays current until a manual scroll takes over; a row already
+        // current when clicked is not released before its own scroll starts.
         if let Some(pinned) = self.pinned {
-            if heading_rect(outline, &self.rects, pinned).is_none() || pinned == spied {
-                // The heading did not render this frame (skipped content) or
-                // already reached the spy line: the normal cursor takes over.
+            let done = match heading_rect(outline, &self.rects, pinned) {
+                None => true, // did not render this frame (skipped content)
+                Some(rect) => {
+                    let at_top = rect.top() <= viewport_top + SPY_PAD;
+                    let at_end = end_progress >= 1.0;
+                    sheet_settled && pinned == spied && (at_top || at_end)
+                }
+            };
+            if done {
+                // The requested scroll is complete and the normal cursor can
+                // take over (or the heading is gone).
                 self.pinned = None;
             } else {
                 if self.current != pinned {
@@ -209,27 +257,30 @@ fn heading_rect(
 /// a heading hidden in a closed section has no reading position to point at.
 ///
 /// While the sheet can still scroll, the last heading above the reading line
-/// wins. At the page END the sheet cannot put every heading on that line, so
-/// the last VISIBLE heading that did reach the line keeps the cursor; only
-/// when no such heading is on screen (a cluster at the very foot of the page)
-/// does the nearest visible one win. The deepest visible row is never picked
-/// just for being visible: that skipped the intermediate rows of a cluster.
+/// wins. `end_progress` lowers that line through the viewport during the
+/// page's last screenful (0 at the start of the stretch, 1 at the maximum
+/// offset), so headings the sheet can no longer put on the top line still
+/// become current in document order, and the deepest visible one wins at the
+/// very end.
 pub(crate) fn current_section(
     outline: &Outline,
     rects: &[(usize, egui::Rect)],
     viewport_top: f32,
     viewport_bottom: f32,
-    at_bottom: bool,
+    end_progress: f32,
 ) -> Option<usize> {
     if rects.is_empty() || outline.is_empty() {
         return None;
     }
-    let line = viewport_top + SPY_PAD;
-    let visible_bottom = viewport_bottom + SPY_PAD;
+    let progress = if end_progress.is_finite() {
+        end_progress.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let bottom = viewport_bottom.max(viewport_top);
+    let line = viewport_top + SPY_PAD + (bottom - viewport_top - SPY_PAD).max(0.0) * progress;
     let mut first_painted: Option<usize> = None;
     let mut current: Option<usize> = None;
-    let mut reached_visible: Option<usize> = None;
-    let mut nearest: Option<(usize, f32)> = None;
     let mut next_rect = 0usize;
     for (index, item) in outline.items.iter().enumerate() {
         while next_rect < rects.len() && rects[next_rect].0 < item.at {
@@ -242,30 +293,9 @@ pub(crate) fn current_section(
             continue;
         }
         first_painted.get_or_insert(index);
-        let on_screen = rect.bottom() > viewport_top && rect.top() <= visible_bottom;
-        if on_screen {
-            let distance = (rect.top() - line).abs();
-            if nearest.is_none_or(|(_, best)| distance < best) {
-                nearest = Some((index, distance));
-            }
-            if rect.top() <= line {
-                reached_visible = Some(index);
-            }
-        }
         if rect.top() <= line {
             current = Some(index);
         }
-    }
-    if at_bottom {
-        // The sheet cannot scroll further. A heading that already reached
-        // the line and is still visible defines the section the reader is
-        // in; a nearer heading below the line has not been reached (and,
-        // because the sheet is at its end, never will be). Only when no
-        // reached heading is on screen does the nearest visible row win,
-        // which still walks a dense cluster at the foot of the page.
-        return reached_visible
-            .or(nearest.map(|(index, _)| index))
-            .or(current);
     }
     // No heading passed the line yet: the reader is above the first section,
     // which is the one the sidebar should point at. Headings skipped this
@@ -328,40 +358,37 @@ mod tests {
         );
         // The second heading sits above the line, the third below it.
         assert_eq!(
-            current_section(&outline, &rects, 100.0, 700.0, false),
+            current_section(&outline, &rects, 100.0, 700.0, 0.0),
             Some(1)
         );
         // Scrolled far DOWN: every heading is above the viewport top, so the
         // last one wins (the reader is inside the final section).
         assert_eq!(
-            current_section(&outline, &rects, 1_000.0, 1_600.0, false),
+            current_section(&outline, &rects, 1_000.0, 1_600.0, 0.0),
             Some(2)
         );
         // Scrolled far UP: no heading has reached the line yet, so the first
         // section is the one the reader is heading into.
         assert_eq!(
-            current_section(&outline, &rects, -500.0, 100.0, false),
+            current_section(&outline, &rects, -500.0, 100.0, 0.0),
             Some(0)
         );
         // Close to the first heading: the reader is already inside the
         // second section (it scrolled past the line), the third is ahead.
-        assert_eq!(
-            current_section(&outline, &rects, 0.0, 600.0, false),
-            Some(1)
-        );
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, 0.0), Some(1));
         // A heading exactly at the viewport top qualifies (the pad allows for
         // the sub-pixel slack `scroll_to_here` leaves).
         assert_eq!(
-            current_section(&outline, &rects, 300.0, 900.0, false),
+            current_section(&outline, &rects, 300.0, 900.0, 0.0),
             Some(2)
         );
         assert_eq!(
-            current_section(&outline, &rects, 313.0, 913.0, false),
+            current_section(&outline, &rects, 313.0, 913.0, 0.0),
             Some(2)
         );
         // Below the line by itself: the previous heading stays current.
         assert_eq!(
-            current_section(&outline, &rects, 200.0, 800.0, false),
+            current_section(&outline, &rects, 200.0, 800.0, 0.0),
             Some(1)
         );
     }
@@ -378,44 +405,37 @@ mod tests {
         // Not at the bottom: the third heading is visible but still ahead, so
         // the middle one remains the reading section.
         assert_eq!(
-            current_section(&outline, &rects, -500.0, 300.0, false),
+            current_section(&outline, &rects, -500.0, 300.0, 0.0),
             Some(1)
         );
         // At the bottom the same rects pick the only heading on screen, even
         // though its top never crossed the spy line.
         assert_eq!(
-            current_section(&outline, &rects, -500.0, 300.0, true),
+            current_section(&outline, &rects, -500.0, 300.0, 1.0),
             Some(2)
         );
         // A skipped last heading (no rect) never wins: the last RENDERED
         // heading that crossed the line does.
         assert_eq!(
-            current_section(&outline, &rects[..2], -500.0, 300.0, true),
+            current_section(&outline, &rects[..2], -500.0, 300.0, 1.0),
             Some(1)
         );
     }
 
-    /// Many headings together at the page end used to make the cursor leap
-    /// straight to the deepest visible row, so the intermediate rows could
-    /// never be selected by scrolling (the sheet cannot move further at the
-    /// bottom). It must stay on the last visible row that reached the reading
-    /// line instead, falling back to the nearest visible row only when none
-    /// did.
+    /// The reading line descends through the last screenful instead of
+    /// jumping to the deepest row at once: a cluster of headings at the foot
+    /// of the page is still selected in document order as the sheet scrolls
+    /// to the bottom.
     #[test]
-    fn scrollspy_does_not_skip_a_heading_cluster_at_the_page_end() {
+    fn scrollspy_walks_a_heading_cluster_at_the_page_end() {
         let md = "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nBody\n\n## Four\n\nBody\n\n## Five\n\nTail\n";
         let (outline, rects) = outline_and_rects(md, &[-4.0, 40.0, 84.0, 128.0, 172.0]);
-        // The first heading sits on the line and is on screen: the deepest
-        // visible row (the fifth) must NOT win.
-        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(0));
-        // Scrolled a little further, the first heading has left the viewport:
-        // the next row (40) is closest to the line (12), still not the last.
-        let (outline, rects) = outline_and_rects(md, &[-60.0, 20.0, 60.0, 100.0, 140.0]);
-        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(1));
-        // Halfway through the cluster, the row approaching the line takes the
-        // cursor: scrolling through the group walks the intermediate rows.
-        let (outline, rects) = outline_and_rects(md, &[-260.0, -180.0, -100.0, -20.0, 60.0]);
-        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(3));
+        // Line = 12 + 588 * progress on a 600px viewport.
+        let seen: Vec<usize> = [0.0, 0.05, 0.13, 0.2, 0.3, 1.0]
+            .into_iter()
+            .filter_map(|p| current_section(&outline, &rects, 0.0, 600.0, p))
+            .collect();
+        assert_eq!(seen, vec![0, 1, 2, 3, 4, 4]);
     }
 
     /// A heading hidden by collapsed content (a closed `<Accordion>`, an
@@ -432,7 +452,7 @@ mod tests {
         // `# Hidden` did not render (closed section), the reader is above the
         // first visible heading.
         assert_eq!(
-            current_section(&outline, &rects[1..], 0.0, 600.0, false),
+            current_section(&outline, &rects[1..], 0.0, 600.0, 0.0),
             Some(1),
             "the hidden first row must not become current"
         );
@@ -442,38 +462,26 @@ mod tests {
             &[-900.0, 0.0, 300.0],
         );
         assert_eq!(
-            current_section(&outline, &[rects[0], rects[2]], 350.0, 950.0, false),
+            current_section(&outline, &[rects[0], rects[2]], 350.0, 950.0, 0.0),
             Some(2),
             "the last rendered heading above the line wins"
         );
     }
 
-    /// At the page end a heading BELOW the reading line used to win whenever
-    /// it sat nearer than the last heading that had reached the line, so the
-    /// cursor advanced into a section the reader had not reached (and could
-    /// never reach, since the sheet cannot scroll further). A heading that is
-    /// visible AND has reached the line must win; the nearest visible heading
-    /// is only the fallback when none of them is on screen.
+    /// A heading that never reaches the viewport top must still become
+    /// current at the page end: the reading line reaches the bottom of the
+    /// viewport at the maximum offset, so the last visible section wins
+    /// instead of an earlier heading that merely sits above the top.
     #[test]
-    fn scrollspy_prefers_a_reached_heading_at_the_page_end() {
+    fn scrollspy_reaches_the_deepest_visible_heading_at_the_page_end() {
         let (outline, rects) = outline_and_rects(
             "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nTail\n",
             &[-30.0, 30.0, 80.0],
         );
-        // `# One` is still partly visible and sits above the line; `## Two`
-        // is closer to the line but has not been reached.
-        assert_eq!(
-            current_section(&outline, &rects, 0.0, 600.0, true),
-            Some(0),
-            "a visible heading at/above the line wins over a nearer one below it"
-        );
-        // Once the reached heading leaves the viewport, the next visible row
-        // becomes current (the page-end fallback still walks the tail).
-        let (outline, rects) = outline_and_rects(
-            "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nTail\n",
-            &[-60.0, 20.0, 80.0],
-        );
-        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, true), Some(1));
+        // At the top of the last screenful the line is still at the top.
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, 0.0), Some(0));
+        // At the max offset every visible heading has been reached.
+        assert_eq!(current_section(&outline, &rects, 0.0, 600.0, 1.0), Some(2));
     }
 
     /// A skipped heading (an unselected `<Tabs>` panel, the block budget)
@@ -486,18 +494,18 @@ mod tests {
             outline_and_rects("# One\n\n## Two\n\n## Three\n", &[-900.0, -200.0, 100.0]);
         rects.remove(1); // `## Two` did not render this frame
         assert_eq!(
-            current_section(&outline, &rects, 200.0, 800.0, false),
+            current_section(&outline, &rects, 200.0, 800.0, 0.0),
             Some(2)
         );
         // Only the first heading rendered, and it is above the line.
         let (outline, all) =
             outline_and_rects("# One\n\n## Two\n\n## Three\n", &[-900.0, -200.0, 100.0]);
         assert_eq!(
-            current_section(&outline, &all[..1], 200.0, 800.0, false),
+            current_section(&outline, &all[..1], 200.0, 800.0, 0.0),
             Some(0)
         );
-        assert_eq!(current_section(&outline, &[], 0.0, 600.0, false), None);
-        assert_eq!(current_section(&outline, &[], 0.0, 600.0, true), None);
+        assert_eq!(current_section(&outline, &[], 0.0, 600.0, 0.0), None);
+        assert_eq!(current_section(&outline, &[], 0.0, 600.0, 1.0), None);
     }
 
     #[test]
@@ -514,7 +522,7 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, 100.0, 800.0, false);
+        state.update_current(&outline, 100.0, 800.0, 0.0, true);
         assert_eq!(state.current, 1);
         assert!(state.reveal, "the cursor moved: the row is revealed");
         // Frame 2: the same place, no move, no reveal.
@@ -523,12 +531,12 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, 100.0, 800.0, false);
+        state.update_current(&outline, 100.0, 800.0, 0.0, true);
         assert_eq!(state.current, 1);
         assert!(!state.reveal);
         // Frame 3: nothing rendered (a whole-document skip): the cursor stays.
         state.begin_frame();
-        state.update_current(&outline, 10_000.0, 10_600.0, false);
+        state.update_current(&outline, 10_000.0, 10_600.0, 0.0, true);
         assert_eq!(state.current, 1);
         // Frame 4: scrolled far past the last heading (every recorded rect
         // sits above the viewport top now).
@@ -536,7 +544,7 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, 2_000.0, 2_600.0, false);
+        state.update_current(&outline, 2_000.0, 2_600.0, 0.0, true);
         assert_eq!(state.current, 2);
         // Navigation drops everything; the first section is revealed again
         // even if the panel's egui scroll offset belonged to the old page.
@@ -560,13 +568,13 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, 0.0, 600.0, false);
+        state.update_current(&outline, 0.0, 600.0, 0.0, true);
         assert!(
             state.current_is_rendered(&outline),
             "the painted heading is the current row"
         );
         state.begin_frame();
-        state.update_current(&outline, 0.0, 600.0, false);
+        state.update_current(&outline, 0.0, 600.0, 0.0, true);
         assert_eq!(state.current, 0, "the internal cursor is kept");
         assert!(
             !state.current_is_rendered(&outline),
@@ -591,7 +599,9 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, -500.0, 300.0, true);
+        // Halfway through the last screenful the spy would pick `## Two`,
+        // but the clicked `## Three` is visible and stays pinned.
+        state.update_current(&outline, -500.0, 300.0, 0.5, true);
         assert_eq!(state.current, 2, "the clicked last row stays current");
         assert!(!state.reveal, "at rest, no repeated reveal");
         // A heading that CAN reach the top clears the pin once the spy
@@ -602,9 +612,105 @@ mod tests {
         for (at, rect) in &rects {
             state.record_rect(*at, *rect);
         }
-        state.update_current(&outline, -50.0, 750.0, false);
+        state.update_current(&outline, -50.0, 750.0, 0.0, true);
         assert_eq!(state.current, 1);
         assert!(state.pinned.is_none(), "the spy landed on the target");
+    }
+
+    /// The settled guard needs a baseline frame, an unchanged offset and no
+    /// kinetic velocity: any of the three failing keeps a click pin alive.
+    #[test]
+    fn sheet_settled_needs_a_still_offset_and_no_velocity() {
+        let mut state = OutlineState::default();
+        assert!(
+            !state.sheet_settled(100.0, 0.0),
+            "the first frame has no previous offset to compare"
+        );
+        assert!(state.sheet_settled(100.0, 0.0), "same offset, at rest");
+        assert!(
+            !state.sheet_settled(140.0, 0.0),
+            "a moving sheet is not settled"
+        );
+        assert!(
+            !state.sheet_settled(140.0, 8.0),
+            "kinetic velocity is not settled"
+        );
+        assert!(state.sheet_settled(140.0, 0.0), "stopped and at rest");
+    }
+
+    /// A click pin is released by the spy only once the requested scroll has
+    /// SETTLED and reached its target (the top, or the page end). The page-end
+    /// reading line crosses a clicked second-to-last row while the sheet is
+    /// still heading to the bottom; releasing the pin at that crossing would
+    /// hand the cursor to the deeper last section by the time it stops
+    /// (Cloudflare's `Getting Started` -> `Resources`).
+    #[test]
+    fn a_click_pin_waits_for_the_scroll_to_settle() {
+        let (outline, rects) = outline_and_rects(
+            "# One\n\nBody\n\n## Two\n\nBody\n\n## Three\n\nBody\n\n## Four\n\nTail\n",
+            &[-2_000.0, -900.0, 300.0, 340.0],
+        );
+        let mut state = OutlineState::default();
+        // The reading line reaches the clicked `## Three` while the sheet is
+        // still moving toward `## Four`: the pin survives the crossing.
+        state.select(2);
+        state.begin_frame();
+        for (at, rect) in &rects {
+            state.record_rect(*at, *rect);
+        }
+        state.update_current(&outline, 300.0, 800.0, 0.0, false);
+        assert_eq!(state.current, 2);
+        assert!(
+            state.pinned.is_some(),
+            "the pin waits for the requested scroll to settle"
+        );
+        // The sheet settles with the spy still on `## Three`: the pin has
+        // done its job and is released.
+        state.begin_frame();
+        for (at, rect) in &rects {
+            state.record_rect(*at, *rect);
+        }
+        state.update_current(&outline, 300.0, 800.0, 0.0, true);
+        assert_eq!(state.current, 2);
+        assert!(
+            state.pinned.is_none(),
+            "the settled spy lands on the target"
+        );
+        // At the bottom the spy picks the deeper `## Four`, but the clicked
+        // `## Three` stays current after its scroll has settled: only a
+        // manual scroll (or another click) may take the cursor away.
+        state.select(2);
+        state.begin_frame();
+        for (at, rect) in &rects {
+            state.record_rect(*at, *rect);
+        }
+        state.update_current(&outline, 300.0, 800.0, 1.0, true);
+        assert_eq!(state.current, 2, "the clicked row outlives the scroll");
+        assert!(state.pinned.is_some());
+        // A row that is ALREADY current when clicked is not released on the
+        // settled click frame either: its top is far below the viewport top
+        // and the sheet is mid-ramp, so the click still requests a scroll to
+        // the page end. Only reaching that target may release the pin.
+        state.select(3);
+        state.begin_frame();
+        for (at, rect) in &rects {
+            state.record_rect(*at, *rect);
+        }
+        state.update_current(&outline, 0.0, 800.0, 0.5, true);
+        assert_eq!(state.current, 3);
+        assert!(
+            state.pinned.is_some(),
+            "the click's scroll target has not been reached"
+        );
+        // At the page end the spy IS the clicked last row: the pin is
+        // released so a later keyboard scroll can move the cursor again.
+        state.begin_frame();
+        for (at, rect) in &rects {
+            state.record_rect(*at, *rect);
+        }
+        state.update_current(&outline, 0.0, 800.0, 1.0, true);
+        assert_eq!(state.current, 3);
+        assert!(state.pinned.is_none(), "the page end completes the pin");
     }
 
     /// The rect scratch is bounded: a hostile heading list cannot grow it

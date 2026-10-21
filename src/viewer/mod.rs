@@ -205,6 +205,10 @@ pub fn show_content(
                         }
                     }
                 };
+                // Manual scrolling (wheel or scrollbar drag) releases a
+                // clicked row BEFORE the document walk runs: the sheet's
+                // `ScrollArea` consumes the wheel delta and zeroes it.
+                let manual_scroll = outline_manual_scroll(ui.ctx(), ui.max_rect());
                 let viewport = render_doc(
                     ui,
                     &doc.events,
@@ -231,16 +235,16 @@ pub fn show_content(
                     &mut on_link,
                 );
                 // Scrollspy: pick the section the reader is in from the
-                // heading rects this frame's walk just recorded. Manual
-                // scrolling (wheel or scrollbar drag) releases a clicked row.
-                if outline_manual_scroll(ui.ctx(), viewport.rect) {
+                // heading rects this frame's walk just recorded.
+                if manual_scroll {
                     tab.outline.unpin();
                 }
                 tab.outline.update_current(
                     &doc.outline,
                     viewport.rect.top(),
                     viewport.rect.bottom(),
-                    viewport.at_bottom,
+                    viewport.end_progress,
+                    viewport.sheet_settled,
                 );
                 // Same hit rect as `Loaded`: backs the context menu and
                 // excludes the vertical scrollbar.
@@ -395,6 +399,10 @@ pub fn show_content(
                             }
                         }
                     };
+                    // Manual scrolling (wheel or scrollbar drag) releases a
+                    // clicked row BEFORE the document walk runs: the sheet's
+                    // `ScrollArea` consumes the wheel delta and zeroes it.
+                    let manual_scroll = outline_manual_scroll(ui.ctx(), ui.max_rect());
                     let viewport = render_doc(
                         ui,
                         &fetched.events,
@@ -418,16 +426,15 @@ pub fn show_content(
                     // Scrollspy: pick the section the reader is in from the
                     // heading rects this frame's walk just recorded. A frame
                     // that painted no heading keeps the previous cursor.
-                    // Manual scrolling (wheel or scrollbar drag) releases a
-                    // clicked row.
-                    if outline_manual_scroll(ui.ctx(), viewport.rect) {
+                    if manual_scroll {
                         tab.outline.unpin();
                     }
                     tab.outline.update_current(
                         &fetched.outline,
                         viewport.rect.top(),
                         viewport.rect.bottom(),
-                        viewport.at_bottom,
+                        viewport.end_progress,
+                        viewport.sheet_settled,
                     );
                     // Shrink right edge for hit-testing so clicks on the
                     // vertical scrollbar never open the text menu (same
@@ -623,6 +630,10 @@ fn show_document_sidebar(root: &mut egui::Ui, tab: &mut Tab) {
 /// delta or a primary press/drag inside the visible sheet (which starts a
 /// scrollbar drag). A click pin set by the outline sidebar must not survive
 /// this: the reader is no longer heading to the row they clicked.
+///
+/// Call this BEFORE the document walk: the sheet's `ScrollArea` both reads
+/// and WRITES `smooth_scroll_delta` and zeroes the axis it consumes, so a
+/// check after the walk never sees a wheel scroll.
 fn outline_manual_scroll(ctx: &egui::Context, viewport: egui::Rect) -> bool {
     ctx.input(|i| {
         i.smooth_scroll_delta.y.abs() > 0.0
@@ -637,9 +648,17 @@ fn outline_manual_scroll(ctx: &egui::Context, viewport: egui::Rect) -> bool {
 pub(crate) struct DocViewport {
     /// Visible sheet rect (screen coordinates).
     pub(crate) rect: egui::Rect,
-    /// The sheet is at its maximum scroll offset: the page end is on screen
-    /// and a heading near the bottom can never reach the top.
-    pub(crate) at_bottom: bool,
+    /// How far the sheet has travelled through its LAST screenful: `0` until
+    /// the final viewport of scroll begins, `1` at the maximum offset. The
+    /// scrollspy lowers its reading line from the viewport top to its bottom
+    /// across this stretch, so headings that can never reach the top (the
+    /// page-end tail) still become current in document order.
+    pub(crate) end_progress: f32,
+    /// The sheet's offset did not move since the previous walk and it has no
+    /// kinetic velocity left. A clicked row's pin is released only on such a
+    /// frame, so the reading line crossing that row while the click's own
+    /// scroll is still running cannot hand the cursor to a deeper section.
+    pub(crate) sheet_settled: bool,
 }
 
 /// Renders the centered reading column; returns its VIEWPORT rect so the
@@ -761,14 +780,25 @@ fn render_doc(
     // it: egui keys the offset by (tab, URL) for Back/Forward and refresh,
     // and nothing else knows the real id of each visited document.
     crate::ui::remember_scroll(ui.ctx(), crate::ui::DOC_SCROLL_ID, tab_id, output.id);
-    // Page end: the last heading may be visible without ever reaching the
-    // top (there is not enough content left to scroll it there). The spy
-    // uses this to keep that heading current.
+    // Page end: within the sheet's LAST screenful the spy lowers its
+    // reading line from the viewport top to its bottom, so headings that can
+    // never reach the top (there is not enough content left below them) are
+    // still selected in order. The stretch starts where the remaining scroll
+    // equals one viewport (or at the top when the document scrolls less than
+    // that), and reaches 1 at the maximum offset. A sheet that does not
+    // scroll at all keeps the line at the top.
     let max_offset = (output.content_size.y - output.inner_rect.height()).max(0.0);
-    let at_bottom = max_offset > 1.0 && output.state.offset.y >= max_offset - 2.0;
+    let ramp = max_offset.min(viewport.height().max(0.0));
+    let end_progress = if ramp > 1.0 {
+        ((output.state.offset.y - (max_offset - ramp)) / ramp).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let sheet_settled = outline.sheet_settled(output.state.offset.y, output.state.velocity().y);
     DocViewport {
         rect: viewport,
-        at_bottom,
+        end_progress,
+        sheet_settled,
     }
 }
 
