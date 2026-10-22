@@ -24,7 +24,9 @@
 # SHA256SUMS.txt. Artifact names are identical to `make dist`.
 #
 # Manual run: `workflow_dispatch` with dry_run (default true) compiles
-# everything without publishing; set dry_run false only while on a tag.
+# everything without publishing; a dry_run=false run must be dispatched from
+# the matching `v<version>` tag (the verify job rejects anything else before
+# the builds start; publish would refuse it anyway).
 #
 # Every action is pinned to the full commit SHA of the release tag shown in
 # the trailing comment (supply-chain hardening: a moved tag cannot change
@@ -62,6 +64,38 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # Fail in seconds instead of after every build: a run that WILL publish
+      # (a tag push, or a manual dry_run=false) must be on the matching
+      # `v<version>` tag. A manual dry run may test any branch or tag. The
+      # publish job keeps its own copy of this check as a final gate.
+      - name: Release ref matches the Cargo.toml version
+        env:
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -eu
+          VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)
+          if [ -z "$VER" ]; then
+            echo "ERROR: could not parse the version from Cargo.toml" >&2
+            exit 1
+          fi
+          PUBLISH=0
+          if [ "$EVENT" = "push" ] \
+              || { [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" = "false" ]; }; then
+            PUBLISH=1
+          fi
+          if [ "$PUBLISH" = "1" ]; then
+            if [ "$REF_TYPE" != "tag" ]; then
+              echo "ERROR: publishing requires a v* tag, not $REF_TYPE '$REF_NAME'" >&2
+              exit 1
+            fi
+            if [ "${REF_NAME#v}" != "$VER" ]; then
+              echo "ERROR: tag $REF_NAME does not match the Cargo.toml version $VER" >&2
+              exit 1
+            fi
+          fi
       - name: Build dependencies (NASM for the x86_64 assembly)
         run: |
           sudo apt-get update

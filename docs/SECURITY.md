@@ -376,7 +376,9 @@ card and the bookmark/history stores.
   On filesystems with hard links the write is ATOMIC: the bounded document
   (at most `MAX_BODY_BYTES`) goes to a unique sibling temp file (`create_new`,
   never following a planted link) that is published whole, so a failure
-  mid-write cannot leave a truncated document. Filesystems without hard links
+  mid-write cannot leave a truncated document. The temp file is fsynced
+  before it is published and the directory entry afterwards (best effort), so
+  a confirmed save also survives a power loss. Filesystems without hard links
   fall back to an exclusive in-place create (never a replacement; a failed
   write removes the partial file). A new file gets the process umask. The
   write happens on the UI thread, like the stores' own bounded writes.
@@ -474,6 +476,9 @@ spec pins `%_buildhost` and `%defattr(-, root, root, -)`.
 `scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist` and
 `make validate`) fails the build if any `dist/` artifact carries the builder's
 paths, hostname, uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member.
+Only regular, non-hidden files count as artifacts: Finder's `.DS_Store` is
+ignored, while a symlink or a leftover staging directory in `dist/` fails the
+gate (a release must not point outside it or ship a stale tree).
 `make check-dist`, `make dist` and CI pass `--require`, so a missing `dist/`
 or inspector (no python3) is a hard failure, not a silent SKIP. Generic
 hostnames that collide with the `/build` and `/cargo` remap targets are never

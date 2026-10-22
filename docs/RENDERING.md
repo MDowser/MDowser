@@ -232,7 +232,13 @@ pop in one by one and shift the text.
 - Markdown carries no width/height, so raster images render at natural pixel
   size, never upscaled; anything wider than the reading column scales down to
   the column width (aspect kept).
-- Inline SVG icons/logos clamp to an icon-sized box (32px tall).
+- Inline SVG icons/logos clamp to an icon-sized box (32px tall). When a
+  paragraph holds two or more icons, they share the tallest one's height; that
+  height is a hard cap, so a hairline icon is widened (4px minimum) rather than
+  stretched taller.
+- Images with a side too thin to click are raised to a 4px minimum on that
+  side only; the other axis keeps its natural size, so a 1x3000 spacer is not
+  magnified to 4x12000.
 - A paragraph holding only an image renders it centered as a block (inside
   quotes and list items too). Images sharing a line with text stay inline only
   while small (icons, badges); taller or wider ones are promoted to centered

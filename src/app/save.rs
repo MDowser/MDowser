@@ -31,12 +31,13 @@
 //! - The write is ATOMIC and no-replace where the filesystem supports hard
 //!   links: the bounded document (at most `MAX_BODY_BYTES`) lands in a
 //!   unique sibling temp file (`create_new`, never following a planted
-//!   link) that is published through a hard link, so a failure mid-write
-//!   never leaves a truncated document and a file that appears after the
-//!   name check is never overwritten. Filesystems without hard links fall
-//!   back to an exclusive in-place create (also no replacement). A plain
-//!   synchronous write on the UI thread is acceptable at the fetch cap, like
-//!   the stores' own bounded writes.
+//!   link) that is synced to disk and published through a hard link, so a
+//!   failure mid-write never leaves a truncated document and a file that
+//!   appears after the name check is never overwritten. The directory entry
+//!   is synced too, so a confirmed save survives a power loss. Filesystems
+//!   without hard links fall back to an exclusive in-place create (also no
+//!   replacement). A plain synchronous write on the UI thread is acceptable
+//!   at the fetch cap, like the stores' own bounded writes.
 
 use crate::config;
 use std::path::{Path, PathBuf};
@@ -225,7 +226,12 @@ fn write_file(path: &Path, bytes: &str, replace: bool) -> Result<(), WriteError>
         match options.open(&temp) {
             Ok(mut file) => {
                 use std::io::Write as _;
-                let result = file.write_all(bytes.as_bytes());
+                // Sync before the file can become visible at the
+                // destination: a confirmed save then survives a power loss
+                // (the stores' atomic writer has always done this).
+                let result = file
+                    .write_all(bytes.as_bytes())
+                    .and_then(|()| file.sync_all());
                 drop(file);
                 if let Err(e) = result {
                     let _ = std::fs::remove_file(&temp);
@@ -245,7 +251,9 @@ fn write_file(path: &Path, bytes: &str, replace: bool) -> Result<(), WriteError>
         ));
     };
     if !replace {
-        return publish_new(path, &temp, bytes);
+        publish_new(path, &temp, bytes)?;
+        sync_parent(dir);
+        return Ok(());
     }
     // Replacing an existing file keeps its permissions (`fs::write` used to
     // truncate in place; the atomic rename must not silently widen or narrow
@@ -260,7 +268,18 @@ fn write_file(path: &Path, bytes: &str, replace: bool) -> Result<(), WriteError>
         let _ = std::fs::remove_file(&temp);
         return Err(WriteError::io(e));
     }
+    sync_parent(dir);
     Ok(())
+}
+
+/// Persists the directory entry after a publish, so a power loss right after
+/// a confirmed save cannot lose the file itself (the same best-effort
+/// directory fsync the settings stores do). Windows cannot open a directory
+/// this way; the synced file contents still survive there.
+fn sync_parent(dir: &Path) {
+    if let Ok(handle) = std::fs::File::open(dir) {
+        let _ = handle.sync_all();
+    }
 }
 
 /// Publishes the finished temp file at a destination that must still be

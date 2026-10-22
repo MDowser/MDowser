@@ -24,6 +24,10 @@
 #     owner. All three identify the build host.
 # The build host's own nodename is checked too (RPM's `BUILDHOST` tag).
 #
+# Only REGULAR, non-hidden files are release artifacts. Finder/editor
+# droppings (`.DS_Store`) are ignored; a symlink or a leftover directory in
+# dist/ is reported as a problem (publishing would follow or skip it).
+#
 # Exit status: 0 when dist/ is absent/empty (nothing to check), or when every
 # artifact is clean; 1 when any leak is found; 2 when `--require` was passed
 # and the check could not run at all.
@@ -201,11 +205,26 @@ def scan_path(path):
 
 entries = sorted(os.listdir(dist))
 checked = 0
+ignored = 0
 for entry in entries:
     path = os.path.join(dist, entry)
+    # Hidden entries are not release artifacts (Finder's `.DS_Store`, an
+    # editor swap file); shell globs skip them when publishing too.
+    if entry.startswith("."):
+        ignored += 1
+        continue
+    # A symlink would be followed here but not necessarily by the uploader:
+    # never let a release point at a file outside dist/.
+    if os.path.islink(path):
+        problems.append(f"{entry}: release artifacts must be regular files, not symlinks")
+        continue
     if os.path.isfile(path):
         checked += 1
         scan_path(path)
+    else:
+        # Staging directories belong to a failed/interrupted build; they must
+        # never sit in the final artifact set.
+        problems.append(f"{entry}: not a regular file (leftover directory or special file)")
 
 if problems:
     print(f"FAIL: {len(problems)} privacy issue(s) in {dist}:")
@@ -213,8 +232,9 @@ if problems:
         print(f"  - {problem}")
     sys.exit(1)
 
+ignored_note = f", {ignored} hidden file(s) ignored" if ignored else ""
 print(
     f"OK: {dist} clean ({checked} artifact(s) scanned, "
-    f"{scanned} payload file(s) checked)"
+    f"{scanned} payload file(s) checked{ignored_note})"
 )
 PY

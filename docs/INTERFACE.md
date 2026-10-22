@@ -502,8 +502,9 @@ folder, a filesystem policy — the save completes in the home directory instead
 and the toast says where (`Saved notes.md in home (Downloads needs
 permission)`), so a permission prompt never turns into a lost page. Any other
 failure reports itself in the same toast. On filesystems with hard links the
-save is atomic: the file is written to a unique sibling temp file and
-published with a no-replace link, so an interrupted or failed save never
-leaves a truncated document. Filesystems without hard links use an exclusive
-in-place create instead (also no replacement). Either way a file that appeared
-after the name check is never replaced. No native save dialog is involved.
+save is atomic: the file is written to a unique sibling temp file, synced to
+disk and published with a no-replace link, so an interrupted or failed save
+never leaves a truncated document and a completed save survives a power loss.
+Filesystems without hard links use an exclusive in-place create instead (also
+no replacement). Either way a file that appeared after the name check is never
+replaced. No native save dialog is involved.

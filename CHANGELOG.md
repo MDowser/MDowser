@@ -51,6 +51,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   yanked crate, banned dependency or unapproved license even when the local
   best-effort `make audit` was skipped. (`.github/workflows/release.yml`,
   `docs/BUILDING.md`, `docs/SECURITY.md`.)
+- The release workflow checks the tag against `Cargo.toml` in `verify`, before
+  any build starts, and rejects a `workflow_dispatch` with `dry_run: false`
+  from a branch instead of building every target and failing in `publish`.
+  (`.github/workflows/release.yml`, `docs/BUILDING.md`.)
+- The dist privacy gate (`scripts/check-dist.sh`) now ignores hidden files
+  such as Finder's `.DS_Store` and reports a symlink or leftover directory in
+  `dist/` as a problem, so the published set contains regular artifacts only.
+  (`scripts/check-dist.sh`, `docs/SECURITY.md`.)
+
+### Fixed
+
+- Save page now fsyncs the temporary file before publishing it and the
+  downloads directory entry afterwards, so a save reported as complete
+  survives a power loss instead of possibly losing its contents or name.
+  (`src/app/save.rs`, `docs/ARCHITECTURE.md`, `docs/INTERFACE.md`,
+  `docs/SECURITY.md`.)
+- Image sizing no longer inflates hairlines: the 4px clickable floor raises
+  only the thin side (a 1x3000 image stays 3000px tall instead of becoming
+  12000px), and the shared height of an inline SVG icon strip is a hard cap
+  (a 2x100 icon asked for 32px used to render 200px tall and overflow its
+  paragraph). (`src/viewer/image.rs`, `docs/RENDERING.md`.)
+- The `mdowser(1)` man page no longer claims that nothing is written outside
+  the data directory; Save page writes the document to the downloads folder
+  by design. (`packaging/linux/mdowser.1`.)
 
 ## [0.6.3] - 2026-10-21
 

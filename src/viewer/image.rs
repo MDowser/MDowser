@@ -11,9 +11,10 @@
 //!   with the reason as tooltip. Both keep the alt text visible.
 //! - SIZE POLICY: markdown carries no width/height, so raster images render
 //!   at their NATURAL pixel size (`fit_to_width`), clamped to the available
-//!   reading-column width when wider (aspect preserved, never upscaled).
-//!   INLINE SVG is additionally clamped to `config::MAX_INLINE_VECTOR_H`
-//!   (32px)
+//!   reading-column width when wider (aspect preserved, never upscaled). A
+//!   side too thin to click is raised to the 4px floor ON THAT SIDE ONLY, so
+//!   a hairline never inflates the other axis. INLINE SVG is additionally
+//!   clamped to `config::MAX_INLINE_VECTOR_H` (32px)
 //!   because a vector's intrinsic size is usually a stylesheet decision
 //!   (a 512px logo would otherwise dominate a text line); block SVG keeps
 //!   its natural size.
@@ -502,6 +503,10 @@ fn image_placeholder(
 ///   behavior).
 /// - Wider than the available width (reading column / cell): scaled down to
 ///   `max_w` so it never overflows the viewport horizontally.
+/// - A side below the 4px clickable floor is raised on its own: a 2x40
+///   hairline becomes 4x40, not 4x80. Magnifying the long axis to preserve
+///   the aspect ratio used to double the space the image occupies (and a
+///   1x3000 spacer became 4x12000 tall).
 /// - Degenerate textures (0 on a side) fall back to the compact placeholder
 ///   box so the allocation is never zero-sized.
 fn fit_to_width(natural: egui::Vec2, max_w: f32) -> egui::Vec2 {
@@ -509,37 +514,54 @@ fn fit_to_width(natural: egui::Vec2, max_w: f32) -> egui::Vec2 {
         return egui::vec2(INLINE_H, INLINE_H);
     }
     let scale = (max_w.max(1.0) / natural.x).min(1.0);
-    // 4px floor on the SMALLER side keeps a clickable target for hairline
-    // images; growing both sides by one factor preserves the aspect ratio
-    // (independent per-axis floors stretched a 2x40 into a 4x40).
-    floor_smaller_side(natural * scale, 4.0)
+    floor_sides(natural * scale)
 }
 
-/// Vector size scaled so its height is `height` (aspect preserved), still
-/// capped to `max_w` so a very wide icon never overflows the row.
-/// Degenerate textures fall back to the compact placeholder box.
+/// Vector size scaled to `height` (aspect kept except for the thin-side
+/// floor), still capped to `max_w` so a very wide icon never overflows the
+/// row.
+///
+/// `height` is a HARD cap: a strip of icons is normalized to one height, so
+/// the 4px click floor may widen a hairline but must never make it taller.
+/// (The old aspect-preserving floor turned a 2x100 icon asked to render at
+/// 32px into 4x200.) Degenerate textures fall back to the compact
+/// placeholder box.
 fn fit_to_height(natural: egui::Vec2, height: f32, max_w: f32) -> egui::Vec2 {
     if natural.x <= 0.0 || natural.y <= 0.0 {
         return egui::vec2(INLINE_H, INLINE_H);
     }
-    let scale = (height.max(1.0) / natural.y).min(max_w.max(1.0) / natural.x);
-    floor_smaller_side(natural * scale, 4.0)
+    let height = height.max(1.0);
+    let scale = (height / natural.y).min(max_w.max(1.0) / natural.x);
+    let size = natural * scale;
+    egui::vec2(size.x.max(MIN_IMAGE_SIDE), size.y.min(height))
 }
 
-/// Grows `size` uniformly, when needed, so its SMALLER side reaches
-/// `min_side`; the aspect ratio never changes.
-fn floor_smaller_side(size: egui::Vec2, min_side: f32) -> egui::Vec2 {
-    let smallest = size.x.min(size.y);
-    if smallest >= min_side || smallest <= 0.0 {
-        return size;
-    }
-    size * (min_side / smallest)
+/// Side below which an image is too thin to click.
+const MIN_IMAGE_SIDE: f32 = 4.0;
+
+/// Raises each side of `size` that is thinner than [`MIN_IMAGE_SIDE`].
+///
+/// Per-axis on purpose: growing both sides by one factor (the old policy)
+/// kept the aspect ratio but blew up the long axis of a hairline image,
+/// making a 1x3000 image 4x12000 tall. Widening only the thin side distorts
+/// that side by at most 3px and leaves the plane the user reads unchanged.
+fn floor_sides(size: egui::Vec2) -> egui::Vec2 {
+    egui::vec2(size.x.max(MIN_IMAGE_SIDE), size.y.max(MIN_IMAGE_SIDE))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{fit_to_width, INLINE_H};
+    use super::{fit_to_height, fit_to_width, INLINE_H};
     use eframe::egui;
+
+    /// Float comparison for aspect-scaled sizes (a scale factor is never
+    /// exact in binary floating point).
+    fn assert_size(actual: egui::Vec2, expected: egui::Vec2) {
+        assert!(
+            (actual - expected).length() <= 0.01,
+            "expected {expected:?}, got {actual:?}"
+        );
+    }
 
     #[test]
     fn natural_size_is_kept_and_clamped_to_width() {
@@ -563,11 +585,75 @@ mod tests {
             fit_to_width(egui::vec2(300.0, 2000.0), 760.0),
             egui::vec2(300.0, 2000.0)
         );
-        // Hairline images grow uniformly to the 4px clickable floor: the
-        // aspect ratio must survive (a 2x40 used to become 4x40).
+        // Hairline images grow only the thin side to the 4px clickable
+        // floor: the aspect ratio is not preserved, because magnifying the
+        // LONG side (2x40 -> 4x80) doubled the space the image occupied.
         assert_eq!(
             fit_to_width(egui::vec2(2.0, 40.0), 760.0),
-            egui::vec2(4.0, 80.0)
+            egui::vec2(4.0, 40.0)
+        );
+    }
+
+    /// The thin-side floor never inflates the other axis: a 1x3000 spacer
+    /// stays 3000px tall (the old uniform growth made it 12000px) and a
+    /// 100x2 rule stays 100px wide (instead of becoming 200px).
+    #[test]
+    fn thin_side_floor_never_inflates_the_other_axis() {
+        assert_eq!(
+            fit_to_width(egui::vec2(1.0, 3000.0), 760.0),
+            egui::vec2(4.0, 3000.0)
+        );
+        assert_eq!(
+            fit_to_width(egui::vec2(100.0, 2.0), 760.0),
+            egui::vec2(100.0, 4.0)
+        );
+        // A square stays square (both sides are thin).
+        assert_eq!(
+            fit_to_width(egui::vec2(2.0, 2.0), 760.0),
+            egui::vec2(4.0, 4.0)
+        );
+    }
+
+    /// Icon-strip normalization asks every vector for one height. That height
+    /// is a hard cap: the old aspect-preserving floor turned a 2x100 icon
+    /// requested at 32px into 4x200, overflowing the very strip it was meant
+    /// to align.
+    #[test]
+    fn icon_strip_height_is_a_hard_cap() {
+        assert_size(
+            fit_to_height(egui::vec2(2.0, 100.0), 32.0, 760.0),
+            egui::vec2(4.0, 32.0),
+        );
+        assert_size(
+            fit_to_height(egui::vec2(100.0, 50.0), 20.0, 760.0),
+            egui::vec2(40.0, 20.0),
+        );
+        // A wide icon is still clamped to the row width (its height drops
+        // below the strip target instead of overflowing horizontally).
+        assert_size(
+            fit_to_height(egui::vec2(1000.0, 100.0), 32.0, 100.0),
+            egui::vec2(100.0, 10.0),
+        );
+        // Property: the requested height is never exceeded, whatever the
+        // natural aspect ratio.
+        for natural in [
+            egui::vec2(1.0, 4000.0),
+            egui::vec2(3.0, 10.0),
+            egui::vec2(50.0, 50.0),
+            egui::vec2(4000.0, 3.0),
+        ] {
+            for height in [1.0, 16.0, 32.0] {
+                let size = fit_to_height(natural, height, 760.0);
+                assert!(
+                    size.y <= height + 0.01,
+                    "{natural:?} at {height}: {size:?} is taller than requested"
+                );
+            }
+        }
+        // Degenerate textures still get the compact placeholder box.
+        assert_eq!(
+            fit_to_height(egui::vec2(0.0, 100.0), 32.0, 760.0),
+            egui::vec2(INLINE_H, INLINE_H)
         );
     }
 

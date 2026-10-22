@@ -1223,11 +1223,13 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   other failure surfaces as `Could not save: …`. Success, fallback and failure
   all go through the shared toast, so no dialog ever blocks the save.
   On filesystems with hard links the write is atomic (unique `create_new`
-  temp beside the destination, then a no-replace hard-link publish);
-  filesystems without hard links fall back to an exclusive create. Either way
-  a failed or interrupted save neither truncates a file nor replaces one that
-  appeared after the name check; a replacement, used only by the explicit
-  atomic-replacement path, keeps the existing file's permissions.
+  temp beside the destination, then a no-replace hard-link publish); the temp
+  file is fsynced before publishing and the directory entry afterwards, so a
+  confirmed save survives a power loss. Filesystems without hard links fall
+  back to an exclusive create. Either way a failed or interrupted save
+  neither truncates a file nor replaces one that appeared after the name
+  check; a replacement, used only by the explicit atomic-replacement path,
+  keeps the existing file's permissions.
   The file name derives from the page and is slugified and capped BEFORE it
   becomes a path component, so a hostile title or URL segment cannot add a
   separator, leave the downloads directory or name a Windows device.

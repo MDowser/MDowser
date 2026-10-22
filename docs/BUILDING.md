@@ -423,8 +423,10 @@ body is fixed text (CHANGELOG link, per-platform first-run and install notes,
 assets pointer and the use-at-your-own-risk disclaimer); tags carrying
 `-alpha`/`-beta`/`-rc` are published as pre-releases. A manual run
 (`workflow_dispatch`) with `dry_run: true` compiles everything without
-publishing. Standard runners are free for public repositories; every job is
-capped with `timeout-minutes` and no cache is kept between runs.
+publishing; a `dry_run: false` run must be dispatched from the matching
+`v<version>` tag, and the `verify` job rejects a branch or a mismatched tag
+before any build starts. Standard runners are free for public repositories;
+every job is capped with `timeout-minutes` and no cache is kept between runs.
 
 Push a `v<version>` tag matching `Cargo.toml`; the workflow attaches the
 files to one GitHub Release. A local `make dist` set can be attached by hand
