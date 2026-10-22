@@ -21,7 +21,10 @@
 //!   hold the startup zoom and "restore tabs on startup" (open tabs are
 //!   remembered in `settings` and reopened on the next launch).
 //! - Keyboard shortcuts: Ctrl/Cmd+T (new tab), Ctrl/Cmd+W (close tab),
-//!   Ctrl/Cmd+R / F5 (refresh), Ctrl/Cmd+L (focus address),
+//!   Ctrl/Cmd+Shift+T (reopen the last closed tab), Ctrl+Tab /
+//!   Ctrl+Shift+Tab and Ctrl+PageDown/PageUp (cycle tabs), Alt+Left/Right
+//!   / Cmd+[ / Cmd+] (back/forward), Ctrl/Cmd+R / F5 (refresh),
+//!   Ctrl/Cmd+L (focus address),
 //!   Ctrl/Cmd+F (find in page on document pages; Enter/Shift+Enter or
 //!   F3/Shift+F3 step through matches, Esc closes the bar),
 //!   Ctrl/Cmd+S (save the page as Markdown in the downloads folder),
@@ -52,6 +55,9 @@ pub struct MdowserApp {
     active: usize,
     /// Counter for unique tab ids.
     next_id: usize,
+    /// URLs of recently closed tabs, newest last, capped at
+    /// [`config::MAX_CLOSED_TABS`]: `Ctrl/Cmd+Shift+T` reopens the last one.
+    closed_tabs: Vec<url::Url>,
     /// Last applied window title (avoids calling the OS every frame).
     last_window_title: String,
     /// UI zoom factor (toolbar magnifiers). 1.0 = 100%.
@@ -185,6 +191,7 @@ impl MdowserApp {
             tabs,
             active,
             next_id,
+            closed_tabs: Vec::new(),
             last_window_title: "MDowser".to_string(),
             zoom: prefs.default_zoom(),
             favicons: FaviconCache::new(),
@@ -447,6 +454,40 @@ impl MdowserApp {
         self.activate_tab(idx);
     }
 
+    /// Reopens the most recently closed tab (`Ctrl/Cmd+Shift+T`), if any,
+    /// in a new tab right after the active one. The reopened tab becomes
+    /// active, like a desktop browser. At [`config::MAX_TABS`] the request
+    /// is refused with the usual toast and the URL stays on the stack, so a
+    /// later attempt can still succeed.
+    fn reopen_closed_tab(&mut self) {
+        let Some(url) = self.closed_tabs.pop() else {
+            return;
+        };
+        if self.tabs.len() >= config::MAX_TABS {
+            self.closed_tabs.push(url);
+            self.active_tab_mut().set_toast("Tab limit reached");
+            return;
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        let mut tab = Tab::new(id);
+        tab.navigate_to_text(url.as_str(), true);
+        let at = self.active.saturating_add(1).min(self.tabs.len());
+        self.tabs.insert(at, tab);
+        self.activate_tab(at);
+    }
+
+    /// Cycles to the next/previous tab, wrapping at either end
+    /// (`Ctrl+Tab`/`Ctrl+Shift+Tab`, `Ctrl+PageDown`/`Ctrl+PageUp`).
+    fn cycle_tab(&mut self, delta: isize) {
+        if self.tabs.len() < 2 {
+            return;
+        }
+        let len = self.tabs.len() as isize;
+        let next = (self.active as isize + delta).rem_euclid(len) as usize;
+        self.activate_tab(next);
+    }
+
     /// Opens `input` in a NEW background tab, inserted right after the
     /// active one (context menu "Open link in new tab", standard browser
     /// behavior).
@@ -524,6 +565,14 @@ impl MdowserApp {
     fn close_tab(&mut self, ctx: &egui::Context, idx: usize) {
         if idx >= self.tabs.len() {
             return;
+        }
+        // Remember the page for Ctrl/Cmd+Shift+T before the tab state is
+        // dropped or reset. Home has no session URL (nothing to reopen).
+        if let Some(url) = self.tabs[idx].session_url().cloned() {
+            if self.closed_tabs.len() >= config::MAX_CLOSED_TABS {
+                self.closed_tabs.remove(0);
+            }
+            self.closed_tabs.push(url);
         }
         // Cancel its in-flight document + image loads before dropping.
         self.tabs[idx].cancel_inflight();

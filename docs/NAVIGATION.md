@@ -96,15 +96,22 @@ Resolution is simpler:
 ## Opening documents
 
 Command-line targets (or a file manager's "Open with") open as documents:
-absolute paths and `file://`/`https://` URLs, one tab each, taking priority
-over session restore.
+absolute and existing relative paths and `file://`/`https://` URLs, one tab
+each, taking priority over session restore.
 
 ```sh
 mdowser ~/notes.md                  # from a terminal
+mdowser notes.md                    # existing relative file, not the .md host
+mdowser notes                       # finds notes.md (local route extension)
 mdowser file:///tmp/a.md            # file URL
 mdowser --help                      # usage (also -h); --version prints the build (-V)
 open -a MDowser --args ~/notes.md   # macOS, while the app is not running
 ```
+
+A bare relative target is resolved against the working directory only when it
+actually names a file or directory (or a stem's `.md` sibling). Explicit URL
+and path spellings are untouched, and a name that does not exist stays an
+HTTPS host, so `mdowser example.com` is still a web page.
 
 `--help`/`-h` and `--version`/`-V` are answered on stdout without opening a
 window. Every other flag is skipped, so a launcher's own arguments (macOS

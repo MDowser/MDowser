@@ -126,12 +126,15 @@ const SHORTCUT_GROUPS: &[(&str, &[(&str, &str)])] = &[
         &[
             ("New tab", "Ctrl/Cmd + T"),
             ("Close tab", "Ctrl/Cmd + W"),
+            ("Reopen closed tab", "Ctrl/Cmd + Shift + T"),
+            ("Next / previous tab", "Ctrl + Tab / Ctrl + Shift + Tab"),
             ("Select tab 1-9", "Ctrl/Cmd + 1-9"),
         ],
     ),
     (
         "NAVIGATION",
         &[
+            ("Back / forward", "Alt + Left / Right"),
             ("Focus address field", "Ctrl/Cmd + L"),
             ("Reload page", "Ctrl/Cmd + R / F5"),
             ("Open history", "Ctrl + H / Cmd + Y"),

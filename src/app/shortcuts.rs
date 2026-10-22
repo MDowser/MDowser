@@ -29,6 +29,11 @@ impl MdowserApp {
         ];
         let mut want_new = false;
         let mut want_close = false;
+        let mut want_reopen = false;
+        let mut want_back = false;
+        let mut want_forward = false;
+        let mut want_next_tab = false;
+        let mut want_prev_tab = false;
         let mut want_reload = false;
         let mut want_focus = false;
         let mut want_digit: Option<usize> = None;
@@ -75,6 +80,9 @@ impl MdowserApp {
         // Same race for the inline tile editor: an open bookmark field must
         // receive Esc (it drops the draft) instead of App consuming it.
         let tile_editing = self.tabs.get(self.active).is_some_and(|t| t.tile_editing);
+        // A focused bookmark tile owns Alt+Left/Right (its keyboard reorder):
+        // Back/Forward must leave those keys alone on the Home grid.
+        let tile_focused = self.tabs.get(self.active).is_some_and(|t| t.tile_focused);
         // The omnibox page-info popup owns Esc while it is open
         // (`ui::omnibox` closes it); Stop must not steal the key.
         let site_info_open = self.tabs.get(self.active).is_some_and(Tab::site_info_open);
@@ -101,7 +109,29 @@ impl MdowserApp {
             .get(self.active)
             .is_some_and(|t| matches!(t.state, TabState::Loaded { .. } | TabState::Licenses));
         ctx.input_mut(|i| {
+            // Shift chords FIRST: `consume_key` ignores an extra Shift, so
+            // Cmd+Shift+T / Ctrl+Shift+Tab would otherwise be eaten by
+            // their unshifted forms below.
+            want_reopen = i.consume_key(cmd | egui::Modifiers::SHIFT, egui::Key::T);
             want_new = i.consume_key(cmd, egui::Key::T);
+            want_prev_tab = i.consume_key(
+                egui::Modifiers::CTRL | egui::Modifiers::SHIFT,
+                egui::Key::Tab,
+            );
+            want_next_tab = i.consume_key(egui::Modifiers::CTRL, egui::Key::Tab);
+            want_prev_tab |= i.consume_key(egui::Modifiers::CTRL, egui::Key::PageUp);
+            want_next_tab |= i.consume_key(egui::Modifiers::CTRL, egui::Key::PageDown);
+            // Browser Back/Forward: Alt+Left/Right everywhere; macOS also
+            // accepts the system-standard Cmd+[ / Cmd+]. A focused text
+            // field keeps Alt+arrows (Option+Left/Right move by word on
+            // macOS), and a focused bookmark tile keeps them for its own
+            // keyboard reorder.
+            let arrows_free = no_text_focus && !tile_editing && !tile_focused;
+            want_back = (arrows_free && i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowLeft))
+                || (cfg!(target_os = "macos") && i.consume_key(cmd, egui::Key::OpenBracket));
+            want_forward = (arrows_free
+                && i.consume_key(egui::Modifiers::ALT, egui::Key::ArrowRight))
+                || (cfg!(target_os = "macos") && i.consume_key(cmd, egui::Key::CloseBracket));
             want_close = i.consume_key(cmd, egui::Key::W);
             want_reload = i.consume_key(cmd, egui::Key::R)
                 || i.consume_key(egui::Modifiers::NONE, egui::Key::F5);
@@ -195,6 +225,9 @@ impl MdowserApp {
         if want_zoom_reset {
             self.zoom = 1.0;
         }
+        if want_reopen {
+            self.reopen_closed_tab();
+        }
         if want_new {
             self.new_tab();
         }
@@ -221,6 +254,12 @@ impl MdowserApp {
                     tab.find.scroll_to_current = true;
                 }
             }
+        }
+        if want_back {
+            self.active_tab_mut().go_back();
+        }
+        if want_forward {
+            self.active_tab_mut().go_forward();
         }
         if want_reload {
             self.active_tab_mut().refresh();
@@ -271,6 +310,14 @@ impl MdowserApp {
         }
         if let Some(n) = want_digit {
             self.select_tab(n);
+        }
+        // Tab cycling after close/digit mutations: Ctrl+Tab walks the list
+        // that is actually on screen now, wrapping at either end.
+        if want_prev_tab {
+            self.cycle_tab(-1);
+        }
+        if want_next_tab {
+            self.cycle_tab(1);
         }
     }
 }

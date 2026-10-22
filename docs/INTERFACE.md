@@ -372,13 +372,18 @@ focused one, `Esc` closes.
 ## Keyboard shortcuts
 
 The global shortcuts; field, menu and grid keys live in their sections above.
-The Preferences Shortcuts tab carries them in English as a curated quick
-reference, leaving out bare `Esc` rows and keyboard reorders.
+A focused bookmark tile keeps `Alt+Left`/`Alt+Right` for its own reorder, and
+a focused text field keeps `Alt`+arrows for word movement. The Preferences
+Shortcuts tab carries them in English as a curated quick reference, leaving
+out bare `Esc` rows and keyboard reorders.
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl/Cmd+T` | New tab |
 | `Ctrl/Cmd+W` | Close tab |
+| `Ctrl/Cmd+Shift+T` | Reopen the most recently closed tab |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` (also `Ctrl+PageDown` / `Ctrl+PageUp`) | Next / previous tab (wraps) |
+| `Alt+Left` / `Alt+Right` (macOS also `Cmd+[` / `Cmd+]`) | Back / forward |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+L` | Focus address field (selects the URL) |
 | `Esc` | One surface per press: a focused field/editor (revert / drop draft), else a popup or menu, a floating window, the find bar, or Stop loading |

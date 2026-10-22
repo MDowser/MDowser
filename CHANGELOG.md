@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Browser navigation shortcuts. `Alt+Left`/`Alt+Right` (and `Cmd+[`/`Cmd+]`
+  on macOS) move through page history, `Ctrl+Tab`/`Ctrl+Shift+Tab` and
+  `Ctrl+PageDown`/`Ctrl+PageUp` cycle tabs with wrap-around, and
+  `Ctrl/Cmd+Shift+T` reopens the most recently closed tab from a bounded
+  URL stack. A focused bookmark tile keeps `Alt+Left`/`Alt+Right` for its
+  keyboard reorder, and a focused text field keeps `Alt`+arrows for word
+  movement. (`src/app/`, `src/browser/tab/`, `src/ui/bookmarks/`,
+  `src/ui/preferences/`, `README.md`, `docs/`.)
+- Command-line relative paths: `mdowser notes.md` opens the existing file in
+  the current directory (and `mdowser notes` finds `notes.md`) instead of
+  treating the name as a `.md` host. Explicit URLs and path spellings are
+  unchanged, and a name that does not exist still navigates as a host.
+  (`src/main.rs`, `docs/NAVIGATION.md`.)
+
+### Changed
+
+- Updated `rustls-webpki` 0.103.15 → 0.103.16 and `webpki-root-certs`
+  1.0.9 → 1.0.10 for RUSTSEC-2026-0382 and RUSTSEC-2026-0383; `cargo deny
+  check` and `cargo audit` are clean again. (`Cargo.lock`.)
+- The release workflow's `verify` job now installs pinned `cargo-audit` and
+  `cargo-deny` and runs both, so a tagged release fails on a new advisory,
+  yanked crate, banned dependency or unapproved license even when the local
+  best-effort `make audit` was skipped. (`.github/workflows/release.yml`,
+  `docs/BUILDING.md`, `docs/SECURITY.md`.)
+
 ## [0.6.3] - 2026-10-21
 
 Offline reading from the encrypted cache, a permanent document outline

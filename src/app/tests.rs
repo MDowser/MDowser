@@ -19,6 +19,7 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         tabs,
         active,
         next_id: 99,
+        closed_tabs: Vec::new(),
         last_window_title: "MDowser".to_string(),
         zoom: 1.0,
         favicons: FaviconCache::new(),
@@ -922,4 +923,150 @@ fn esc_closes_the_find_bar() {
     });
     out.textures_delta.clear();
     assert!(!app.tabs[0].find.open, "the bar owned the press");
+}
+
+/// Runs one frame with a single key chord, exactly as a shortcut press
+/// reaches `handle_shortcuts`.
+fn press_shortcut(
+    ctx: &eframe::egui::Context,
+    app: &mut super::MdowserApp,
+    modifiers: eframe::egui::Modifiers,
+    key: eframe::egui::Key,
+) {
+    let input = eframe::egui::RawInput {
+        screen_rect: Some(eframe::egui::Rect::from_min_size(
+            eframe::egui::Pos2::ZERO,
+            eframe::egui::vec2(900.0, 700.0),
+        )),
+        events: vec![eframe::egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }],
+        ..Default::default()
+    };
+    let mut out = ctx.run_ui(input, |_root| app.handle_shortcuts(ctx));
+    out.textures_delta.clear();
+}
+
+/// Browser Back/Forward: Alt+Left/Right traverse the page history, while a
+/// focused bookmark tile keeps Alt+Left/Right for its own grid reorder.
+#[test]
+fn back_and_forward_shortcuts_leave_a_focused_tile_alone() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    app.tabs[0].open_history(true);
+    assert!(matches!(app.tabs[0].state, TabState::History));
+
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::ALT,
+        eframe::egui::Key::ArrowLeft,
+    );
+    assert!(
+        matches!(app.tabs[0].state, TabState::Home),
+        "Alt+Left went back to the new-tab page"
+    );
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::ALT,
+        eframe::egui::Key::ArrowRight,
+    );
+    assert!(
+        matches!(app.tabs[0].state, TabState::History),
+        "Alt+Right went forward again"
+    );
+
+    app.tabs[0].tile_focused = true;
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::ALT,
+        eframe::egui::Key::ArrowLeft,
+    );
+    assert!(
+        matches!(app.tabs[0].state, TabState::History),
+        "a focused bookmark tile keeps Alt+Left for its reorder"
+    );
+    app.tabs[0].tile_focused = false;
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::ALT,
+        eframe::egui::Key::ArrowLeft,
+    );
+    assert!(
+        matches!(app.tabs[0].state, TabState::Home),
+        "with the grid unfocused, Back works again"
+    );
+}
+
+/// Ctrl+Tab / Ctrl+Shift+Tab and Ctrl+PageDown/PageUp cycle the tab rail
+/// and wrap at both ends.
+#[test]
+fn tab_cycle_shortcuts_wrap() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 0);
+    let ctrl = eframe::egui::Modifiers::CTRL;
+
+    press_shortcut(&ctx, &mut app, ctrl, eframe::egui::Key::Tab);
+    assert_eq!(app.active, 1);
+    press_shortcut(
+        &ctx,
+        &mut app,
+        ctrl | eframe::egui::Modifiers::SHIFT,
+        eframe::egui::Key::Tab,
+    );
+    assert_eq!(app.active, 0);
+    press_shortcut(&ctx, &mut app, ctrl, eframe::egui::Key::PageDown);
+    assert_eq!(app.active, 1);
+    press_shortcut(&ctx, &mut app, ctrl, eframe::egui::Key::PageUp);
+    assert_eq!(app.active, 0);
+    // One step back from the first tab wraps to the last.
+    press_shortcut(
+        &ctx,
+        &mut app,
+        ctrl | eframe::egui::Modifiers::SHIFT,
+        eframe::egui::Key::Tab,
+    );
+    assert_eq!(app.active, 2);
+}
+
+/// Ctrl/Cmd+Shift+T reopens the last closed tab (and is not mistaken for
+/// Ctrl/Cmd+T: the reopened tab keeps its page, rather than becoming Home).
+#[test]
+fn reopen_closed_tab_restores_the_page() {
+    let ctx = eframe::egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2)], 0);
+    app.tabs[1].open_history(true);
+    app.close_tab(&ctx, 1);
+    assert_eq!(app.tabs.len(), 1, "the history tab was closed");
+
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::COMMAND | eframe::egui::Modifiers::SHIFT,
+        eframe::egui::Key::T,
+    );
+    assert_eq!(app.tabs.len(), 2, "the closed tab came back");
+    assert_eq!(app.active, 1, "and is active");
+    assert!(
+        matches!(app.tabs[1].state, TabState::History),
+        "the remembered URL was reopened, not a blank tab"
+    );
+    // Nothing left on the stack: another press is a no-op.
+    press_shortcut(
+        &ctx,
+        &mut app,
+        eframe::egui::Modifiers::COMMAND | eframe::egui::Modifiers::SHIFT,
+        eframe::egui::Key::T,
+    );
+    assert_eq!(app.tabs.len(), 2);
 }

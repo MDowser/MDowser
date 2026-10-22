@@ -391,7 +391,7 @@ the single `SHA256SUMS.txt`.
 
 | Job | Runner | Builds |
 | --- | --- | --- |
-| `verify` | ubuntu-24.04 | `scripts/build-test.sh` (sh syntax, version, fmt, clippy, tests, doc, debug); every build job needs it |
+| `verify` | ubuntu-24.04 | `scripts/build-test.sh` (sh syntax, version, fmt, clippy, tests, doc, debug) + pinned `cargo audit`/`cargo deny check`; every build job needs it |
 | `linux-x64` | ubuntu-24.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
 | `linux-arm64` | ubuntu-24.04-arm | Linux arm64 `.tar.gz` + `.deb` |
 | `windows-arm64` | windows-11-arm | Windows arm64 `.zip` (native MSVC) |
@@ -401,7 +401,11 @@ the single `SHA256SUMS.txt`.
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
 
 A tag cannot publish a tree that fails `make test`: the `verify` job runs the
-full pipeline and every build job declares `needs: verify`. The publish job
+full pipeline and every build job declares `needs: verify`. It also installs
+`cargo-audit` 0.22.2 and `cargo-deny` 0.20.2 (pinned, no Actions cache) and
+runs both checks, so a new advisory, yanked crate, banned dependency or
+unapproved license blocks the release even when the local, best-effort
+`make audit` was skipped. The publish job
 also checks that the merged set contains every advertised target (macOS,
 Linux x86_64/arm64 archives and debs, both Windows zips, RPM and Flatpak)
 before writing checksums; the x86_64 Windows build asserts its `.rsrc` section

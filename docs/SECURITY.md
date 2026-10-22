@@ -431,7 +431,9 @@ card and the bookmark/history stores.
 
 - `unsafe_code = "forbid"` in `Cargo.toml`. `Cargo.lock` is committed, and
   `cargo audit` + `cargo deny check` run via `make audit` (configured by
-  `.cargo/audit.toml` and `deny.toml`) before releases. Accepted transitive
+  `.cargo/audit.toml` and `deny.toml`) before releases, and the release
+  workflow's `verify` job runs the same two tools at pinned versions with no
+  Actions cache, so a tagged build fails closed. Accepted transitive
   advisories are listed in both files with their rationale and dependency
   chain; any advisory not listed fails the gate.
 - `deny.toml` allows an explicit license set (the app itself is `MPL-2.0`, see

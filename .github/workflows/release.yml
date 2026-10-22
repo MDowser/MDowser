@@ -7,7 +7,8 @@
 #
 # Jobs (fresh GitHub-hosted runners, NO Actions cache: every release compiles
 # from scratch and only the packaged files travel between jobs):
-#   verify       full `make test` pipeline; every build job depends on it
+#   verify       full `make test` pipeline + pinned supply-chain audit; every
+#                build job depends on it
 #   linux-x64    Linux x86_64 (.tar.gz + .deb) + Windows x86_64 (.zip, mingw)
 #   linux-arm64  Linux arm64 (.tar.gz + .deb)
 #   windows-arm64 Windows arm64 (.zip, native MSVC on a windows-11-arm runner)
@@ -57,7 +58,8 @@ jobs:
     # this, a tag could publish binaries that never compiled under the
     # release-gating lints (or failed the version/documentation checks).
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # The full pipeline plus two `cargo install --locked` builds from source.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build dependencies (NASM for the x86_64 assembly)
@@ -66,6 +68,18 @@ jobs:
           sudo apt-get install -y nasm
       - name: Full verification pipeline
         run: ./scripts/build-test.sh
+      # `make audit` is best-effort locally; a release is not. Install the
+      # same tools at pinned versions (no Actions cache by design) and fail
+      # the release on a new advisory, a yanked crate, a banned dependency or
+      # an unapproved license. Accepted transitive advisories stay listed,
+      # with their rationale, in deny.toml and .cargo/audit.toml.
+      - name: Supply-chain audit
+        run: |
+          set -eu
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo install cargo-deny --version 0.20.2 --locked
+          cargo audit
+          cargo deny check
 
   linux-x64:
     name: Linux x86_64 + Windows x86_64

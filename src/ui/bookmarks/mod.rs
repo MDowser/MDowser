@@ -173,6 +173,9 @@ pub fn show_bookmarks(
     let mut remove: Option<usize> = None;
     let mut begin: Option<TileEdit> = None;
     let mut finish: Option<bool> = None;
+    // Whether a tile (or one of its action buttons) owns the keyboard this
+    // pass; reported on the tab so `App` leaves Alt+Left/Right to the grid.
+    let mut tile_focused = false;
     // Real id of the grid's `ScrollArea`, recorded for `forget_tab` (see
     // `ui::remember_scroll`).
     let mut grid_scroll_id: Option<egui::Id> = None;
@@ -307,6 +310,7 @@ pub fn show_bookmarks(
                                         edit_id,
                                         tile_edit,
                                         favicons,
+                                        &mut tile_focused,
                                     ) {
                                         TileAction::None => {}
                                         TileAction::Open { new_tab } => {
@@ -417,6 +421,9 @@ pub fn show_bookmarks(
     // field). Set AFTER the finish/begin handling, so the frame that closes
     // a field already reports it closed.
     tab.tile_editing = edit.is_some();
+    // The grid reuses Alt+Left/Right on a focused tile; App's Back/Forward
+    // shortcuts check this last-frame flag and leave the keys alone.
+    tab.tile_focused = tile_focused;
 
     if let Some((from, to)) = reorder {
         store.move_entry(from, to);

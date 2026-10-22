@@ -73,6 +73,7 @@ Open a local document:
 
 ```sh
 mdowser ~/notes.md
+mdowser notes.md   # an existing relative file opens as a file, not a host
 ```
 
 Or read a Markdown document hosted online:
@@ -90,6 +91,9 @@ For the URL-routing sequence, redirects and local-file rules, see [Navigation](d
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl/Cmd+T` · `Ctrl/Cmd+W` | New tab · close tab |
+| `Ctrl/Cmd+Shift+T` | Reopen the most recently closed tab |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Alt+Left` / `Alt+Right` | Back / forward (macOS also `Cmd+[` / `Cmd+]`) |
 | `Ctrl/Cmd+L` | Focus the address field |
 | `Ctrl/Cmd+R` / `F5` | Refresh |
 | `Ctrl/Cmd+F` | Find in page |

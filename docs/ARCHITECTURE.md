@@ -189,8 +189,12 @@ Key contracts per area (the module map above names every module):
   stdout writes) and exits before any window; the remaining list is capped at
   `MAX_TABS` (`main::collect_initial_targets` skips flags/empties), so an
   OS-controlled argument list can never allocate an unbounded tab vector.
-  Per-target length stays enforced by `parse_navigable`: oversized input
-  becomes that tab's local error, never a truncated navigation.
+  `main::resolve_cli_targets` rewrites a bare relative target to its absolute
+  path only when it exists under the working directory (or a stem's `.md`
+  sibling), so a terminal's `mdowser notes.md` is a file while
+  `mdowser example.com` stays a host. Per-target length stays enforced by
+  `parse_navigable`: oversized input becomes that tab's local error, never a
+  truncated navigation.
 
 ## Encrypted disk cache
 
@@ -987,9 +991,15 @@ is focused) with `F3`/`Shift+F3` stepping through matches, Ctrl/Cmd+S (save
 the page as Markdown in the downloads folder, likewise a document action that
 never types an `s` into a field), and Ctrl/Cmd+A selecting the whole page with
 Ctrl/Cmd+C copying it while that highlight is active (egui only emits
-`Event::Copy`; no key event to consume). The Esc cascade gives the first press
-to a focused field/editor, then a popup/menu, a floating window and the find
-bar, and only then Stop. The full table
+`Event::Copy`; no key event to consume). Browser traversal now shares the same
+handler: Ctrl/Cmd+Shift+T reopens the newest URL on the bounded
+`closed_tabs` stack, Ctrl+Tab/Ctrl+Shift+Tab and Ctrl+PageDown/PageUp cycle
+the rail with wrap-around, and Alt+Left/Right (Cmd+[ / Cmd+] on macOS) move
+through page history. A focused text field or bookmark tile keeps Alt+arrows
+for word movement or the grid's keyboard reorder (`Tab::tile_focused`), and
+the app-level handler checks that last-frame flag before consuming them. The
+Esc cascade gives the first press to a focused field/editor, then a popup/menu,
+a floating window and the find bar, and only then Stop. The full table
 is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 
 ## Right-click menu

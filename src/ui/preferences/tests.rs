@@ -518,6 +518,9 @@ fn shortcuts_tab_lists_every_group() {
     for (action, keys) in [
         ("New tab", "Ctrl/Cmd + T"),
         ("Close tab", "Ctrl/Cmd + W"),
+        ("Reopen closed tab", "Ctrl/Cmd + Shift + T"),
+        ("Next / previous tab", "Ctrl + Tab / Ctrl + Shift + Tab"),
+        ("Back / forward", "Alt + Left / Right"),
         ("Reload page", "Ctrl/Cmd + R / F5"),
         ("Open history", "Ctrl + H / Cmd + Y"),
         ("Find in page", "Ctrl/Cmd + F"),

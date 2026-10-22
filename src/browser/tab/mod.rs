@@ -226,6 +226,13 @@ pub struct Tab {
     /// `App` must leave the key to the field (`ui::bookmarks` cancels on
     /// it) instead of consuming it as a Stop.
     pub tile_editing: bool,
+    /// True when a Home bookmark tile (or one of its pencil/X buttons) had
+    /// keyboard focus at the end of the last drawn frame. `Alt+Left`/
+    /// `Alt+Right` are the grid's keyboard reorder on a focused tile, so the
+    /// app-level Back/Forward shortcut must leave those keys alone; the flag
+    /// is refreshed by every Home pass and cleared with the other overlay
+    /// state on navigation/tab switch.
+    pub tile_focused: bool,
     /// Omnibox page-info popup owner: the id salt (`"address-bar"` /
     /// `"home-address"`) of the surface whose security-indicator popup is
     /// open for this tab, if any. View state like `address_focused`:
@@ -338,6 +345,7 @@ impl Tab {
             emoji: crate::media::emoji::EmojiCache::new(),
             address_focused: false,
             tile_editing: false,
+            tile_focused: false,
             site_info: None,
             pending_visit: None,
             doc_generation: 0,
@@ -449,6 +457,10 @@ impl Tab {
         // scrollspy cursor belongs to that page's headings.
         self.outline.reset();
         self.save_asked = false;
+        // The keyboard focus that owned a bookmark tile belongs to the Home
+        // page that was on screen; a stale flag would keep the next page's
+        // Alt+Left/Right Back/Forward shortcuts inert.
+        self.tile_focused = false;
         // The indicator popup describes the page that was on screen; every
         // navigation and tab switch goes through here, so it can never
         // linger over a different page.

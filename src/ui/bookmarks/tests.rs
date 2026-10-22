@@ -916,6 +916,10 @@ fn alt_right_moves_the_focused_tile_one_slot() {
         .collect();
     assert_eq!(titles, vec!["Uno", "Tres", "Dos"], "Tres moved one slot");
     assert!(
+        tab.tile_focused,
+        "the focused tile claims Alt+Left/Right (App must not navigate)"
+    );
+    assert!(
         !matches!(tab.state, TabState::Loading { .. }),
         "a keyboard move must never open the page"
     );

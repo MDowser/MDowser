@@ -123,6 +123,7 @@ pub(super) fn bookmark_tile(
     edit_id: egui::Id,
     mut edit: Option<&mut TileEdit>,
     favicons: &mut FaviconCache,
+    focused: &mut bool,
 ) -> TileAction {
     let TileRef {
         bookmark,
@@ -362,6 +363,11 @@ pub(super) fn bookmark_tile(
     let remove_button_id = ui.id().with(("bookmark-remove", bookmark.url.as_str()));
     let action_focused =
         ui.memory(|m| m.has_focus(edit_button_id) || m.has_focus(remove_button_id));
+    // The tile itself or one of its action buttons owns Alt+Left/Right for
+    // the grid's keyboard reorder; report that so `App` leaves Back/Forward
+    // alone, and reuse the same flag below for the reorder itself.
+    let owns_arrows = response.has_focus() || action_focused;
+    *focused |= owns_arrows;
     let mut edit_rect = None;
     let mut remove_rect = None;
     if !drag_active
@@ -435,7 +441,7 @@ pub(super) fn bookmark_tile(
     // slot (the grid's visual order), the keyboard equivalent of the drag
     // reorder. One slot per press keeps the mapping to the mirrored store
     // order trivial and needs no column count.
-    if !editing && response.has_focus() {
+    if !editing && owns_arrows {
         let delta = ui.input(|i| {
             if !i.modifiers.alt {
                 0

@@ -55,6 +55,7 @@ mod util;
 mod viewer;
 
 use eframe::egui;
+use std::path::Path;
 
 /// What a command-line invocation asks the process to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +101,65 @@ fn collect_initial_targets(args: impl Iterator<Item = String>) -> Vec<String> {
         .collect()
 }
 
+/// Resolves bare relative command-line targets that exist on disk.
+///
+/// A terminal user types `mdowser notes.md` far more often than they mean
+/// the `.md` TLD, but a schemeless target is otherwise a host. A target is
+/// rewritten to its absolute path only when the relative spelling really
+/// names a file or directory under `cwd` (or, for a stem, its `.md` sibling,
+/// matching the local route's extension completion). Explicit URLs and
+/// path spellings (`https://`, `file:`, `~/`, `./`, `../`, `/`, a Windows
+/// drive path) are left untouched, as is anything that does not exist, so
+/// `mdowser example.com` keeps navigating there.
+fn resolve_cli_targets(targets: Vec<String>, cwd: Option<&Path>) -> Vec<String> {
+    let Some(cwd) = cwd else {
+        return targets;
+    };
+    targets
+        .into_iter()
+        .map(|target| resolve_cli_target(target, cwd))
+        .collect()
+}
+
+/// One target's [`resolve_cli_targets`] rewrite.
+fn resolve_cli_target(target: String, cwd: &Path) -> String {
+    if target.is_empty()
+        || target.starts_with('-')
+        || target.contains("://")
+        || crate::util::starts_with_ignore_ascii_case(&target, "file:")
+        || target == "~"
+        || target.starts_with("~/")
+        || target.starts_with("./")
+        || target.starts_with("../")
+        || Path::new(&target).is_absolute()
+    {
+        return target;
+    }
+    let path = cwd.join(&target);
+    let candidate = if path.exists() {
+        path
+    } else {
+        // Match the local route: a stem without a Markdown extension also
+        // finds its `.md` sibling (`mdowser notes` -> `notes.md`).
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase);
+        if matches!(ext.as_deref(), Some("md") | Some("markdown")) {
+            return target;
+        }
+        let mut name = path.clone().into_os_string();
+        name.push(".md");
+        let with_md = std::path::PathBuf::from(name);
+        if with_md.is_file() {
+            with_md
+        } else {
+            return target;
+        }
+    };
+    candidate.to_string_lossy().into_owned()
+}
+
 /// Prints the `--help` text to stdout.
 ///
 /// `print_help` and [`print_version`] are the ONLY stdout writers in the app
@@ -116,8 +176,9 @@ Usage:
   mdowser [TARGET]...
 
 Open each TARGET as a document: an https:// URL (the scheme is optional),
-a file:// URL, an absolute or ~ path, or a Markdown file. Without a TARGET
-the app opens on its new-tab page.
+a file:// URL, an absolute, ~ or relative path, or a Markdown file. A
+relative TARGET that exists on disk is opened as a file, not as a host.
+Without a TARGET the app opens on its new-tab page.
 
 Options:
   -h, --help     Print this help and exit
@@ -160,7 +221,10 @@ fn main() -> eframe::Result<()> {
     // or `file://` URLs (`Exec=... %U`); terminals pass whatever the user
     // typed. Flags are skipped (`-psn_...` on a macOS Finder launch, and any
     // future option), so nothing machine-generated is opened as a document.
-    let initial = collect_initial_targets(args.into_iter());
+    let initial = resolve_cli_targets(
+        collect_initial_targets(args.into_iter()),
+        std::env::current_dir().ok().as_deref(),
+    );
     // Native options: title, creation + minimum size (the first frame then
     // applies the remembered geometry or the monitor-proportional size; see
     // `app::window`), vsync for smooth scrolling. `app_id` drives the Wayland
@@ -199,7 +263,7 @@ fn main() -> eframe::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cli_action, collect_initial_targets, CliAction};
+    use super::{cli_action, collect_initial_targets, resolve_cli_target, CliAction};
 
     #[test]
     fn skips_flags_and_empty_args() {
@@ -221,6 +285,46 @@ mod tests {
             (0..crate::config::MAX_TABS + 10).map(|i| format!("/tmp/{i}.md")),
         );
         assert_eq!(out.len(), crate::config::MAX_TABS);
+    }
+
+    /// `mdowser notes.md` from a terminal opens the file in the current
+    /// directory, not the `.md` host. Only an EXISTING relative target is
+    /// rewritten: an explicit URL or path spelling keeps its meaning, and a
+    /// missing name still navigates as a host.
+    #[test]
+    fn existing_relative_cli_targets_become_absolute_paths() {
+        let dir = std::env::temp_dir().join(format!("mdowser-cli-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        std::fs::write(dir.join("notes.md"), "# Notes\n").expect("note");
+        std::fs::create_dir(dir.join("docs")).expect("dir target");
+
+        let notes = dir.join("notes.md").to_string_lossy().into_owned();
+        let docs = dir.join("docs").to_string_lossy().into_owned();
+        assert_eq!(resolve_cli_target("notes.md".into(), &dir), notes);
+        assert_eq!(
+            resolve_cli_target("notes".into(), &dir),
+            notes,
+            "a bare stem finds its .md sibling"
+        );
+        assert_eq!(resolve_cli_target("docs".into(), &dir), docs);
+        for unchanged in [
+            "https://ex.com/notes.md",
+            "example.com",
+            "file:///tmp/notes.md",
+            "./notes.md",
+            "../notes.md",
+            "~/notes.md",
+            "/tmp/notes.md",
+            "missing.md",
+        ] {
+            assert_eq!(
+                resolve_cli_target(unchanged.into(), &dir),
+                unchanged,
+                "{unchanged} must be left for the navigability parser"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// `--help`/`-h` and `--version`/`-V` are answered before any window is

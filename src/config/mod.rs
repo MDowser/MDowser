@@ -715,6 +715,13 @@ pub const FETCH_SLOT_POLL_MS: u64 = 20;
 ///   costs almost nothing until a tab actually loads a document.
 pub const MAX_TABS: usize = 128;
 
+/// Max recently closed tabs remembered for `Ctrl/Cmd+Shift+T`.
+///
+/// Only their URLs are kept (a few KiB at most), oldest dropped first, so
+/// the stack can never grow with a long session. Reopening uses a fresh tab
+/// under the normal [`MAX_TABS`] cap.
+pub const MAX_CLOSED_TABS: usize = 20;
+
 /// Internal local-history page (`about:history`). One definition shared by
 /// the navigation intercept (`browser::tab`), the session restore validator
 /// (`settings`) and the tab tests, so no path can accept a different
