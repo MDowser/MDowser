@@ -108,7 +108,7 @@ pub(super) fn text_link(
         );
     }
     ui.painter().galley(rect.min, galley, s.primary);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Link, true, text));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Link, true, text));
     response
 }
 
@@ -329,7 +329,7 @@ pub(super) fn danger_row(
         egui::FontId::proportional(theme::typography::ROW),
         s.error,
     );
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
     response
 }
 
@@ -391,9 +391,7 @@ pub(super) fn switch(
     ui.painter()
         .circle_filled(egui::pos2(knob_x, track.center().y), knob_r, knob);
     let checked = *on;
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, checked, label)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::CheckBox, true, checked, label));
     response
 }
 
@@ -494,9 +492,7 @@ fn tab_button(
         ),
         color,
     );
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     response
 }
 
@@ -549,7 +545,7 @@ pub(super) fn close_button(ui: &mut egui::Ui, s: &theme::Scheme) -> egui::Respon
         .line_segment([c + egui::vec2(-d, -d), c + egui::vec2(d, d)], stroke);
     ui.painter()
         .line_segment([c + egui::vec2(d, -d), c + egui::vec2(-d, d)], stroke);
-    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Close"));
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "Close"));
     crate::ui::hover_tooltip(response, "Close")
 }
 
@@ -595,9 +591,7 @@ pub(super) fn dropdown_row(
             stroke,
         );
     }
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, label)
-    });
+    response.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, label));
     response.clicked()
 }
 
@@ -733,7 +727,7 @@ fn dropdown_field(
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::ComboBox,
+            egui::Role::ComboBox,
             true,
             format!("{name}: {selected_text}"),
         )

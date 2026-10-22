@@ -58,7 +58,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
         return;
     }
     let tab_id = tab.id;
-    let edit_id = egui::Id::new(("find-query", tab_id));
+    let edit_id = egui::Id::unique(("find-query", tab_id));
     let mut step: Option<i8> = None;
     let mut close = false;
     // Dock just left of the permanent outline sidebar when the page has one,
@@ -88,7 +88,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
         12.0
     };
     let field_w = FIELD_W.min((content_w - right_inset - 12.0 - fixed_w).max(MIN_FIELD_W));
-    egui::Area::new(egui::Id::new(("find-bar", tab_id)))
+    egui::Area::new(egui::Id::unique(("find-bar", tab_id)))
         .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-right_inset, 48.0))
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
@@ -159,7 +159,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                                             .desired_width(field_rect.width().max(16.0))
                                             .char_limit(crate::config::MAX_FIND_QUERY_CHARS)
                                             .text_color(s.on_surface)
-                                            .vertical_align(egui::Align::Center)
+                                            .align(egui::Align2::LEFT_CENTER)
                                             .hint_text(
                                                 egui::RichText::new("Find in page")
                                                     .color(s.on_surface_variant),
@@ -169,11 +169,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                             )
                             .inner;
                         field.widget_info(|| {
-                            egui::WidgetInfo::labeled(
-                                egui::WidgetType::TextEdit,
-                                true,
-                                "Find in page",
-                            )
+                            egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Find in page")
                         });
                         if field.changed() {
                             tab.find.query = truncate_query(&tab.find.query);
@@ -247,7 +243,7 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                         }
                         count_resp.widget_info(|| {
                             egui::WidgetInfo::labeled(
-                                egui::WidgetType::Label,
+                                egui::Role::Label,
                                 true,
                                 count_a11y(
                                     &tab.find.query,

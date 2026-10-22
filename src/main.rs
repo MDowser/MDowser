@@ -246,6 +246,10 @@ fn main() -> eframe::Result<()> {
     }
     let options = eframe::NativeOptions {
         viewport,
+        // eframe 0.37 adds a system-font provider for glyphs the installed
+        // faces lack. MDowser promises bundled Noto rendering only (see
+        // `docs/RENDERING.md`), so keep every machine's text identical.
+        system_font_fallback: false,
         // eframe centers the window on the primary monitor while CREATING
         // it (it reaches winit's monitors from the event loop), so Windows
         // never opens MDowser at its `CW_USEDEFAULT` cascade position (which

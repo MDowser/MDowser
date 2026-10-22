@@ -685,7 +685,7 @@ fn find_shortcut_focuses_and_selects_the_query() {
     crate::ui::theme::apply(&ctx);
     let mut app = app_with(vec![loaded_tab(1, "https://ex.com/a/", Some("A"))], 0);
     let tab_id = app.tabs[0].id;
-    let edit_id = eframe::egui::Id::new(("find-query", tab_id));
+    let edit_id = eframe::egui::Id::unique(("find-query", tab_id));
     let key = |modifiers: eframe::egui::Modifiers| eframe::egui::Event::Key {
         key: eframe::egui::Key::F,
         physical_key: None,

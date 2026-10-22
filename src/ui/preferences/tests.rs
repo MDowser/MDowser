@@ -804,6 +804,7 @@ fn each_tab_keeps_its_own_scroll_offset() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -120.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     };
     let mut events = vec![egui::Event::PointerMoved(over)];
@@ -1319,6 +1320,7 @@ fn cache_card_fits_first_screen_and_rest_stays_reachable() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -400.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     };
     let mut events = vec![egui::Event::PointerMoved(egui::pos2(450.0, 300.0))];

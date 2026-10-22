@@ -121,7 +121,7 @@ pub(crate) fn try_reserve_texture_bytes(bytes: usize) -> bool {
 /// Releases a reservation made by `try_reserve_texture_bytes`.
 /// Saturates at zero so a double release can never wrap the counter.
 pub(crate) fn release_texture_bytes(bytes: usize) {
-    let _ = TEXTURE_BYTES.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
+    let _ = TEXTURE_BYTES.try_update(Ordering::SeqCst, Ordering::SeqCst, |cur| {
         Some(cur.saturating_sub(bytes))
     });
 }

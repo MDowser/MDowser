@@ -5,49 +5,12 @@
 
 //! `viewer::inline::code_span`: inline code spans (the tight painted pill).
 //!
-//! `body_ascent` caches the body font's ascent (the baseline every inline
-//! run is translated onto); `render_code_span` lays the span out with that
-//! baseline and paints the per-row background pills (`code_pill_rows`).
+//! `super::body_line_baseline` caches the body font baseline (the line every
+//! inline run is translated onto); `render_code_span` lays the span out with
+//! that baseline and paints the per-row background pills
+//! (`code_pill_rows`).
 
 use super::*;
-
-/// Ascent of the body font (points), from the active theme fonts.
-///
-/// epaint places every glyph's baseline at its own face's ascent inside the
-/// line row (plus that face's internal leading centering), so the monospace
-/// face's baseline sits lower than the surrounding body text's;
-/// `render_code_span` uses this to translate the pill's glyph run back onto
-/// the body baseline. The fonts are fixed by the theme, so the lookup is a
-/// cached one-glyph layout.
-fn body_font_ascent(ui: &egui::Ui) -> f32 {
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    thread_local! {
-        static METRICS: RefCell<HashMap<u32, f32>> = RefCell::new(HashMap::new());
-    }
-    let body_id = egui::TextStyle::Body.resolve(ui.style());
-    let key = body_id.size.to_bits();
-    if let Some(v) = METRICS.with(|c| c.borrow().get(&key).copied()) {
-        return v;
-    }
-    let ascent = ui
-        .fonts_mut(|fonts| {
-            fonts
-                .layout_no_wrap("x".to_owned(), body_id, egui::Color32::BLACK)
-                .rows
-                .first()
-                .and_then(|row| row.glyphs.first())
-                .map(|g| g.font_ascent)
-        })
-        .unwrap_or(12.0);
-    METRICS.with(|c| {
-        c.borrow_mut().insert(key, ascent);
-        if c.borrow().len() > 4 {
-            c.borrow_mut().clear();
-        }
-    });
-    ascent
-}
 
 /// Draws one inline code span as a tight pill hugging its glyphs.
 ///
@@ -171,7 +134,7 @@ pub(crate) fn render_code_span(
     // re-wrapped paragraphs whose code spans matched (e.g. a space query).
     let find_color = find_hl.map(|_| theme::scheme_ref(ui).on_surface);
     let color = find_color.unwrap_or(color);
-    let body_ascent = body_font_ascent(ui);
+    let body_baseline = super::body_line_baseline(ui);
     let mut job = std::sync::Arc::unwrap_or_clone(
         egui::WidgetText::from(styled(egui::RichText::new(text).color(color))).into_layout_job(
             ui.style(),
@@ -215,7 +178,7 @@ pub(crate) fn render_code_span(
         .rows
         .first()
         .and_then(|row| row.glyphs.first())
-        .map_or(0.0, |g| body_ascent - g.pos.y)
+        .map_or(0.0, |g| body_baseline - g.pos.y)
         .round();
     let (outer, _) = ui.allocate_exact_size(
         galley.size() + egui::vec2(2.0 * CODE_PILL_PAD_X, 0.0),

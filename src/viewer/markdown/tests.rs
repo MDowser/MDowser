@@ -32,7 +32,7 @@ pub(super) fn plain(text: &str) -> Frag<'static> {
 fn tabs_state_id_matches_the_joined_labels_key() {
     let labels = vec!["First".to_string(), String::new(), "Third".to_string()];
     let joined = labels.join("\u{1f}");
-    let old = egui::Id::new((7u64, "mdx-tabs", 3usize, crate::media::fnv1a(&joined)));
+    let old = egui::Id::unique((7u64, "mdx-tabs", 3usize, crate::media::fnv1a(&joined)));
     assert_eq!(tabs_state_id(7, 3, &labels), old);
 }
 

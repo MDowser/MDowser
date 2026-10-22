@@ -526,7 +526,7 @@ fn code_card(
                 );
                 let copy = crate::ui::hover_tooltip_lazy(copy, || copy_a11y(chip));
                 copy.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, copy_a11y(chip))
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, copy_a11y(chip))
                 });
                 if copy
                     .on_hover_cursor(egui::CursorIcon::PointingHand)

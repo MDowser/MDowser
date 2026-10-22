@@ -11,9 +11,10 @@ make check-dist    # privacy gate over dist/ (fails if dist/ is absent; after pa
 make check-sites   # validate assets/builtin_sites.txt as the browser resolves it (network; manual)
 ```
 
-Stable Rust ≥ 1.98 via `rustup` (`Cargo.toml` `rust-version`, floored by the
-pure-Rust AVIF decoder); `make` and `scripts/lib.sh` resolve `cargo` without
-hardcoded paths. Toolchain, packaging, runtime: [`BUILDING.md`](BUILDING.md).
+Stable Rust ≥ 1.99 via `rustup` (`Cargo.toml` `rust-version` and
+`rust-toolchain.toml`, the release line the project is verified against);
+`make` and `scripts/lib.sh` resolve `cargo` without hardcoded paths.
+Toolchain, packaging, runtime: [`BUILDING.md`](BUILDING.md).
 
 ## Builtin sites list
 

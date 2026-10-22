@@ -75,7 +75,7 @@ pub(super) fn action_row(
     draw_action_row(ui, rect, &resp, s, icon, label, label_alpha);
     // Accessible name + tooltip: the collapsed rail shows no label. The
     // tooltip string is built on hover frames only.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, name));
     let hovered = resp.hovered();
     if crate::ui::hover_tooltip_lazy(resp, tooltip).clicked() {
         *want = true;
@@ -240,7 +240,7 @@ pub(super) struct RowDragState {
 /// `state` separates the collapsed rail's row from the expanded overlay's,
 /// which are both drawn in the overlay's opening frame.
 pub(super) fn row_id(state: &'static str, tab_id: usize) -> egui::Id {
-    egui::Id::new(("tab-row", state, tab_id))
+    egui::Id::unique(("tab-row", state, tab_id))
 }
 
 /// Keyboard reorder of the FOCUSED row: `Alt+Up`/`Alt+Down` move it one slot,
@@ -364,9 +364,7 @@ pub(super) fn expanded_row(
         selected,
     );
     let title = disp.title.as_str();
-    row_resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, title)
-    });
+    row_resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, title));
     // Sighted hover: the title truncates, and the collapsed rail already
     // tooltips while the expanded row did not. Gated (not lazy): the text
     // is borrowed, so hovered frames alone allocate.

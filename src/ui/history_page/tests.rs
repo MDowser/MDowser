@@ -56,7 +56,7 @@ fn render_page(
 fn store_query(ctx: &egui::Context, tab: &Tab, query: &str) {
     ctx.data_mut(|d| {
         d.insert_temp(
-            egui::Id::new(("history-page-filter", tab.id)),
+            egui::Id::unique(("history-page-filter", tab.id)),
             query.to_string(),
         );
     });
@@ -342,7 +342,7 @@ fn search_field_geometry_is_stable_on_focus() {
         &mut favicons,
     );
     assert!(
-        ctx.memory(|m| m.has_focus(egui::Id::new(("history-page-search", tab.id)))),
+        ctx.memory(|m| m.has_focus(egui::Id::unique(("history-page-search", tab.id)))),
         "the click must focus the search field"
     );
 
@@ -737,7 +737,7 @@ fn clear_button_empties_the_query() {
         "the hint returns with the empty field"
     );
     assert!(
-        ctx.memory(|m| m.has_focus(egui::Id::new(("history-page-search", tab.id)))),
+        ctx.memory(|m| m.has_focus(egui::Id::unique(("history-page-search", tab.id)))),
         "clearing keeps the keyboard in the search field"
     );
 }

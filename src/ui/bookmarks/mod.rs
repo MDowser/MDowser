@@ -124,8 +124,8 @@ struct TileEdit {
 /// this the drafts would outlive every closed tab.
 pub(crate) fn forget_tab_data(ctx: &egui::Context, tab_id: usize) {
     ctx.data_mut(|d| {
-        d.remove::<Option<TileEdit>>(egui::Id::new(("bookmark-edit", tab_id)));
-        d.remove::<Option<String>>(egui::Id::new(("bookmark-drag", tab_id)));
+        d.remove::<Option<TileEdit>>(egui::Id::unique(("bookmark-edit", tab_id)));
+        d.remove::<Option<String>>(egui::Id::unique(("bookmark-drag", tab_id)));
     });
     crate::ui::forget_scroll_state(ctx, crate::ui::BOOKMARKS_SCROLL_ID, tab_id);
 }
@@ -138,8 +138,8 @@ pub fn show_bookmarks(
     width: f32,
 ) -> Option<String> {
     let count = store.entries().len();
-    let edit_id = egui::Id::new(("bookmark-edit", tab.id));
-    let drag_id = egui::Id::new(("bookmark-drag", tab.id));
+    let edit_id = egui::Id::unique(("bookmark-edit", tab.id));
+    let drag_id = egui::Id::unique(("bookmark-drag", tab.id));
     // The inline rename survives frames in egui memory; this local copy is
     // written back at the end of the pass. Stored as `Option<_>` in BOTH
     // directions: temp data is keyed by TYPE, so writing an `Option` while

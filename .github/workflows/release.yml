@@ -147,7 +147,7 @@ jobs:
         run: |
           # The arm64 image ships rustup like the other hosted images, but the
           # fallback keeps a missing toolchain from failing with a cryptic
-          # error: cargo --version then installs 1.98 from the toolchain file.
+          # error: cargo --version then installs 1.99 from the toolchain file.
           if ! command -v cargo >/dev/null 2>&1; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
               | sh -s -- -y --profile minimal --default-toolchain none
@@ -276,11 +276,11 @@ jobs:
         run: |
           dnf -y install rpm-build nasm gcc gcc-c++ make patch curl \
               desktop-file-utils appstream tar gzip which python3
-      - name: Rust 1.98 via rustup (dnf rust/cargo only satisfy BuildRequires)
+      - name: Rust 1.99 via rustup (dnf rust/cargo only satisfy BuildRequires)
         run: |
           dnf -y install cargo rust
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain 1.98
+            | sh -s -- -y --profile minimal --default-toolchain 1.99
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       - name: Build RPM from source
         run: |

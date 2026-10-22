@@ -215,8 +215,7 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
                 ui.label(theme::strong(egui::RichText::new(title).size(title_size)).color(s.error));
             // Accessible label for the family title (egui has no heading
             // role; `Label` keeps it in the accesskit tree like every row).
-            title_resp
-                .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, title));
+            title_resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, title));
             ui.painter().circle_filled(
                 egui::pos2(dot_slot.center().x, title_resp.rect.center().y),
                 title_size * 0.25,

@@ -13,10 +13,10 @@ homepage = "https://github.com/MDowser/MDowser"
 repository = "https://github.com/MDowser/MDowser"
 keywords = ["markdown", "browser", "commonmark", "https", "egui"]
 categories = ["network-programming", "text-processing"]
-# 1.98: required by `avif-decode` 3 (pure-Rust AVIF via rav1d).
-# Older toolchains can still build with image formats minus AVIF by
-# removing the `avif-decode` dependency (see `media::decode`).
-rust-version = "1.98"
+# 1.99: the release line this project is verified against. To build with an
+# older stable, lower this field too and, if that stable is below 1.98, drop
+# the `avif-decode` dependency (see `media::decode`).
+rust-version = "1.99"
 exclude = ["dist/", "target/"]
 publish = false
 
@@ -65,7 +65,7 @@ print_stderr = { level = "warn", priority = -1 }
 [dependencies]
 # Cross-platform immediate UI (winit + wgpu). No webview; all app logic is
 # Rust (the TLS crypto provider links C/asm, see the package comment).
-# DIET NOTE (checked 2026-10-19): eframe's default feature set is required
+# DIET NOTE (checked 2026-10-22): eframe's default feature set is required
 # as-is. `default_fonts` (~1.4 MB of Ubuntu/Hack/NotoEmoji/emoji-icon-font
 # data) is never REGISTERED by `ui::theme::install_fonts`, but turning the
 # feature off is not expressible from here: `default-features = false` drops
@@ -73,8 +73,10 @@ print_stderr = { level = "warn", priority = -1 }
 # entries a consumer cannot re-enable (cargo rejects `winit/default` in a
 # dependency feature list), so a direct `winit` dependency would be needed
 # for a ~3% size win with real Linux packaging risk. `accesskit` stays on
-# (screen readers). Defaults stay.
-eframe = "0.36"
+# (screen readers). eframe 0.37's `system_fonts` default is compiled in but
+# turned off at runtime (`NativeOptions::system_font_fallback`), so the
+# bundled-Noto-only contract holds. Defaults stay.
+eframe = "0.37"
 # Modern HTTPS client with HTTP/2. rustls only (no native-tls) to stay cross-platform.
 # NOTE: no system proxy on purpose (see protocol/client/).
 # `stream` reads the body in chunks with an anti-abuse cap.

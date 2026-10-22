@@ -157,10 +157,13 @@ impl FilterCache {
 /// without this every closed history tab would retain its cache forever.
 pub(crate) fn forget_tab_data(ctx: &egui::Context, tab_id: usize) {
     ctx.data_mut(|d| {
-        d.remove::<String>(egui::Id::new(("history-page-filter", tab_id)));
-        d.remove::<std::sync::Arc<FilterCache>>(egui::Id::new(("history-page-cache", tab_id)));
-        d.remove::<Option<Instant>>(egui::Id::new(("history-page-clear", tab_id)));
-        d.remove::<egui::text_edit::TextEditState>(egui::Id::new(("history-page-search", tab_id)));
+        d.remove::<String>(egui::Id::unique(("history-page-filter", tab_id)));
+        d.remove::<std::sync::Arc<FilterCache>>(egui::Id::unique(("history-page-cache", tab_id)));
+        d.remove::<Option<Instant>>(egui::Id::unique(("history-page-clear", tab_id)));
+        d.remove::<egui::text_edit::TextEditState>(egui::Id::unique((
+            "history-page-search",
+            tab_id,
+        )));
     });
     crate::ui::forget_scroll_state(ctx, crate::ui::HISTORY_SCROLL_ID, tab_id);
 }
@@ -222,8 +225,8 @@ pub fn show_history_page(
 
             // Search capsule (kept across frames in egui memory, per tab so
             // two open history tabs never share a query).
-            let filter_id = egui::Id::new(("history-page-filter", tab.id));
-            let field_id = egui::Id::new(("history-page-search", tab.id));
+            let filter_id = egui::Id::unique(("history-page-filter", tab.id));
+            let field_id = egui::Id::unique(("history-page-search", tab.id));
             let mut filter = ui.data_mut(|d| d.get_temp::<String>(filter_id).unwrap_or_default());
             let cap_w = ui.available_width().max(80.0);
             let (cap_rect, cap_resp) =
@@ -280,13 +283,13 @@ pub fn show_history_page(
                                 .desired_width(field_rect.width().max(16.0))
                                 .char_limit(crate::config::MAX_HISTORY_FILTER_CHARS)
                                 .hint_text("Search history")
-                                .vertical_align(egui::Align::Center),
+                                .align(egui::Align2::LEFT_CENTER),
                         )
                     },
                 )
                 .inner;
             field.widget_info(|| {
-                egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Search history")
+                egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Search history")
             });
             if field.changed() {
                 ui.data_mut(|d| d.insert_temp(filter_id, filter.clone()));
@@ -357,7 +360,7 @@ pub fn show_history_page(
             // the same O(n) scan).
             let generation = store.generation();
             let tick = crate::util::now_secs() / AGE_TICK_SECS;
-            let cache_id = egui::Id::new(("history-page-cache", tab.id));
+            let cache_id = egui::Id::unique(("history-page-cache", tab.id));
             let cached = ui.data_mut(|d| d.get_temp::<std::sync::Arc<FilterCache>>(cache_id));
             let cache: std::sync::Arc<FilterCache> = match cached {
                 // Compare the RAW filter on a hit (no per-frame String).
@@ -478,7 +481,7 @@ pub fn show_history_page(
                     // Salted by tab id: with two about:history pages open,
                     // arming "Delete history now" in one must not show the
                     // confirmation (and accept a second click) in the other.
-                    let clear_id = egui::Id::new(("history-page-clear", tab.id));
+                    let clear_id = egui::Id::unique(("history-page-clear", tab.id));
                     let mut confirm_until =
                         ui.data_mut(|d| d.get_temp::<Option<Instant>>(clear_id).flatten());
                     let confirming = confirm_until.is_some_and(|until| until > Instant::now());
@@ -926,7 +929,7 @@ fn history_row(
     // by accesskit, never per frame.
     response.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::Button,
+            egui::Role::Button,
             true,
             format!(
                 "{title} — {} — {}",

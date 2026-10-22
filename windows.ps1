@@ -13,7 +13,7 @@
 .SYNOPSIS
     Installs the Windows build toolchain and compiles MDowser.
 .DESCRIPTION
-    Winget-only, idempotent: Rustup 1.98, MSVC Build Tools, NASM (x86/x86_64
+    Winget-only, idempotent: Rustup 1.99, MSVC Build Tools, NASM (x86/x86_64
     hosts) and Git (Git Bash: the sh/tar/sha256sum runtime packaging needs),
     Python (with a python3 shim, which build-dist.sh requires) and LLVM
     (llvm-strip for the .exe). Self-elevates through UAC unless
@@ -424,7 +424,7 @@ if (-not $SkipSetup) {
     # The channel is the single source in `rust-toolchain.toml` (the pin
     # cargo itself honors, matching `Cargo.toml` `rust-version`);
     # `-SkipSetup` installs nothing, so it must not run there.
-    $toolchainChannel = "1.98"
+    $toolchainChannel = "1.99"
     $toolchainFile = Join-Path $Root "rust-toolchain.toml"
     $m = Select-String -Path $toolchainFile -Pattern 'channel\s*=\s*"([^"]+)"' |
         Select-Object -First 1

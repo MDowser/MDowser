@@ -277,7 +277,7 @@ impl eframe::App for MdowserApp {
         // Window title = doc title (requirement). Only on change: the
         // comparison and the title itself come from the tab's display memo,
         // so an idle window allocates nothing here.
-        // eframe 0.36 API: no `Frame::set_window_title`; send a viewport command.
+        // eframe 0.37 API: no `Frame::set_window_title`; send a viewport command.
         if self.window_title_changed() {
             let want_title = self.active_window_title().to_string();
             ui.ctx()

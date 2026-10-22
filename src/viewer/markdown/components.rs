@@ -74,7 +74,7 @@ pub(super) fn tabs_state_id(doc_salt: u64, at: usize, labels: &[String]) -> egui
         }
         key = crate::media::fnv1a_update(key, label.as_bytes());
     }
-    egui::Id::new((doc_salt, "mdx-tabs", at, key))
+    egui::Id::unique((doc_salt, "mdx-tabs", at, key))
 }
 
 /// State key of one `<Accordion>` instance: document salt + the marker's own
@@ -82,7 +82,7 @@ pub(super) fn tabs_state_id(doc_salt: u64, at: usize, labels: &[String]) -> egui
 /// title (or two untitled ones, which both fall back to `Details`) from
 /// sharing one open/closed state — the same rule as [`tabs_state_id`].
 pub(super) fn section_state_id(doc_salt: u64, at: usize, label: &str) -> egui::Id {
-    egui::Id::new((doc_salt, "mdx-sec", at, crate::media::fnv1a(label)))
+    egui::Id::unique((doc_salt, "mdx-sec", at, crate::media::fnv1a(label)))
 }
 
 fn get_usize(ui: &egui::Ui, id: egui::Id) -> usize {
@@ -235,7 +235,7 @@ fn tab_label(
     // A screen reader must hear the tab (and whether it is selected): the
     // cells are hand-painted, so nothing is announced otherwise.
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, text.to_owned())
+        egui::WidgetInfo::selected(egui::Role::Button, true, selected, text.to_owned())
     });
     let ink = if selected {
         scheme.primary
@@ -299,7 +299,7 @@ fn section_header(ui: &mut egui::Ui, title: &str, open: bool) -> bool {
     // Hand-painted control: announce the header (with its expanded state) and
     // show keyboard focus like every other painted control in the app.
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Button, true, open, label.to_owned())
+        egui::WidgetInfo::selected(egui::Role::Button, true, open, label.to_owned())
     });
     if resp.has_focus() {
         theme::focus_ring(ui, rect, theme::radius::SMALL);

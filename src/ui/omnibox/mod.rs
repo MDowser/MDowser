@@ -89,7 +89,7 @@ pub(crate) struct OmniboxResponse {
 /// hard-coded cryptographic values flag any constant reaching a parameter
 /// literally named `salt`, so the name keeps intent (and the scan) clear.
 pub(crate) fn address_id(tab_id: usize, id_salt: &'static str) -> egui::Id {
-    egui::Id::new((id_salt, tab_id))
+    egui::Id::unique((id_salt, tab_id))
 }
 
 /// Cached suggestion list + selection for one address field. Lives in egui
@@ -300,7 +300,7 @@ pub(crate) fn show_omnibox(
     );
     // Accessible name: the painted indicator otherwise announces nothing
     // (the tooltip is not exposed to accesskit on its own).
-    indicator_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip));
+    indicator_resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, tip));
     // Click (or Space/Enter on the focused indicator) toggles the
     // page-info card. It never focuses the field: the capsule padding and
     // the field itself already do that, and the indicator answers "what am
@@ -386,7 +386,7 @@ pub(crate) fn show_omnibox(
                         // layout (submit-time validation still reports it).
                         .char_limit(crate::config::MAX_URL_INPUT_CHARS)
                         .text_color(s.on_surface)
-                        .vertical_align(egui::Align::Center)
+                        .align(egui::Align2::LEFT_CENTER)
                         .hint_text(
                             egui::RichText::new("example.com/love").color(s.on_surface_variant),
                         ),
@@ -397,7 +397,7 @@ pub(crate) fn show_omnibox(
 
     // Screen readers need a purpose label: the visible hint text is not
     // exposed as the accessible name.
-    field.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Address"));
+    field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Address"));
 
     // Real edit detection: sets the dirty flag so `poll()` never clobbers
     // typing (robust even if the user types and reverts).
@@ -661,7 +661,7 @@ pub(crate) fn show_omnibox(
         // that ever opened the popup, growing every later hit test linearly.
         // At most one field edits at a time and the position/size are
         // re-specified every frame, so sharing is behavior-preserving.
-        let area_id = egui::Id::new((id_salt, "suggest-popup"));
+        let area_id = egui::Id::unique((id_salt, "suggest-popup"));
         // The list is bounded by the viewport too: eight 46pt rows plus the
         // frame exceed a minimum-height window at high zoom. Without a
         // scroll area the Area kept itself on screen but clipped the lower
@@ -838,7 +838,7 @@ fn site_info_card(
     // Area id scoped to the SURFACE, like the suggestion popup: egui keeps
     // one `AreaState` per id for the whole process, and the position/size
     // are re-specified every frame, so sharing is behavior-preserving.
-    let area_id = egui::Id::new((id_salt, "site-info-popup"));
+    let area_id = egui::Id::unique((id_salt, "site-info-popup"));
     let area = egui::Area::new(area_id)
         .fixed_pos(egui::pos2(x, anchor.max.y + 4.0))
         .order(egui::Order::Foreground)
@@ -947,7 +947,7 @@ fn suggest_row(ui: &mut egui::Ui, item: &Suggestion, selected: bool) -> egui::Re
     // closure, only while accesskit actually needs it.
     resp.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::Button,
+            egui::Role::Button,
             true,
             format!("{title} — {}", strip_scheme_prefix(&item.url)),
         )

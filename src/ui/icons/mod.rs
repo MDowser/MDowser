@@ -481,7 +481,7 @@ pub fn icon_button_at(
     } else {
         egui::Sense::hover()
     };
-    let resp = ui.interact(rect, ui.id().with(id_salt), sense);
+    let resp = ui.interact(rect, ui.scope_id().with(id_salt), sense);
     finish_static_icon_button(ui, rect, resp, icon, enabled, tooltip)
 }
 
@@ -502,7 +502,7 @@ pub fn icon_button_at_lazy(
     } else {
         egui::Sense::hover()
     };
-    let resp = ui.interact(rect, ui.id().with(id_salt), sense);
+    let resp = ui.interact(rect, ui.scope_id().with(id_salt), sense);
     finish_icon_button(ui, rect, resp, icon, enabled, || name.to_string(), tooltip)
 }
 
@@ -526,7 +526,7 @@ pub fn icon_button_at_named_lazy(
     } else {
         egui::Sense::hover()
     };
-    let resp = ui.interact(rect, ui.id().with(id_salt), sense);
+    let resp = ui.interact(rect, ui.scope_id().with(id_salt), sense);
     finish_icon_button(ui, rect, resp, icon, enabled, name, tooltip)
 }
 
@@ -613,7 +613,7 @@ fn finish_icon_button(
     // screen reader (accesskit is part of the default eframe stack). Built
     // lazily inside the closure: accesskit may be off and then no String is
     // allocated per button per frame.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, a11y_name()));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, a11y_name()));
     // Lazy tooltip: no String built per button per frame (see
     // `crate::ui::hover_tooltip`).
     let resp = crate::ui::hover_tooltip_lazy(resp, tooltip);

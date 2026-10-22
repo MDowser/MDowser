@@ -159,7 +159,7 @@ fn row_reveal(t: f32, index: usize) -> f32 {
 /// `ui::forget_tab` needs no entry: `show_tabs` drops an id no longer in the
 /// list, and the release path clears it.
 fn drag_state_id() -> egui::Id {
-    egui::Id::new("tabs_rail_drag")
+    egui::Id::unique("tabs_rail_drag")
 }
 
 /// What the tab rail reported this frame (mirrors `OmniboxResponse`:
@@ -267,7 +267,7 @@ pub fn show_tabs(
             // Offset shared with the expanded overlay explicitly (the two
             // ScrollAreas have different parents, so `id_salt` alone does
             // NOT share state): expanding must not jump to a different row.
-            let shared_id = egui::Id::new("tabs_shared_scroll");
+            let shared_id = egui::Id::unique("tabs_shared_scroll");
             let shared_y = ui.data_mut(|d| d.get_temp::<f32>(shared_id).unwrap_or(0.0));
             let rail_scroll = egui::ScrollArea::vertical()
                 .id_salt("tabs_scroll")
@@ -317,12 +317,7 @@ pub fn show_tabs(
                         // Accessible name + selected state for screen readers
                         // (the row is a custom-painted widget).
                         resp.widget_info(|| {
-                            egui::WidgetInfo::selected(
-                                egui::WidgetType::Button,
-                                true,
-                                selected,
-                                title,
-                            )
+                            egui::WidgetInfo::selected(egui::Role::Button, true, selected, title)
                         });
                         let resp = crate::ui::hover_tooltip(resp, title);
                         // Keyboard reorder, exactly like the expanded rows:
@@ -340,7 +335,7 @@ pub fn show_tabs(
                         ui.add_space(ROW_GAP);
                     }
                 });
-            ui.data_mut(|d| d.insert_temp(shared_id, rail_scroll.state.offset.y));
+            ui.data_mut(|d| d.insert_temp(shared_id, rail_scroll.state.unclamped_offset().y));
             // Pinned action rows (same geometry as the overlay's). `History`
             // is the very bottom row; `+ New Tab` sits right above it.
             // Bottom_up layout stacks in insertion order, so History goes
@@ -400,7 +395,7 @@ pub fn show_tabs(
     // the animation manager returns the target on its first call, which
     // would make that first hover pop.
     let t = ui.ctx().animate_bool_with_time_and_easing(
-        egui::Id::new("tabs_rail_expand"),
+        egui::Id::unique("tabs_rail_expand"),
         open,
         EXPAND_ANIM_SECS,
         ease_out,
@@ -414,7 +409,7 @@ pub fn show_tabs(
         let edge = egui::Rect::from_min_max(rail_rect.min, rail_rect.max);
         let painter = ui.ctx().layer_painter(egui::LayerId::new(
             egui::Order::Middle,
-            egui::Id::new("tabs_edge_separator"),
+            egui::Id::unique("tabs_edge_separator"),
         ));
         paint_edge_separator(&painter, ui.visuals().dark_mode, edge, s, 0.0);
         // Return the COLLAPSED content's actions, not a fresh default: a
@@ -443,7 +438,7 @@ pub fn show_tabs(
     // card: same tone, square corners, and no shadow above (the frame
     // shadow's top half painted a gray seam under the toolbar). Only the
     // right edge is elevated (`paint_edge_separator`).
-    let area = egui::Area::new(egui::Id::new("tabs_overlay"))
+    let area = egui::Area::new(egui::Id::unique("tabs_overlay"))
         .order(egui::Order::Middle)
         .fixed_pos(rail_rect.min)
         // The built-in area fade (opacity over `animation_time`) would stack
@@ -481,7 +476,7 @@ pub fn show_tabs(
                     // Shared offset written by the rail just above this
                     // frame (see there): expanding keeps the same rows in
                     // view. Written back after user scrolling the overlay.
-                    let shared_id = egui::Id::new("tabs_shared_scroll");
+                    let shared_id = egui::Id::unique("tabs_shared_scroll");
                     let shared_y = ui.data_mut(|d| d.get_temp::<f32>(shared_id).unwrap_or(0.0));
                     let overlay_scroll = egui::ScrollArea::vertical()
                         .id_salt("tabs_scroll")
@@ -521,7 +516,9 @@ pub fn show_tabs(
                                 ui.add_space(ROW_GAP);
                             }
                         });
-                    ui.data_mut(|d| d.insert_temp(shared_id, overlay_scroll.state.offset.y));
+                    ui.data_mut(|d| {
+                        d.insert_temp(shared_id, overlay_scroll.state.unclamped_offset().y)
+                    });
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                         // Same borderless action rows as the collapsed rail
                         // (plus their labels), so both states agree. History

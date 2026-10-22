@@ -6,9 +6,10 @@ contract.
 
 ## Requirements
 
-- Stable Rust toolchain ≥ 1.98 via `rustup` (provides `cargo` and `rustc`).
-  The floor comes from the pure-Rust AVIF decoder (`avif-decode`); everything
-  else builds on older stable.
+- Stable Rust toolchain ≥ 1.99 via `rustup` (provides `cargo` and `rustc`).
+  `rust-toolchain.toml` pins the release line the project is verified against
+  (`Cargo.toml` `rust-version`); it also satisfies the pure-Rust AVIF decoder
+  (`avif-decode`), whose own floor is 1.98.
 - System C compiler: Xcode Command Line Tools on macOS
   (`xcode-select --install`), `build-essential` on Debian/Ubuntu, MSVC or
   MinGW on Windows.

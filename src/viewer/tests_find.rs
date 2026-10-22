@@ -167,6 +167,7 @@ fn a_match_above_the_fold_scrolls_into_view() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, -200.0),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     };
     for _ in 0..30 {
@@ -441,7 +442,7 @@ fn reopening_selects_the_previous_query() {
             vec![],
         );
     }
-    let edit_id = egui::Id::new(("find-query", tab.id));
+    let edit_id = egui::Id::unique(("find-query", tab.id));
     // Open + type, close, reopen.
     tab.find.show(tab.doc_generation);
     tab.find.query = "term".to_string();

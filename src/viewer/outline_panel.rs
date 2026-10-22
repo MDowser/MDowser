@@ -106,7 +106,7 @@ pub(crate) fn show(
             bottom: 10,
         });
     let mut clicked = None;
-    let response = egui::Panel::right(egui::Id::new(("outline-panel", tab_id)))
+    let response = egui::Panel::right(egui::Id::unique(("outline-panel", tab_id)))
         .resizable(false)
         .exact_size(width)
         .frame(frame)
@@ -214,7 +214,7 @@ fn list(
             for (index, height) in heights.iter().enumerate().take(end).skip(start) {
                 let item = &outline.items[index];
                 let indent = outline.indent_steps(item) as f32 * INDENT_STEP;
-                let id = egui::Id::new(("outline-row", tab_id, index));
+                let id = egui::Id::unique(("outline-row", tab_id, index));
                 if row(
                     ui,
                     id,
@@ -342,8 +342,6 @@ fn row(
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     // Accessible name: the row is custom-painted, so screen readers cannot
     // infer it from the shapes (the full title, never a wrapped fragment).
-    resp.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, item.title.as_str())
-    });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, item.title.as_str()));
     crate::ui::hover_tooltip(resp, &item.title)
 }

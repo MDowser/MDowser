@@ -127,7 +127,7 @@ pub(super) fn draw_task_checkbox(ui: &mut egui::Ui, done: bool) -> f32 {
     // A screen reader otherwise sees only the item text and cannot tell
     // `[x]` from `[ ]`.
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, false, done, "Task list item")
+        egui::WidgetInfo::selected(egui::Role::CheckBox, false, done, "Task list item")
     });
     crate::ui::hover_tooltip(resp, "Read-only");
     ui.add_space(theme::spacing::XS);
@@ -166,6 +166,14 @@ pub(super) fn glyph_ink_bottom(galley: &egui::Galley) -> Option<f32> {
     Some(placed.pos.y + glyph.pos.y + glyph.uv_rect.offset.y + glyph.uv_rect.size.y)
 }
 
+/// Baseline of a galley's first glyph, relative to the galley's top-left
+/// corner.
+fn glyph_baseline(galley: &egui::Galley) -> Option<f32> {
+    let placed = galley.rows.first()?;
+    let glyph = placed.row.glyphs.first()?;
+    Some(placed.pos.y + glyph.pos.y)
+}
+
 /// Paints one item marker into its gutter `cell`, which is exactly one body
 /// line tall and sits on the FIRST text row (a wrapped item must not center
 /// its bullet against the whole block).
@@ -173,13 +181,12 @@ pub(super) fn glyph_ink_bottom(galley: &egui::Galley) -> Option<f32> {
 /// Alignment is ink-based, not box-based:
 ///
 /// - Ordered markers (`N. `, body size) share the first text row's baseline:
-///   viewer text jobs have the row top as their baseline offset (TOP valign,
-///   `line_height` pinned to [`theme::BODY_LINE_HEIGHT`]), so painting the
-///   body-size galley at the cell top puts the number exactly on the text
-///   line. Centering the glyph box used to hang it ~3px low.
-/// - Footnote numbers draw at the small size, so the box-top rule does not
-///   apply: their ink bottom is aligned with the ink bottom of the same
-///   marker at body size (i.e. with where a list ordinal's baseline lies).
+///   the marker's ink bottom is aligned with where a body-size ordinal's
+///   baseline lies inside a body line, so painting it at the cell top puts
+///   the number exactly on the text line. Centering the glyph box used to
+///   hang it ~3px low.
+/// - Footnote numbers draw at the small size, so the same body-size baseline
+///   is the reference: their ink bottom is aligned with it.
 /// - The scaled document bullet keeps the OPTICAL center of a body-size
 ///   middot: its ink center is scaled back to body size and pinned to where
 ///   a `·` typed in that row would sit. The old box centering let the
@@ -212,6 +219,7 @@ pub(super) fn paint_item_marker(
         .unwrap_or_else(|| theme::scheme_ref(ui).on_surface);
     let painter = ui.painter();
     let galley = painter.layout_no_wrap(text.to_owned(), marker_font(size, note), color);
+    let body_baseline = crate::viewer::inline::body_line_baseline(ui);
     let Some(ink) = glyph_ink_center(&galley) else {
         // No readable ink (should not happen for `·` / `N. `): keep the old
         // box-centered fallback so the marker is never lost.
@@ -219,34 +227,20 @@ pub(super) fn paint_item_marker(
         return;
     };
     let pos = if bullet {
-        let body = egui::TextStyle::Body.resolve(ui.style()).size;
-        let body_ink = glyph_ink_center(&painter.layout_no_wrap(
-            text.to_owned(),
-            egui::FontId::proportional(body),
-            color,
-        ))
-        // The ink offset scales linearly with the font size, so this is the
-        // body-size value even when the sample above has no atlas entry.
-        .unwrap_or(ink / BULLET_SCALE);
+        // The scaled dot keeps the body-size dot's optical center above the
+        // shared baseline: ink offsets scale linearly with the font size.
+        let marker_baseline = glyph_baseline(&galley).unwrap_or(0.0);
+        let body_ink = body_baseline - (marker_baseline - ink.y) / BULLET_SCALE;
         let cx = bullet_center_x.unwrap_or(cell.center().x);
-        egui::pos2(cx - ink.x, cell.top() + body_ink.y - ink.y)
-    } else if note {
-        // The small number shares the baseline a body-size marker would
-        // have at the cell top (see the ordered rule above).
-        let body = egui::TextStyle::Body.resolve(ui.style()).size;
-        let body_bottom = glyph_ink_bottom(&painter.layout_no_wrap(
-            text.to_owned(),
-            egui::FontId::proportional(body),
-            color,
-        ))
-        .unwrap_or(body * 0.75);
+        egui::pos2(cx - ink.x, cell.top() + body_ink - ink.y)
+    } else {
+        // Ordered and footnote markers share the first body row's baseline
+        // through their ink bottom (a digit's ink bottom is its baseline).
         let bottom = glyph_ink_bottom(&galley).unwrap_or(0.0);
         egui::pos2(
             cell.center().x - galley.size().x / 2.0,
-            cell.top() + body_bottom - bottom,
+            cell.top() + body_baseline - bottom,
         )
-    } else {
-        egui::pos2(cell.center().x - galley.size().x / 2.0, cell.top())
     };
     if note && selected {
         painter.rect_filled(

@@ -198,7 +198,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     let has_link = tab.context_link.is_some();
     // Row order: [link], Copy, Select all, Find in page, Save page.
     let row_count = if has_link { 5 } else { 4 };
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab.id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab.id, index));
     let (menu_up, menu_down, menu_enter) = ctx.input(|i| {
         (
             i.key_pressed(egui::Key::ArrowUp),
@@ -227,7 +227,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     // to the window, so the popup never spawns off-screen near an edge.
     // Tuple id salt: no per-frame allocation (the old `format!` built one
     // `String` per frame while the menu was open).
-    let area = egui::Area::new(egui::Id::new(("doc-menu", tab.id)))
+    let area = egui::Area::new(egui::Id::unique(("doc-menu", tab.id)))
         .fixed_pos(anchor)
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
@@ -349,7 +349,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
 /// Max 5 rows (`Open link in new tab` + `Copy` + `Select all` +
 /// `Find in page` + `Save page`).
 fn surrender_menu_focus(ctx: &egui::Context, tab_id: usize) {
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     if let Some(id) = ctx
         .memory(|m| m.focused())
         .filter(|id| (0..5).any(|index| row_id(index) == *id))
@@ -401,7 +401,7 @@ fn menu_row(
     );
     // Accessible name: the row is custom-painted, so screen readers cannot
     // infer it from the shapes.
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, enabled, label));
     if enabled {
         resp.on_hover_cursor(egui::CursorIcon::PointingHand)
     } else {
@@ -436,7 +436,7 @@ pub(crate) fn show_toast(root: &mut egui::Ui, tab: &mut Tab) {
     }
     let ctx = root.ctx().clone();
     let tab_id = tab.id;
-    egui::Area::new(egui::Id::new(("toast", tab_id)))
+    egui::Area::new(egui::Id::unique(("toast", tab_id)))
         .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -24.0))
         .order(egui::Order::Foreground)
         .show(&ctx, |ui| {
@@ -445,7 +445,7 @@ pub(crate) fn show_toast(root: &mut egui::Ui, tab: &mut Tab) {
                 // Screen-reader name: the toast is custom-painted text with
                 // no widget role otherwise.
                 resp.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text.clone())
+                    egui::WidgetInfo::labeled(egui::Role::Label, true, text.clone())
                 });
             });
         });

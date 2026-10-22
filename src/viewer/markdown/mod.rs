@@ -531,7 +531,7 @@ pub(crate) fn doc_id_salt(base: &Url) -> u64 {
 /// quote's ids distinct from its parent's; the document salt keeps two tabs
 /// on the same document independent, like every other per-block id.
 fn quote_indent_id(doc_salt: u64, level: usize, at: usize) -> egui::Id {
-    egui::Id::new((doc_salt, "quote", level, at))
+    egui::Id::unique((doc_salt, "quote", level, at))
 }
 
 #[cfg(test)]

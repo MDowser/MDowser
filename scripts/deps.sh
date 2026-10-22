@@ -19,7 +19,7 @@
 #   - BEST-EFFORT and idempotent: a tool already on PATH is left alone, and a
 #     package that cannot be installed is a SKIP with the reason, never a
 #     failure. `SKIP_SETUP=1` is the same switch `make dist` honors.
-#   - Rust >= 1.98 is required. On macOS `brew install rustup` + the stable
+#   - Rust >= 1.99 is required. On macOS `brew install rustup` + the stable
 #     toolchain; on Linux the official rustup installer is NOT run silently —
 #     set ALLOW_RUSTUP=1 to let this script run it, or install rustup yourself.
 #   - The Xcode Command Line Tools (the macOS C compiler) cannot be installed
@@ -122,7 +122,7 @@ ensure_pkg() {
 
 ensure_rust() {
     if have cargo; then
-        ok "cargo (Rust >= 1.98)"
+        ok "cargo (Rust >= 1.99)"
         return 0
     fi
     if [ "$SKIP_SETUP" = "1" ]; then

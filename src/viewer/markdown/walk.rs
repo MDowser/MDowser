@@ -631,7 +631,7 @@ impl egui::Widget for BackArrow<'_> {
             },
         );
         resp.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Back to the reference")
+            egui::WidgetInfo::labeled(egui::Role::Button, true, "Back to the reference")
         });
         let resp = crate::ui::hover_tooltip(resp, "Back to the reference");
         if resp.clicked() {

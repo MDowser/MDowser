@@ -98,6 +98,51 @@ pub(crate) fn visual_lines<'a, 'b>(frags: &'b [Frag<'a>]) -> Vec<&'b [Frag<'a>]>
     lines
 }
 
+/// Baseline position (points) of the body font in a body-height row.
+///
+/// Body fragments pin `line_height` to [`theme::BODY_LINE_HEIGHT`], and
+/// epaint centers that explicit height inside the row; the baseline therefore
+/// sits lower than the face's bare ascent. Code pills and list/footnote
+/// markers are painted outside a `Label`, so they use this to translate
+/// themselves onto the body baseline. The fonts are fixed by the theme, so
+/// the lookup is a cached one-glyph layout.
+pub(crate) fn body_line_baseline(ui: &egui::Ui) -> f32 {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static METRICS: RefCell<HashMap<(u32, egui::Align), f32>> = RefCell::new(HashMap::new());
+    }
+    let body_id = egui::TextStyle::Body.resolve(ui.style());
+    let valign = ui.text_valign();
+    let key = (body_id.size.to_bits(), valign);
+    if let Some(v) = METRICS.with(|c| c.borrow().get(&key).copied()) {
+        return v;
+    }
+    let mut job =
+        egui::text::LayoutJob::simple("x".to_owned(), body_id, egui::Color32::BLACK, f32::INFINITY);
+    if let Some(section) = job.sections.first_mut() {
+        section.format.line_height = Some(theme::BODY_LINE_HEIGHT);
+        section.format.valign = valign;
+    }
+    let baseline = ui
+        .fonts_mut(|fonts| {
+            fonts
+                .layout_job(job)
+                .rows
+                .first()
+                .and_then(|row| row.glyphs.first())
+                .map(|g| g.pos.y)
+        })
+        .unwrap_or(18.0);
+    METRICS.with(|c| {
+        c.borrow_mut().insert(key, baseline);
+        if c.borrow().len() > 4 {
+            c.borrow_mut().clear();
+        }
+    });
+    baseline
+}
+
 /// Selectable body text: drag-select and Cmd/Ctrl+C work natively.
 /// Used for every document string so the page feels selectable.
 /// Returns the `Response` so callers can measure rendered widths (list
@@ -965,7 +1010,7 @@ pub(crate) fn render_superscript_ref(
     // Accessible name: the marker's meaning is not in its glyphs.
     resp.widget_info(|| {
         egui::WidgetInfo::labeled(
-            egui::WidgetType::Link,
+            egui::Role::Link,
             true,
             format!("Footnote {}", f.text.as_ref()),
         )
@@ -979,7 +1024,7 @@ pub(crate) fn render_superscript_ref(
             // document that reuses the same `#fn-...` label can never scroll
             // to a stale rect left by the previous one (the entry stays
             // parked in egui memory; the guard makes it inert).
-            let remembered = egui::Id::new(("mdowser-fnref", dest));
+            let remembered = egui::Id::unique(("mdowser-fnref", dest));
             ui.data_mut(|d| d.insert_temp(remembered, (fnref_generation(), rect)));
         }
         if resp.clicked() {
@@ -1024,7 +1069,7 @@ fn fnref_generation() -> u64 {
 /// `viewer::markdown::walk`): returns the generation stamp and only scrolls
 /// when it still belongs to the document being rendered.
 pub(crate) fn fnref_rect_for(ui: &egui::Ui, dest: &str) -> Option<egui::Rect> {
-    let key = egui::Id::new(("mdowser-fnref", dest));
+    let key = egui::Id::unique(("mdowser-fnref", dest));
     let (generation, rect) = ui.data(|d| d.get_temp::<(u64, egui::Rect)>(key))?;
     (generation == fnref_generation()).then_some(rect)
 }

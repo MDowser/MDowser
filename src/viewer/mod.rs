@@ -790,11 +790,12 @@ fn render_doc(
     let max_offset = (output.content_size.y - output.inner_rect.height()).max(0.0);
     let ramp = max_offset.min(viewport.height().max(0.0));
     let end_progress = if ramp > 1.0 {
-        ((output.state.offset.y - (max_offset - ramp)) / ramp).clamp(0.0, 1.0)
+        ((output.state.unclamped_offset().y - (max_offset - ramp)) / ramp).clamp(0.0, 1.0)
     } else {
         0.0
     };
-    let sheet_settled = outline.sheet_settled(output.state.offset.y, output.state.velocity().y);
+    let sheet_settled =
+        outline.sheet_settled(output.state.unclamped_offset().y, output.state.velocity().y);
     DocViewport {
         rect: viewport,
         end_progress,

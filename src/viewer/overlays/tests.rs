@@ -317,7 +317,7 @@ fn keyboard_activation_does_not_re_ring_on_reopen() {
     crate::ui::theme::apply(&ctx);
     let mut tab = loaded_tab(None);
     let tab_id = tab.id;
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     settle_menu(&ctx, &mut tab);
     let key = |key: Key| egui::Event::Key {
         key,
@@ -440,7 +440,7 @@ fn opening_with_the_pointer_leaves_no_row_focused() {
     };
     tab.doc_rect = Some(screen());
     let tab_id = tab.id;
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     let pos = egui::pos2(200.0, 180.0);
     menu_frame(
         &ctx,
@@ -488,7 +488,7 @@ fn menu_reopens_after_an_action() {
     // A closed menu must not leave its rows focused: reopening with the
     // pointer would ring the remembered row ("Copy" selected again).
     let tab_id = tab.id;
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     assert!(
         !ctx.memory(|m| (0..2).any(|i| m.has_focus(row_id(i)))),
         "closing the menu must not keep a row focused"
@@ -619,7 +619,7 @@ fn menu_is_keyboard_navigable() {
     let mut tab = loaded_tab(None);
     // Copy the id: the closures below borrow `tab` mutably.
     let tab_id = tab.id;
-    let row_id = |index: usize| egui::Id::new(("doc-menu-row", tab_id, index));
+    let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     // Open the menu (a secondary click inside the document rect).
     tab.doc_rect = Some(egui::Rect::from_min_size(
         egui::Pos2::ZERO,

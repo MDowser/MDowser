@@ -3,5 +3,5 @@
 # `rust-version`). rustup installs it together with the lint/format components
 # the pipeline needs.
 [toolchain]
-channel = "1.98"
+channel = "1.99"
 components = ["rustfmt", "clippy"]

@@ -151,6 +151,7 @@ fn wheel(delta_y: f32) -> egui::Event {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, delta_y),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     }
 }

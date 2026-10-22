@@ -395,6 +395,7 @@ fn scrolled_plain_code_block_fills_the_viewport_from_the_top() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, dy),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     };
     let _ = run(vec![egui::Event::PointerMoved(egui::pos2(450.0, 350.0))]);
@@ -472,6 +473,7 @@ fn fresh_navigation_starts_a_seen_page_at_the_top() {
         unit: egui::MouseWheelUnit::Point,
         delta: egui::vec2(0.0, dy),
         phase: egui::TouchPhase::Move,
+        source: egui::MouseWheelSource::Wheel,
         modifiers: egui::Modifiers::NONE,
     };
     let _ = run(

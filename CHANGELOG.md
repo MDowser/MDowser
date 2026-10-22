@@ -25,6 +25,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Toolchain: Rust 1.99 (1.98.1 → 1.99.1), pinned by `rust-toolchain.toml`
+  and mirrored in `Cargo.toml` (`rust-version`), the README badge, the build
+  and contribution docs, `scripts/deps.sh`, `windows.ps1` and the release
+  workflow's RPM job. (`rust-toolchain.toml`, `Cargo.toml`, `README.md`,
+  `docs/`, `scripts/deps.sh`, `windows.ps1`,
+  `.github/workflows/release.yml`.)
+- Dependencies: `eframe`/`egui` 0.36.2 → 0.37.0 and every other crate to the
+  latest compatible release (`reqwest` 0.13.5, `tokio` 1.54.1,
+  `pulldown-cmark` 0.13.5, `aws-lc-rs` 1.18.2, `emojis` 0.9.1, …). Adapted
+  to the egui 0.37 API (`Role` for `WidgetType`, `Id::unique`,
+  `ScrollArea`'s clamped/unclamped offsets, `MouseWheel`'s `source`) and
+  re-based inline code pills, list bullets and footnote markers on epaint's
+  new row-baseline metrics. eframe 0.37 also defaults to system-font fallback;
+  MDowser turns it off (`NativeOptions::system_font_fallback`) to keep the
+  bundled-Noto-only rendering contract. `skrifa` 0.44 and `harfrust` 0.12
+  stay at the versions `epaint` 0.37 pins (newer releases are a different
+  shaper API and would duplicate the library in the binary). (`Cargo.toml`,
+  `Cargo.lock`, `src/`.)
 - Updated `rustls-webpki` 0.103.15 → 0.103.16 and `webpki-root-certs`
   1.0.9 → 1.0.10 for RUSTSEC-2026-0382 and RUSTSEC-2026-0383; `cargo deny
   check` and `cargo audit` are clean again. (`Cargo.lock`.)

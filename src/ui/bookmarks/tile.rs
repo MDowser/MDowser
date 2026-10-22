@@ -290,7 +290,7 @@ pub(super) fn bookmark_tile(
         // are wider than the estimate), and the old clip rect silently cut
         // the third row mid-glyph with no ellipsis.
         let title = truncate_chars(&title, TITLE_CHARS);
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &title));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &title));
         // Laid-out name memo: Home rebuilds every visible tile every frame,
         // and the old path allocated one String (`into_owned`) plus one
         // LayoutJob per tile per frame. Keyed by URL (one entry per bookmark,
@@ -298,7 +298,7 @@ pub(super) fn bookmark_tile(
         // the theme and the tile width.
         let dark = ui.visuals().dark_mode;
         let width = title_rect.width();
-        let memo_id = egui::Id::new(("bookmark-name-galley", bookmark.url.as_str()));
+        let memo_id = egui::Id::unique(("bookmark-name-galley", bookmark.url.as_str()));
         type NameGalley = (u64, bool, u32, std::sync::Arc<egui::Galley>);
         let cached = ui.ctx().data(|d| d.get_temp::<NameGalley>(memo_id));
         let galley = match cached {
@@ -359,8 +359,10 @@ pub(super) fn bookmark_tile(
     // or reorder the same index belongs to a different tile, so index-keyed
     // ids silently moved keyboard focus onto another row's Remove button (a
     // second Enter could delete the wrong bookmark).
-    let edit_button_id = ui.id().with(("bookmark-edit", bookmark.url.as_str()));
-    let remove_button_id = ui.id().with(("bookmark-remove", bookmark.url.as_str()));
+    let edit_button_id = ui.scope_id().with(("bookmark-edit", bookmark.url.as_str()));
+    let remove_button_id = ui
+        .scope_id()
+        .with(("bookmark-remove", bookmark.url.as_str()));
     let action_focused =
         ui.memory(|m| m.has_focus(edit_button_id) || m.has_focus(remove_button_id));
     // The tile itself or one of its action buttons owns Alt+Left/Right for
@@ -549,8 +551,7 @@ pub(super) fn inline_field(
                         .min_size(egui::vec2(0.0, inner.height()))
                         .char_limit(char_limit)
                         .text_color(s.on_surface)
-                        .vertical_align(egui::Align::Center)
-                        .horizontal_align(align)
+                        .align(egui::Align2::new(align, egui::Align::Center))
                         .hint_text(egui::RichText::new(hint).color(s.on_surface_variant)),
                 )
             },
@@ -558,9 +559,7 @@ pub(super) fn inline_field(
         .inner;
     // The TextEdit's own accessible info carries the draft value only: give
     // the field a purpose label for screen readers.
-    field.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, true, "Bookmark name")
-    });
+    field.widget_info(|| egui::WidgetInfo::labeled(egui::Role::TextInput, true, "Bookmark name"));
     field
 }
 

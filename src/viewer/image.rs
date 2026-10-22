@@ -148,7 +148,7 @@ fn tooltip_for<'a>(img: &'a ImageFrag, alt: &'a str) -> Option<&'a str> {
 /// non-linked image as *disabled* (accesskit `set_disabled`).
 fn label_image(resp: &egui::Response, alt: &str, status: &Status<'_>) {
     let a11y = image_a11y(alt, status);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &*a11y));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, &*a11y));
 }
 
 /// Shared tail for the placeholder states (loading / failed / unavailable):
@@ -172,7 +172,7 @@ fn finish_placeholder(
     if clickable && resp.has_focus() {
         theme::focus_ring(ui, resp.rect, theme::radius::SMALL);
     }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, a11y));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Image, true, a11y));
     wire_link(&resp, link, clickable, on_link, links);
     resp
 }

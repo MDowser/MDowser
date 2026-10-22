@@ -31,12 +31,12 @@
 //!   `media::emoji`. RTL runs get display-order
 //!   reordering from `viewer::bidi`.
 //!
-//! VERIFIED AGAINST egui 0.36 SOURCE (past bugs, do not regress):
+//! VERIFIED AGAINST egui 0.37 SOURCE (past bugs, do not regress):
 //! - `TextEdit` background comes from `Visuals::text_edit_bg_color`, which
 //!   falls back to `extreme_bg_color`. It MUST be an input color (white in
 //!   light), never `on_surface` (that painted black boxes).
 //! - `TextEdit` default align is `LEFT_TOP`: tall single-line fields need
-//!   `.vertical_align(Center)` or text sticks to the top.
+//!   `.align(Align2::LEFT_CENTER)` or text sticks to the top.
 //! - `hovered.expansion` must be 0: any growth shifts neighbors on hover.
 //! - Every `WidgetVisuals` state must keep the SAME `bg_stroke.width`:
 //!   `Frame::total_margin` adds the stroke width back to the inner margin,
@@ -312,7 +312,7 @@ fn install_fonts(ctx: &egui::Context) {
         .insert(egui::FontFamily::Monospace, monospace);
 
     // A REAL bold face for `**strong**`, headings and footnote refs.
-    // epaint 0.36 has no weight axis (`FontId` carries only family + size),
+    // epaint 0.37 has no weight axis (`FontId` carries only family + size),
     // so bold is a named FAMILY whose first face is the bundled Noto Sans
     // variable font pinned to `wght = 700` (`FontTweak::coords`, applied by
     // the shaper). The rest of the proportional list is inherited verbatim,

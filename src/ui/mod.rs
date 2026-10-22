@@ -153,7 +153,7 @@ pub(crate) fn forget_tab(ctx: &egui::Context, tab_id: usize) {
     // Find-bar query field (`viewer::overlays::find`): its `TextEditState`
     // would otherwise linger one entry per closed tab that ever searched.
     ctx.data_mut(|d| {
-        d.remove::<egui::text_edit::TextEditState>(egui::Id::new(("find-query", tab_id)));
+        d.remove::<egui::text_edit::TextEditState>(egui::Id::unique(("find-query", tab_id)));
     });
     // Error-page scroll offset (`viewer::show_content`'s Failed branch).
     forget_scroll_state(ctx, ERROR_SCROLL_ID, tab_id);
@@ -180,7 +180,7 @@ pub(crate) const OUTLINE_SCROLL_ID: &str = "outline-scroll";
 /// The real egui id of a per-tab `ScrollArea`, recorded by [`remember_scroll`]
 /// under a key of our own.
 fn scroll_id_key(id_salt: &'static str, tab_id: usize) -> egui::Id {
-    egui::Id::new((id_salt, "id", tab_id))
+    egui::Id::unique((id_salt, "id", tab_id))
 }
 
 /// Records the REAL id of a per-tab `ScrollArea` (`ScrollAreaOutput::id`).
@@ -275,7 +275,7 @@ mod tests {
         let real = real.get().expect("scroll area ran");
         assert_ne!(
             real,
-            egui::Id::new((HOME_SCROLL_ID, 7usize)),
+            egui::Id::unique((HOME_SCROLL_ID, 7usize)),
             "the old key must not be the real scroll id"
         );
         assert!(

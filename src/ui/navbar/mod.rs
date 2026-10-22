@@ -34,7 +34,7 @@
 //! (`ui::tabs`), so the toolbar spans the full window width.
 //!
 //! FIELD ALIGNMENT (fixed bug): `TextEdit` defaults to `LEFT_TOP`; the
-//! omnibox sets `.vertical_align(Center)` so text never sticks to the top.
+//! omnibox sets `.align(Align2::LEFT_CENTER)` so text never sticks to the top.
 
 use crate::bookmarks::BookmarkStore;
 use crate::browser::tab::Tab;
@@ -299,7 +299,11 @@ fn zoom_pill(ui: &mut egui::Ui, zoom: &mut f32, mode: ZoomMode) {
             egui::pos2(out_rect.max.x, rect.min.y + 2.0),
             egui::pos2(rect.max.x - ZOOM_BTN - 4.0, rect.max.y - 2.0),
         );
-        let pct_resp = ui.interact(pct_rect, ui.id().with("zoom-reset"), egui::Sense::click());
+        let pct_resp = ui.interact(
+            pct_rect,
+            ui.scope_id().with("zoom-reset"),
+            egui::Sense::click(),
+        );
         if pct_resp.hovered() {
             ui.painter().rect_filled(
                 pct_rect,
@@ -316,7 +320,7 @@ fn zoom_pill(ui: &mut egui::Ui, zoom: &mut f32, mode: ZoomMode) {
         let pct_resp = crate::ui::hover_tooltip(pct_resp, "Reset zoom to 100%");
         pct_resp.widget_info(|| {
             egui::WidgetInfo::labeled(
-                egui::WidgetType::Button,
+                egui::Role::Button,
                 true,
                 format!("Zoom {zoom_percent}%, click to reset"),
             )
