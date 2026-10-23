@@ -91,6 +91,13 @@ jobs:
               echo "ERROR: publishing requires a v* tag, not $REF_TYPE '$REF_NAME'" >&2
               exit 1
             fi
+            case "$REF_NAME" in
+              v*) ;;
+              *)
+                echo "ERROR: publishing requires a v* tag, not '$REF_NAME'" >&2
+                exit 1
+                ;;
+            esac
             if [ "${REF_NAME#v}" != "$VER" ]; then
               echo "ERROR: tag $REF_NAME does not match the Cargo.toml version $VER" >&2
               exit 1
@@ -418,6 +425,13 @@ jobs:
           set -eu
           VER=$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)
           test -n "$VER"
+          case "$GITHUB_REF_NAME" in
+            v*) ;;
+            *)
+              echo "ERROR: publishing requires a v* tag, not '$GITHUB_REF_NAME'" >&2
+              exit 1
+              ;;
+          esac
           test "${GITHUB_REF_NAME#v}" = "$VER"
       - name: Privacy gate over the merged set + single SHA256SUMS.txt
         run: |
@@ -430,7 +444,7 @@ jobs:
           require_artifact() {
             label="$1"; pattern="$2"
             for candidate in $pattern; do
-              if [ -f "$candidate" ]; then return 0; fi
+              if [ -s "$candidate" ]; then return 0; fi
             done
             echo "ERROR: missing $label ($pattern)" >&2
             exit 1
@@ -467,18 +481,20 @@ jobs:
 
           macOS 13+: the `.app` is ad-hoc signed, not notarized. Double-click it once so Gatekeeper registers the block, then allow it in System Settings > Privacy & Security > Open Anyway.
 
-          Linux: `sudo dpkg -i mdowser_@DEB_VERSION@_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-@VERSION@-*.rpm`, or `flatpak install mdowser-@VERSION@.flatpak`; the `.tar.gz` is a portable alternative.
+          Linux: `sudo dpkg -i mdowser_@DEB_VERSION@_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-@RPM_VERSION@-*.rpm`, or `flatpak install mdowser-@VERSION@.flatpak`; the `.tar.gz` is a portable alternative.
 
           Windows: pick the `x86_64` or `aarch64` zip for your PC; the `.exe` is unsigned, so on the SmartScreen warning click More info > Run anyway.
 
           **Disclaimer:** Binaries are built in CI and some targets are cross-compiled; they may not work correctly on every platform. You can try [building from source](https://github.com/MDowser/MDowser/blob/main/docs/BUILDING.md). This software is provided as-is, with no guarantees or warranties of any kind, including stability, compatibility, reliability, or security. Use at your own risk.
           EOF
-          # Debian filenames use `~` for a semver pre-release (see
-          # version_deb in scripts/packaging.sh); the other formats keep the
-          # full tag version.
+          # Debian and RPM filenames use `~` for a semver pre-release (see
+          # version_deb/version_rpm in scripts/packaging.sh); the other formats
+          # keep the full tag version.
           VER="${GITHUB_REF_NAME#v}"
           DEB_VERSION="$(printf '%s' "$VER" | sed -e 's/+.*$//' -e 's/-/~/g')"
+          RPM_VERSION="$DEB_VERSION"
           sed -e "s/@VERSION@/$VER/g" -e "s/@DEB_VERSION@/$DEB_VERSION/g" \
+            -e "s/@RPM_VERSION@/$RPM_VERSION/g" \
             "$NOTES" > "$NOTES.tmp"
           mv "$NOTES.tmp" "$NOTES"
           # Pre-release tags stay out of the repo page's "Latest release".

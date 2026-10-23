@@ -60,10 +60,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   any build starts, and rejects a `workflow_dispatch` with `dry_run: false`
   from a branch instead of building every target and failing in `publish`.
   (`.github/workflows/release.yml`, `docs/BUILDING.md`.)
-- The dist privacy gate (`scripts/check-dist.sh`) now ignores hidden files
-  such as Finder's `.DS_Store` and reports a symlink or leftover directory in
-  `dist/` as a problem, so the published set contains regular artifacts only.
-  (`scripts/check-dist.sh`, `docs/SECURITY.md`.)
+- The dist privacy gate (`scripts/check-dist.sh`) still ignores hidden regular
+  files such as Finder's `.DS_Store`, but now reports hidden directories and
+  hidden symlinks (and an empty artifact set under `--require`) as problems,
+  so the published set contains regular artifacts only and a release never
+  proceeds from an empty set. (`scripts/check-dist.sh`, `docs/SECURITY.md`.)
+- Release packaging is reproducible and safer: the AppStream release date
+  follows `SOURCE_DATE_EPOCH`, generated font blobs and the synced
+  `assets/builtin_sites.txt` are written with atomic renames, the Flatpak
+  source copy skips editor/AI scratch, `.env*` and logs, and `make`/`make dist`
+  no longer compile the host crate a second time (the Linux host `.tar.gz`/
+  `.deb` reuse the native build and therefore follow the host libc). RPM
+  builds now require a Linux host (Homebrew's macOS `rpmbuild` produced an
+  uninstallable Mach-O RPM), and Windows on ARM selects its native
+  `aarch64-pc-windows-msvc` toolchain. (`Makefile`, `scripts/`,
+  `build_support/gen_fonts.rs`, `windows.ps1`, `packaging/flatpak/`,
+  `docs/BUILDING.md`.)
+- The build, packaging and install paths honor an external
+  `CARGO_TARGET_DIR` (and `CARGO_BUILD_TARGET` where applicable), and
+  `make clean` also removes the generated Flatpak `cargo-sources.json`.
+  (`scripts/build-dist.sh`, `scripts/install.sh`, `windows.ps1`, `Makefile`.)
 - Refreshed `clipboard-win` 5.4.1 → 5.4.3 after 5.4.1 was yanked from
   crates.io, so `cargo audit` and the release workflow's `cargo deny check`
   gate are clean again. (`Cargo.lock`.)
@@ -86,6 +102,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Release notes no longer call every build an alpha: the fixed body now names
   the release version, so stable tags read as stable. (`.github/workflows/release.yml`,
   `docs/BUILDING.md`.)
+- A blockquote at the end of a document, list item or another quote no longer
+  leaves a trailing blank gap below its box. (`src/viewer/markdown/walk.rs`.)
+- Keyboard focus no longer stops twice on a clickable history row, outline row
+  or the find/search capsules: those widgets allocate with hover sensing and
+  interact explicitly, so Tab visits each control once. (`src/ui/`,
+  `src/viewer/`.)
+- A timed-out favicon probe releases its in-flight slot, and the document
+  cache's per-host eviction enforces both the byte cap and the entry cap, so a
+  host with many tiny documents cannot grow the cache without bound.
+  (`src/media/favicon.rs`, `src/cache/docs.rs`.)
+- Packaged AppStream metadata now updates only the newest `<release>` entry:
+  the renderer used to relabel the entire release history with the current
+  version and build date. (`scripts/packaging.sh`, `packaging/flatpak/`.)
+- The settings-file error for an unreadable file now includes the underlying
+  I/O cause instead of only the path. (`src/settings/file.rs`.)
+- The release workflow rejects a non-`v` tag on a manual publish and refuses
+  empty required artifacts, and its release notes name the normalized RPM
+  version used by pre-releases. (`.github/workflows/release.yml`.)
 
 ## [0.6.3] - 2026-10-21
 

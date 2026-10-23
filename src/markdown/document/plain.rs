@@ -351,7 +351,8 @@ pub fn plain_text_normalized(normalized: &str) -> String {
     out
 }
 
-/// Alert marker tokens (shared by the viewer's badge detection).
+/// Alert marker tokens used by the plain-text oracle (the viewer keeps its own
+/// badge table in `viewer::markdown::links`).
 const ALERT_MARKERS: [&str; 5] = [
     "[!NOTE]",
     "[!TIP]",

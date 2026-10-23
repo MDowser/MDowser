@@ -1,13 +1,13 @@
 # MDowser Makefile: thin shortcuts over cargo + scripts/.
-# - `make`          : install deps + host release binary + current-OS dist
-#                     into dist/. Per platform the dist artifact set is:
+# - `make`          : install deps + build the current-OS dist into dist/
+#                     (builds what it packages). Per platform the set is:
 #                     macOS -> the universal .app.zip ONLY; Linux -> .tar.gz +
 #                     .deb/.rpm + Flatpak; Windows -> the .exe zip.
 # - `make debug`    : host debug binary (target/debug/mdowser).
 # - `make test`     : full pipeline (sh syntax, fmt, clippy, test, doc, debug).
 # - `make audit`    : supply-chain audit (cargo-audit + cargo-deny, best-effort).
-# - `make dist`     : installs deps + host release binary + EVERY platform
-#                     packaged into dist/ (build + --all), as wide as possible.
+# - `make dist`     : installs deps + EVERY platform packaged into dist/
+#                     (--all, building each binary it packages), as wide as possible.
 # - `make dist-*`   : one group (host, mac, linux, windows, rpm, flatpak).
 # - `make install`  : runtime files under PREFIX (DESTDIR honored; RPM %install).
 # - `make flatpak`  : Flatpak bundle (needs flatpak-builder).
@@ -59,12 +59,12 @@ _BREW_CARGO := $(if $(_BREW_PREFIX),$(_BREW_PREFIX)/opt/rustup/bin/cargo)
 CARGO = $(or $(_WHICH_CARGO),$(firstword $(wildcard $(_RUSTUP_CARGO) $(HOME)/.cargo/bin/cargo $(HOME)/.rustup/toolchains/stable-*/bin/cargo $(HOME)/.rustup/toolchains/*/bin/cargo $(_BREW_CARGO))))
 # `doctor` must stay runnable exactly when cargo cannot be found (it is the
 # diagnosis path the error below points at). `deps` is how a missing
-# toolchain gets installed, and `install`, `help`, `validate`,
-# `check-version`, `check-dist`, `sync-sites` and `check-sites` only run
-# POSIX tools or copy runtime files (the RPM %install calls `install` in a
-# build environment that no longer needs the toolchain). Every other goal
+# toolchain gets installed, and `install`, `help`, `validate`, `clean`,
+# `check-version`, `check-dist`, `sync-sites` and `check-sites` run without
+# cargo (POSIX tools or copy/remove files; the RPM %install calls `install`
+# in a build environment that no longer needs the toolchain). Every other goal
 # fails immediately with the hint.
-_CARGO_FREE_GOALS := doctor deps install help validate check-version check-dist sync-sites check-sites
+_CARGO_FREE_GOALS := doctor deps install help validate clean check-version check-dist sync-sites check-sites
 _NEEDS_CARGO := $(if $(MAKECMDGOALS),$(filter-out $(_CARGO_FREE_GOALS),$(MAKECMDGOALS)),needs-cargo)
 ifneq ($(_NEEDS_CARGO),)
 ifeq ($(CARGO),)
@@ -94,12 +94,15 @@ SITES_FILE ?= assets/builtin_sites.txt
 
 .PHONY: all debug build test dist dist-host dist-mac dist-linux dist-windows dist-rpm dist-flatpak install flatpak validate check-version check-dist deps run clean fmt clippy audit icons sync-sites check-sites help doctor
 
-# Default: install deps, build the host release binary, then the current-OS
-# dist. `dist-host` rebuilds dist/ from scratch on every host; on macOS it
+# Default: install deps, then build the current-OS dist. `build-dist.sh`
+# compiles the host release itself, so depending on `build` here would compile
+# the same crate twice (on macOS: once for `target/release` and again for the
+# universal `.app` slices). `make build` remains the plain host binary.
+# `dist-host` rebuilds dist/ from scratch on every host; on macOS it
 # dispatches to the universal .app (dist-mac is the additive single-group
 # variant, which keeps packages for other platforms already in dist/).
 NATIVE_DIST = dist-host
-all: deps build $(NATIVE_DIST)
+all: deps $(NATIVE_DIST)
 
 build:
 	. ./scripts/lib.sh && export_remap_rustflags && "$(CARGO)" build --locked --release
@@ -112,9 +115,10 @@ debug:
 test:
 	./scripts/build-test.sh
 
-# Install deps + host release binary + the WIDEST multi-OS dist into dist/
-# (macOS universal .app, Linux tar.gz/.deb/.rpm/Flatpak, Windows .exe).
-dist: deps build
+# Install deps + the WIDEST multi-OS dist into dist/ (macOS universal .app,
+# Linux tar.gz/.deb/.rpm/Flatpak, Windows .exe). The script builds every
+# binary it packages, so no separate `build` dependency is needed.
+dist: deps
 	./scripts/build-dist.sh --all
 
 dist-host:
@@ -211,8 +215,8 @@ check-sites:
 	./scripts/sync-builtin-sites.sh --check-only "$(SITES_FILE)"
 
 clean:
-	"$(CARGO)" clean
-	rm -rf dist .flatpak-builder packaging/flatpak/.build-dir
+	@if [ -n "$(CARGO)" ]; then "$(CARGO)" clean; else rm -rf target; fi
+	rm -rf dist .flatpak-builder packaging/flatpak/.build-dir packaging/flatpak/cargo-sources.json
 
 # Diagnose the toolchain as THIS Makefile sees it (for "No such file" cases).
 doctor:
@@ -226,14 +230,14 @@ doctor:
 
 help:
 	@echo "make [all|build|debug|test|dist|dist-host|dist-mac|dist-linux|dist-windows|dist-rpm|dist-flatpak|install|flatpak|validate|check-version|check-dist|deps|run|clean|fmt|clippy|audit|icons|sync-sites|check-sites|help|doctor]"
-	@echo "  (no args)   deps + host release + current-OS dist into dist/"
+	@echo "  (no args)   deps + current-OS dist into dist/ (builds what it packages)"
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"
 	@echo "  debug = host debug"
-	@echo "  test = sh+fmt+clippy+test+doc+debug   |  dist = deps + host + EVERY platform"
+	@echo "  test = sh+fmt+clippy+test+doc+debug   |  dist = deps + EVERY platform (builds each)"
 	@echo "  dist-host = current-OS dist only   |  dist-<mac|linux|windows> = one group"
 	@echo "  dist-rpm = RPM from source (needs rpmbuild)   |  flatpak/dist-flatpak = Flatpak bundle"
-	@echo "  install  = runtime files under PREFIX (DESTDIR/PREFIX honored; RPM %install)"
+	@echo "  install  = runtime files under PREFIX (needs make build; DESTDIR/PREFIX honored; RPM %install)"
 	@echo "  validate = best-effort packaging metadata checks (SKIPs when tools missing)"
 	@echo "  check-version = Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md"
 	@echo "  check-dist = privacy gate: fail if dist/ is absent or carries builder paths/metadata"

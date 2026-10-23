@@ -400,9 +400,10 @@ Key contracts per area (the module map above names every module):
   process through `finish_document`; `viewer` renders it with the normal
   document pipeline (menu, selection, live links), and `App::open_licenses`
   backs the Preferences footer link.
-- `ui::preferences` keeps only the floating, FIXED-SIZE dialog (borderless
-  custom header, tab bar, grouped section cards, list rows, a toggle switch, and
-  a read-only keyboard shortcut reference in English). General: theme, startup
+- `ui::preferences` keeps only the floating dialog with a fixed width and a
+  content-sized height (borderless custom header, tab bar, grouped section
+  cards, list rows, a toggle switch, and a read-only keyboard shortcut
+  reference in English). General: theme, startup
   zoom, restore-tabs and the compact version/licenses footer ("View third-party
   licenses"); Data: the retention dropdown, "Delete history" (two-click
   confirmation) and "Delete all data and close" (two-click: wipes the data

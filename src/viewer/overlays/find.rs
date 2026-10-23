@@ -121,8 +121,11 @@ pub(crate) fn show_find_bar(root: &mut egui::Ui, tab: &mut Tab) {
                         let can_step = !tab.find.query.is_empty() && tab.find.total > 0;
                         let s = theme::scheme_ref(ui);
                         let cap_w = CAPSULE_PAD + ICON + 2.0 + field_w + CAPSULE_PAD;
+                        // `Sense::CLICK`, not `click()`: the capsule is
+                        // decorative and the inner field owns the focus ring,
+                        // so it must not add a ring-less tab stop.
                         let (cap_rect, cap_resp) =
-                            ui.allocate_exact_size(egui::vec2(cap_w, BAR_H), egui::Sense::click());
+                            ui.allocate_exact_size(egui::vec2(cap_w, BAR_H), egui::Sense::CLICK);
                         let bg_idx = ui.painter().add(egui::Shape::Noop);
                         let icon_rect = egui::Rect::from_center_size(
                             egui::pos2(

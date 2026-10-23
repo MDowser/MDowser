@@ -368,6 +368,10 @@ impl FaviconCache {
                         }
                         cancel.store(true, Ordering::Relaxed);
                         self.entries.insert(key, Entry::Failed);
+                        // The entry left `Loading`: drop its pending count too,
+                        // or `has_pending()` stays true forever and the app
+                        // keeps requesting idle repaints for a failed icon.
+                        self.loading_count = self.loading_count.saturating_sub(1);
                         self.failed_count += 1;
                         changed = true;
                     }
@@ -760,5 +764,9 @@ mod tests {
             cache.entries.get("https://ex.com"),
             Some(Entry::Failed)
         ));
+        assert!(
+            !cache.has_pending(),
+            "a timed-out probe must stop counting as pending (idle repaint loop)"
+        );
     }
 }

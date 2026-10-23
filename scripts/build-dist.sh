@@ -7,7 +7,7 @@
 # build-dist: multi-OS release build + packaging into dist/.
 #
 # Usage:
-#   ./scripts/build-dist.sh --all        # host binary + everything (default with no flag)
+#   ./scripts/build-dist.sh --all        # current OS + everything (default with no flag)
 #   ./scripts/build-dist.sh --host-only  # current-OS package only (no cross)
 #   ./scripts/build-dist.sh --mac        # macOS: universal .app (arm64 + Intel)
 #   ./scripts/build-dist.sh --linux      # Linux x86_64/arm64: tar.gz + .deb + .rpm + Flatpak
@@ -21,7 +21,8 @@
 # output. `make dist` stays the wide, from-scratch path.
 #
 # Variables:
-#   SKIP_SETUP=1  # skip installing toolchains/linkers (needy groups fail)
+#   SKIP_SETUP=1       # skip installing toolchains/linkers (needy groups fail)
+#   CARGO_TARGET_DIR   # external cargo target dir (relative to the repo root)
 #
 # Artifacts in dist/ (ver = Cargo.toml version):
 #   Host (current OS, no cross): the SAME set as that OS's group below.
@@ -92,7 +93,23 @@ esac
 COPYFILE_DISABLE=1
 export COPYFILE_DISABLE
 DIST="$ROOT/dist"
-TARGETS="$ROOT/target"
+# Honor an external CARGO_TARGET_DIR (CI shares one across jobs); a relative
+# value is resolved against the repo root, matching cargo's own working dir.
+TARGETS="${CARGO_TARGET_DIR:-$ROOT/target}"
+# Git Bash inherits a Windows spelling (drive-rooted, UNC or plain
+# backslashes); cargo and the rest of this script speak POSIX paths, so
+# convert before resolving a relative value.
+case "$TARGETS" in
+    *\\*|[A-Za-z]:[\\/]*|\\\\*)
+        if command -v cygpath >/dev/null 2>&1; then
+            TARGETS="$(cygpath -u "$TARGETS")"
+        fi
+        ;;
+esac
+case "$TARGETS" in
+    /*) ;;
+    *) TARGETS="$ROOT/$TARGETS" ;;
+esac
 
 MODE="${1:-"--all"}"
 # NOTE: `${1:-word}` (default when unset/empty), not a substring expansion.
@@ -306,7 +323,9 @@ need_target() {
 # included. arm64 targets use the system assembler, no nasm needed.
 ensure_nasm() {
     have nasm && return 0
-    if [ "$SKIP_SETUP" = "1" ]; then
+    # Auto-install only through Homebrew: on Linux the package manager owns
+    # system tools, so report the missing dependency instead of guessing.
+    if [ "$SKIP_SETUP" = "1" ] || ! have brew; then
         return 1
     fi
     log "brew install nasm"
@@ -722,7 +741,8 @@ do_mac() {
     # flags keep the AppleDouble sidecars out even if an xattr escapes the
     # sweep.
     if have ditto; then
-        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip"); then
+        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip") \
+            && [ -s "$DIST/$APP_UI-$VER-macos-universal.app.zip" ]; then
             BUILT="$BUILT mac-app-universal"
         else
             warn "mac-app-universal (zip failed)"
@@ -740,7 +760,10 @@ do_linux() {
     log "Linux: x86_64 + arm64 (via zig)"
     # zig as linker: no sysroot/docker needed.
     if ! have zig; then
-        if [ "$SKIP_SETUP" = "1" ]; then warn "linux (no zig)"; return 0; fi
+        if [ "$SKIP_SETUP" = "1" ] || ! have brew; then
+            warn "linux (no zig; install it with your package manager)"
+            return 0
+        fi
         log "brew install zig"
         brew install zig || { warn "linux (zig install failed)"; return 0; }
     fi
@@ -757,18 +780,36 @@ do_linux() {
         need_target "$triple" || { warn "linux-$triple (no target)"; continue; }
         case "$triple" in
             x86_64-*) if ! ensure_nasm; then
-                warn "linux-$triple (nasm missing; brew install nasm)"
+                warn "linux-$triple (nasm missing; install nasm)"
                 continue
             fi ;;
         esac
-        if ! build_for "$triple" "zig"; then
-            warn "linux-$triple (build failed)"
-            continue
+        _reuse_bin=""
+        if [ "${_HOST_BUILT_TRIPLE:-}" = "$triple" ]; then
+            # `--all` already built this exact triple natively in do_host:
+            # reuse that binary instead of paying for a second full compile.
+            # A caller-set CARGO_BUILD_TARGET puts it under the triple dir;
+            # prefer that fresh path over a possible stale target/release one.
+            if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+                _reuse_bin="$(bin_of "$triple")"
+            else
+                _reuse_bin="$TARGETS/release/$APP_LC"
+                [ -f "$_reuse_bin" ] || _reuse_bin="$(bin_of "$triple")"
+            fi
         fi
-        try_strip "$(bin_of "$triple")"
+        if [ -n "$_reuse_bin" ] && [ -f "$_reuse_bin" ]; then
+            b="$_reuse_bin"
+        else
+            if ! build_for "$triple" "zig"; then
+                warn "linux-$triple (build failed)"
+                continue
+            fi
+            b="$(bin_of "$triple")"
+        fi
+        unset _reuse_bin
+        try_strip "$b"
         arch="${triple%%-*}"
         [ "$arch" = "x86_64" ] && debarch="amd64" || debarch="arm64"
-        b="$(bin_of "$triple")"
         # Local (never global) stage variable: `mk_deb` owns the global
         # `stage` name below, and sharing it left THIS directory behind after
         # the `.deb` step already re-pointed and removed its own.
@@ -814,10 +855,24 @@ do_rpm() {
         warn "rpm (rpmbuild not found; install rpm-build, or run make dist-rpm on a Fedora/RHEL host)"
         return 0
     fi
+    # Homebrew's rpmbuild on macOS happily builds an RPM containing a Mach-O
+    # binary, which no Linux package manager can install. The spec compiles
+    # and stages a Linux ELF tree, so require a Linux host outright.
+    case "$(uname -s 2>/dev/null || printf 'unknown')" in
+        Linux) ;;
+        *)
+            warn "rpm (rpmbuild needs a Linux host; run make dist-rpm in a Fedora/RHEL container)"
+            return 0
+            ;;
+    esac
     _top="$DIST/.rpmbuild"
     rm -rf "$_top"
-    mkdir -p "$_top/BUILD" "$_top/BUILDROOT" "$_top/RPMS" "$_top/SOURCES" \
-        "$_top/SPECS" "$_top/SRPMS"
+    if ! mkdir -p "$_top/BUILD" "$_top/BUILDROOT" "$_top/RPMS" "$_top/SOURCES" \
+        "$_top/SPECS" "$_top/SRPMS"; then
+        warn "rpm (could not create the rpmbuild tree)"
+        unset _top
+        return 0
+    fi
     # Full source tarball (the spec builds it), with the tree re-rooted
     # under mdowser-<ver>/ for `%autosetup`. GNU tar and bsdtar take
     # different re-root flags (`--transform` is GNU-only; bsdtar, the macOS
@@ -853,7 +908,12 @@ do_rpm() {
         return 0
     fi
     unset _tar_root
-    cp "$ROOT/packaging/rpm/$APP_LC.spec" "$_top/SPECS/$APP_LC.spec"
+    if ! cp "$ROOT/packaging/rpm/$APP_LC.spec" "$_top/SPECS/$APP_LC.spec"; then
+        warn "rpm (could not stage the spec)"
+        rm -rf "$_top"
+        unset _top _pkg
+        return 0
+    fi
     if rpmbuild -bb "$_top/SPECS/$APP_LC.spec" \
         --define "_topdir $_top" \
         --define "ver $RPM_VER" \
@@ -862,17 +922,24 @@ do_rpm() {
         --define "_rpmdir $_top/RPMS" \
         --define "_srcrpmdir $_top/SRPMS"; then
         _rpm_count=0
+        _rpm_copy_failed=0
         for _rpm in "$_top"/RPMS/*/*.rpm; do
             [ -f "$_rpm" ] || continue
-            cp "$_rpm" "$DIST/"
-            _rpm_count=$((_rpm_count + 1))
+            if cp "$_rpm" "$DIST/"; then
+                _rpm_count=$((_rpm_count + 1))
+            else
+                _rpm_copy_failed=1
+            fi
         done
+        if [ "$_rpm_copy_failed" = "1" ]; then
+            warn "linux-rpm (could not copy every .rpm into dist/)"
+        fi
         if [ "$_rpm_count" -gt 0 ]; then
             BUILT="$BUILT linux-rpm"
         else
             warn "linux-rpm (rpmbuild produced no .rpm)"
         fi
-        unset _rpm _rpm_count
+        unset _rpm _rpm_count _rpm_copy_failed
     else
         warn "linux-rpm (rpmbuild failed)"
     fi
@@ -906,7 +973,10 @@ do_windows() {
     triple="x86_64-pc-windows-gnu"
     need_target "$triple" || { warn "windows (no $triple target)"; return 0; }
     if ! have x86_64-w64-mingw32-gcc; then
-        if [ "$SKIP_SETUP" = "1" ]; then warn "windows (no mingw-w64)"; return 0; fi
+        if [ "$SKIP_SETUP" = "1" ] || ! have brew; then
+            warn "windows (no mingw-w64; install it with your package manager)"
+            return 0
+        fi
         log "brew install mingw-w64"
         brew install mingw-w64 || { warn "windows (mingw-w64 install failed)"; return 0; }
     fi
@@ -972,6 +1042,17 @@ do_host() {
             return 0
             ;;
     esac
+    # A caller-set CARGO_BUILD_TARGET moves the binary under the triple
+    # directory. Packaging it as "host" while it targets another OS/arch would
+    # mislabel the artifact, so only the host triple is accepted here; cross
+    # targets belong to --linux/--windows. Check before compiling: a rejected
+    # target would otherwise pay for a release build that is never packaged.
+    if [ -n "${CARGO_BUILD_TARGET:-}" ] \
+        && [ "$CARGO_BUILD_TARGET" != "${_host_triple:-}" ]; then
+        warn "host (CARGO_BUILD_TARGET=$CARGO_BUILD_TARGET is not the host triple ${_host_triple:-unknown}; use --linux/--windows for cross builds)"
+        unset _host_triple
+        return 0
+    fi
     # Guarded like the cross builds: a failed host build warns instead of
     # aborting under `set -e` with no summary.
     if ! cargo build --locked --release; then
@@ -980,7 +1061,19 @@ do_host() {
         return 0
     fi
     _host_bin="$TARGETS/release/$APP_LC"
+    if [ -n "${CARGO_BUILD_TARGET:-}" ]; then
+        _host_bin="$TARGETS/$CARGO_BUILD_TARGET/release/$APP_LC"
+    fi
     [ -f "$_host_bin.exe" ] && _host_bin="$_host_bin.exe"
+    if [ ! -f "$_host_bin" ]; then
+        warn "host (no binary at $_host_bin)"
+        unset _host_triple
+        return 0
+    fi
+    # `--all` runs do_host before do_linux/do_windows. Remember which triple
+    # this binary is for, so the platform group can reuse it instead of
+    # compiling the same source a second time.
+    _HOST_BUILT_TRIPLE="${_host_triple:-}"
     try_strip "$_host_bin"
     # Derive OS/arch labels from the host triple (fallback: uname). macOS
     # never reaches this point: the early return above handed it to `do_mac`.
@@ -1020,27 +1113,33 @@ do_host() {
     _hstage="$DIST/.host-stage"
     rm -rf "$_hstage"; mkdir -p "$_hstage"
     if [ "$_host_os" = "windows" ]; then
-        cp "$_host_bin" "$_hstage/$APP_LC.exe"
-        cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
-            "$ROOT/LICENSE" "$_hstage/"
-        sweep_apple_double "$_hstage"
-        if zip_contents "$_hstage" "$DIST/$APP_LC-$VER-windows-$_host_arch.zip" \
-            "$APP_LC.exe" README.md THIRD_PARTY_NOTICES.md LICENSE; then
-            BUILT="$BUILT host-zip"
+        if cp "$_host_bin" "$_hstage/$APP_LC.exe" \
+            && cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
+                "$ROOT/LICENSE" "$_hstage/" \
+            && sweep_apple_double "$_hstage"; then
+            if zip_contents "$_hstage" "$DIST/$APP_LC-$VER-windows-$_host_arch.zip" \
+                "$APP_LC.exe" README.md THIRD_PARTY_NOTICES.md LICENSE; then
+                BUILT="$BUILT host-zip"
+            else
+                warn "host-windows-$_host_arch (zip failed)"
+            fi
         else
-            warn "host-windows-$_host_arch (zip failed)"
+            warn "host-windows-$_host_arch (staging failed)"
         fi
     else
-        cp "$_host_bin" "$_hstage/$APP_LC"
-        cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
-            "$ROOT/LICENSE" "$_hstage/"
-        sweep_apple_double "$_hstage"
-        if (cd "$_hstage" && tar -czf "$DIST/$APP_LC-$VER-$_host_os-$_host_arch.tar.gz" \
-            --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
-            "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
-            BUILT="$BUILT host-tar"
+        if cp "$_host_bin" "$_hstage/$APP_LC" \
+            && cp "$ROOT/README.md" "$ROOT/THIRD_PARTY_NOTICES.md" \
+                "$ROOT/LICENSE" "$_hstage/" \
+            && sweep_apple_double "$_hstage"; then
+            if (cd "$_hstage" && tar -czf "$DIST/$APP_LC-$VER-$_host_os-$_host_arch.tar.gz" \
+                --owner=0 --group=0 --numeric-owner $TAR_NO_XATTRS \
+                "$APP_LC" README.md THIRD_PARTY_NOTICES.md LICENSE); then
+                BUILT="$BUILT host-tar"
+            else
+                warn "host-$_host_os-$_host_arch (tar failed)"
+            fi
         else
-            warn "host-$_host_os-$_host_arch (tar failed)"
+            warn "host-$_host_os-$_host_arch (staging failed)"
         fi
         # On Linux also offer the .deb for the host arch (no zig needed:
         # mk_deb only needs python3 + icons). Same name as do_linux, so

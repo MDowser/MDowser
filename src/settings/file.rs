@@ -222,7 +222,12 @@ fn settings_body_with(dir: &Path, key: &str, value: &str) -> io::Result<String> 
         Some(text) => text,
         None => match std::fs::metadata(dir.join(SETTINGS_FILE)) {
             Err(e) if e.kind() == io::ErrorKind::NotFound => String::new(),
-            _ => {
+            Err(e) => {
+                return Err(io::Error::other(format!(
+                    "{SETTINGS_FILE} is unreadable ({e}); refusing to overwrite it"
+                )))
+            }
+            Ok(_) => {
                 return Err(io::Error::other(format!(
                     "{SETTINGS_FILE} is unreadable; refusing to overwrite it"
                 )))

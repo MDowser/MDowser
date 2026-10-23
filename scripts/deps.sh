@@ -295,7 +295,7 @@ if [ "$SKIP_SETUP" = "1" ]; then
     echo "Dry run (SKIP_SETUP=1): nothing was installed."
 fi
 echo "Done. Re-read the SKIP lines for anything still missing, then:"
-echo "  make            # host release + current-OS package"
+echo "  make            # current-OS package (builds what it packages)"
 echo "  make test       # full verification pipeline"
 echo "  make validate   # packaging metadata checks"
 exit 0

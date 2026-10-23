@@ -228,8 +228,12 @@ pub(super) fn render_block(
                 );
             }
             // Air after the box: the natural item spacing alone is smaller
-            // than the two boxes' paddings, which made them touch.
-            ui.add_space(QUOTE_GAP);
+            // than the two boxes' paddings, which made them touch. Skip it
+            // when the quote closes its container (end of document, item or
+            // another quote): that trailing gap was dead scroll space.
+            if *i < events.len() && !matches!(events[*i], Event::End(_)) {
+                ui.add_space(QUOTE_GAP);
+            }
         }
         Event::Start(Tag::CodeBlock(kind)) => {
             let lang = match kind {
@@ -433,15 +437,10 @@ pub(super) fn render_block(
                 // a list or nothing): fall back to a trailing row, so the
                 // back-reference is never lost.
                 if let Some(anchor_id) = ctx.pending_back_arrow.take() {
-                    let anchor_id = anchor_id.to_string();
                     ui.allocate_ui_with_layout(
                         egui::vec2(ui.available_width(), BACK_ARROW_W),
                         egui::Layout::right_to_left(egui::Align::Center),
-                        |ui| {
-                            ui.add(BackArrow {
-                                anchor_id: &anchor_id,
-                            })
-                        },
+                        |ui| ui.add(BackArrow { anchor_id }),
                     );
                 }
             });

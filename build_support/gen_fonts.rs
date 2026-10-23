@@ -158,9 +158,26 @@ fn write_stamp(stamp: &Path, content_hash: u64, source_hash: u64, stats: &[Input
         stats: stats.to_vec(),
     }
     .render();
-    if let Err(e) = fs::write(stamp, rendered) {
+    if let Err(e) = write_atomic(stamp, rendered.as_bytes()) {
         panic!("mdowser build: cannot write gen-fonts.stamp: {e}");
     }
+}
+
+/// Writes `bytes` through a sibling temp file and a rename. The stamp's fast
+/// path only proves that an output EXISTS, so a plain `fs::write` interrupted
+/// by a full disk or a killed build could leave a truncated blob that every
+/// later warm build trusted. Renaming a complete temp file makes each output
+/// either the old blob or the new one, never a partial write.
+fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp);
+    fs::write(&tmp, bytes)?;
+    if let Err(e) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Current `(size, mtime)` of every input (missing inputs yield a stat no
@@ -192,12 +209,19 @@ fn output_name(name: &str) -> String {
     format!("{base}.br")
 }
 
-/// True when every expected generated file is already on disk.
+/// True when every expected generated file is already on disk and non-empty.
+/// An empty file is never a valid blob (and would decompress to nothing), so
+/// it must not satisfy the stamp's fast path.
 fn all_outputs_present(out_dir: &Path) -> bool {
-    INPUTS
-        .iter()
-        .all(|(name, _)| out_dir.join(output_name(name)).is_file())
-        && out_dir.join("font_meta.rs").is_file()
+    INPUTS.iter().all(|(name, _)| {
+        out_dir
+            .join(output_name(name))
+            .metadata()
+            .is_ok_and(|m| m.is_file() && m.len() > 0)
+    }) && out_dir
+        .join("font_meta.rs")
+        .metadata()
+        .is_ok_and(|m| m.is_file() && m.len() > 0)
 }
 
 /// FNV-1a over every input's bytes. Dependency-free: build scripts must not
@@ -242,7 +266,7 @@ fn generate(manifest_dir: &Path, out_dir: &Path) -> Result<(), String> {
                 back.len()
             ));
         }
-        fs::write(out_dir.join(output_name(name)), &compressed)
+        write_atomic(&out_dir.join(output_name(name)), &compressed)
             .map_err(|e| format!("write {}: {e}", output_name(name)))?;
         meta.push_str(&format!(
             "/// Uncompressed length of `{name}` (build-generated).\n\
@@ -250,7 +274,8 @@ fn generate(manifest_dir: &Path, out_dir: &Path) -> Result<(), String> {
             src.len()
         ));
     }
-    fs::write(out_dir.join("font_meta.rs"), meta).map_err(|e| format!("write font_meta.rs: {e}"))
+    write_atomic(&out_dir.join("font_meta.rs"), meta.as_bytes())
+        .map_err(|e| format!("write font_meta.rs: {e}"))
 }
 
 /// Brotli-compresses one font (generic mode, the encoder defaults, which

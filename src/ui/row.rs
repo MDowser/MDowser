@@ -65,8 +65,10 @@ fn painted_row_impl(
     };
     // Explicit id (keyboard-navigated lists): register the interaction with
     // THAT id instead of the auto id `allocate_exact_size` made. The
-    // allocation already moved the layout cursor.
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, spec.height), sense);
+    // allocation already moved the layout cursor. Allocate with a
+    // non-focusable sense so the discarded auto widget does not become a
+    // second, ring-less tab stop on every row.
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, spec.height), egui::Sense::hover());
     let resp = ui.interact(rect, id, sense);
     // Pressed state is one step past hover (lighten in dark mode, darken in
     // light): a press-and-hold used to look identical to hover.

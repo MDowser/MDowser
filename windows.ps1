@@ -4,7 +4,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 # windows.ps1: native Windows bootstrap, winget-only, no make required.
-# Equivalent to `make` (deps + host release + current-OS dist into dist/).
+# Equivalent to `make` (deps + current-OS dist into dist/).
 # The Makefile needs GNU make + /bin/sh, so on PowerShell this script
 # calls the same entry points directly: `cargo build` for the binary and
 # `scripts/build-dist.sh --host-only` (via Git Bash) for the host .exe zip
@@ -99,6 +99,22 @@ function Refresh-Path {
     }
 }
 
+function Test-Arm64Host {
+    # `PROCESSOR_ARCHITECTURE` alone lies under x64-emulated PowerShell on
+    # Windows on ARM (it reports AMD64). The native value is in
+    # `PROCESSOR_ARCHITEW6432`; RuntimeInformation covers every other case
+    # (including a native ARM64 PowerShell, where it reports Arm64 directly).
+    if ($env:PROCESSOR_ARCHITEW6432 -eq "ARM64") { return $true }
+    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { return $true }
+    try {
+        return ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture `
+            -eq [System.Runtime.InteropServices.Architecture]::Arm64)
+    }
+    catch {
+        return $false
+    }
+}
+
 function Ensure-Package($Id, $Cmd, [string]$WingetArgs = "",
     [string]$Probe = "") {
     $present = ($Cmd -and (Has-Cmd $Cmd))
@@ -141,7 +157,7 @@ function Get-VsToolsPath {
     # is not guaranteed there), so accept either component.
     $vw = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (-not (Test-Path $vw)) { return "" }
-    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") {
+    if (Test-Arm64Host) {
         $found = & $vw -products * `
             -requiresAny `
             Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
@@ -373,7 +389,7 @@ Ensure-Msvc
 # NASM only on x86/x86_64 hosts (rav1d + aws-lc-sys assembly): ARM64 hosts
 # assemble with the system toolchain and need none (see docs/BUILDING.md).
 # `windows-11-arm` CI runners follow the same rule (no NASM there).
-if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+if (-not (Test-Arm64Host)) {
     Ensure-Package "NASM.NASM" "nasm"
 } else {
     Write-Host "SKIP  NASM.NASM (ARM64 host needs no NASM)"
@@ -395,7 +411,7 @@ Ensure-Python3Shim
 $probes = @{ cargo = "--version"; rustc = "--version" }
 $probeTargets = @("cargo", "rustc")
 # NASM is x86/x86_64-only (see above): do not fail ARM64 hosts for it.
-if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") {
+if (-not (Test-Arm64Host)) {
     $probes["nasm"] = "-v"
     $probeTargets += "nasm"
 }
@@ -419,7 +435,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "==>  toolchain"
 cargo --version
 rustc --version
-if ($env:PROCESSOR_ARCHITECTURE -ne "ARM64") { nasm -v }
+if (-not (Test-Arm64Host)) { nasm -v }
 if (-not $SkipSetup) {
     # The channel is the single source in `rust-toolchain.toml` (the pin
     # cargo itself honors, matching `Cargo.toml` `rust-version`);
@@ -433,6 +449,19 @@ if (-not $SkipSetup) {
     }
     rustup toolchain install $toolchainChannel
     if ($LASTEXITCODE -ne 0) { throw "rustup toolchain install failed" }
+    if (Test-Arm64Host) {
+        # Under x64-emulated PowerShell/rustup the default host toolchain is
+        # x86_64, so a plain `cargo build` would ship an emulated x86_64 .exe
+        # under an arm64-looking name. Install and select the native ARM64
+        # host toolchain explicitly (RUSTUP_TOOLCHAIN overrides the channel
+        # in rust-toolchain.toml for this script's child processes).
+        $nativeToolchain = "$toolchainChannel-aarch64-pc-windows-msvc"
+        rustup toolchain install $nativeToolchain
+        if ($LASTEXITCODE -ne 0) {
+            throw "rustup toolchain install $nativeToolchain failed"
+        }
+        $env:RUSTUP_TOOLCHAIN = $nativeToolchain
+    }
 }
 
 if (-not $SkipBuild) {
@@ -465,7 +494,16 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) {
         throw "cargo build failed (exit $LASTEXITCODE)"
     }
-    $exe = Join-Path $Root "target\release\mdowser.exe"
+    $targetDir = $env:CARGO_TARGET_DIR
+    if ([string]::IsNullOrWhiteSpace($targetDir)) {
+        $targetDir = Join-Path $Root "target"
+    } elseif (-not ([System.IO.Path]::IsPathRooted($targetDir))) {
+        $targetDir = Join-Path $Root $targetDir
+    }
+    if (-not ([string]::IsNullOrWhiteSpace($env:CARGO_BUILD_TARGET))) {
+        $targetDir = Join-Path $targetDir $env:CARGO_BUILD_TARGET
+    }
+    $exe = Join-Path $targetDir "release\mdowser.exe"
     if (-not (Test-Path $exe)) { throw "Build produced no $exe" }
     Write-Host "OK   $exe"
 }

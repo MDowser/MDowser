@@ -107,16 +107,17 @@ See [Interface and shortcuts](docs/INTERFACE.md) for the complete list.
 
 ## Build from source
 
-The Makefile handles dependencies, the host release build and packaging:
+The Makefile handles dependencies and packaging:
 
 ```sh
-make          # dependencies + host release build + current-OS packages in dist/
+make          # dependencies + current-OS packages in dist/
 make dist     # dependencies + packages for macOS, Linux and Windows in dist/
-make install  # install into /usr/local (PREFIX/DESTDIR supported)
+make build    # host release binary in target/release/mdowser
+make install  # install that binary into /usr/local (PREFIX/DESTDIR supported)
 make run      # debug build and run
 ```
 
-`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. If Rust itself is not installed yet, run `make deps` once first (the Makefile resolves the toolchain at startup). Requirements include stable Rust ≥ 1.99 and a C compiler. NASM is also required on x86/x86_64 hosts; ARM64 hosts use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
+`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. If Rust itself is not installed yet, run `make deps` once first (the Makefile resolves the toolchain at startup). Requirements include stable Rust ≥ 1.99 and a C compiler. NASM is also required on x86/x86_64 hosts and for the x86_64 slice of a universal macOS build; ARM64-only builds use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
 
 The build guide covers full requirements, the `make test` pipeline, multi-platform packaging and native Windows setup: [**Building MDowser**](docs/BUILDING.md#native-windows).
 

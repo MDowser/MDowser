@@ -84,7 +84,7 @@ modules:
       # desktop file / icon that does not exist after the app-id renames above.
       - install -Dm644 packaging/linux/mdowser.desktop
         /app/share/applications/mdowser.desktop
-      - VER="$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)"; DATE="$(date -u +%Y-%m-%d)"; sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$VER\"/" -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$DATE\"/" -e 's|>mdowser\.desktop</launchable>|>dev.mdowser.app.desktop</launchable>|' -e 's|>mdowser</icon>|>dev.mdowser.app</icon>|' packaging/linux/dev.mdowser.app.metainfo.xml > dev.mdowser.app.metainfo.xml; install -Dm644 dev.mdowser.app.metainfo.xml /app/share/metainfo/dev.mdowser.app.metainfo.xml
+      - VER="$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' Cargo.toml | head -1)"; DATE="$(if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null || date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null || true; else date -u +%Y-%m-%d; fi)"; [ -n "$DATE" ] || { echo "ERROR invalid SOURCE_DATE_EPOCH" >&2; exit 1; }; awk -v ver="$VER" -v date="$DATE" '!done && /^[[:space:]]*<release / { sub(/version="[^"]*"/, "version=\"" ver "\""); sub(/date="[^"]*"/, "date=\"" date "\""); done=1 } { gsub(/>mdowser\.desktop<\/launchable>/, ">dev.mdowser.app.desktop</launchable>"); gsub(/>mdowser<\/icon>/, ">dev.mdowser.app</icon>"); print }' packaging/linux/dev.mdowser.app.metainfo.xml > dev.mdowser.app.metainfo.xml; install -Dm644 dev.mdowser.app.metainfo.xml /app/share/metainfo/dev.mdowser.app.metainfo.xml
       - install -Dm644 packaging/linux/mdowser.1
         /app/share/man/man1/mdowser.1
       - for s in 16 32 48 64 128 256 512; do
@@ -112,8 +112,14 @@ modules:
           - .claude
           - .codex
           - .cursor
+          - .vscode
+          - .idea
           - .env
+          - .env*
           - .aider
+          - .aider*
+          - .DS_Store
+          - '*.log'
       # Generated (see the header): vendored cargo dependencies. Without it
       # the offline `cargo build` above cannot resolve a single crate.
       - cargo-sources.json

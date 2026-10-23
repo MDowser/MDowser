@@ -1,7 +1,7 @@
-# Reproducible toolchain: everyone (devs, `make test` and `make dist`) builds
-# with the same release line the project is verified against (`Cargo.toml`
-# `rust-version`). rustup installs it together with the lint/format components
-# the pipeline needs.
+# Pinned release line: everyone (devs, `make test` and `make dist`) builds
+# with the 1.99 line the project is verified against (`Cargo.toml`
+# `rust-version`); rustup resolves it to the newest 1.99.x patch. rustup
+# installs it together with the lint/format components the pipeline needs.
 [toolchain]
 channel = "1.99"
 components = ["rustfmt", "clippy"]

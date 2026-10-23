@@ -12,10 +12,10 @@ contract in [`SECURITY.md`](SECURITY.md).
 - Optional YAML frontmatter (`--- ... ---`); a YAML parse error moves to the
   next route. A leading `---` with no closer — or a delimited block that parses
   as YAML but is not a mapping — is CommonMark content (thematic break plus
-  text), not an error. `title` goes to the OS window only. Without a frontmatter
-  `title`, the first `#` heading names the tab, OS window, page-info card and
-  default bookmark/history entry (still rendered as content); the schemeless URL
-  is the last resort.
+  text), not an error. A frontmatter `title` names the tab, OS window,
+  page-info card and default bookmark/history entry. Without one, the first
+  `#` heading does the same (still rendered as content); for the tab/window
+  and stored entries the schemeless URL is the last resort.
 - `+++ ... +++` TOML-style metadata blocks parse (the parser option is on) but
   are never rendered or copied: invisible.
 - `:::` and `!!!` admonitions render as alert-blockquote callouts (`> [!NOTE]`).

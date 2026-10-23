@@ -184,14 +184,6 @@ pub(super) fn render_heading_frag(
     title_color: egui::Color32,
     ctx: &mut RenderCtx,
 ) {
-    // RTL display order (epaint has no bidi), same preparation as
-    // `render_frag`: code spans keep the literal source.
-    let display = crate::viewer::bidi::visual_text(f.text.as_ref());
-    let text = if f.code {
-        f.text.as_ref()
-    } else {
-        display.as_ref()
-    };
     // Images in headings (`# ![Logo](logo.png) Title`) render like any
     // other inline image: the old code fell through to the alt text and
     // the image was never even registered for fetching.
@@ -226,6 +218,15 @@ pub(super) fn render_heading_frag(
         crate::viewer::inline::render_badge(ui, f.text.as_ref(), badge, ctx.selected, size);
         return;
     }
+    // RTL display order (epaint has no bidi), same preparation as
+    // `render_frag`: code spans keep the literal source. Computed only for
+    // text fragments, after the image/superscript/badge early returns.
+    let display = crate::viewer::bidi::visual_text(f.text.as_ref());
+    let text = if f.code {
+        f.text.as_ref()
+    } else {
+        display.as_ref()
+    };
     let sel_bg = ctx.selected.then(|| theme::select_bg(ui));
     // In-page find: plain heading fragments get the same precise split as
     // body text (at the heading size); links/code/RTL fall back to a

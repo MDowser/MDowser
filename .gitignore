@@ -8,6 +8,8 @@ dist/
 .flatpak-builder/
 packaging/flatpak/.build-dir/
 packaging/flatpak/cargo-sources.json
+# sync-builtin-sites.sh stages next to the asset for an atomic rename.
+assets/.builtin_sites-*
 # Local editor / OS config.
 .vscode/
 .idea/

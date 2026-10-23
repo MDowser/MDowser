@@ -281,11 +281,15 @@ if [ "$MODE" = "check" ]; then
     exit 0
 fi
 
-TMP_LIST="$(mktemp "${TMPDIR:-/tmp}/mdowser-sites.XXXXXX")" || exit 1
+# Stage next to the asset, not in $TMPDIR: the final `mv` is then a
+# same-filesystem rename (atomic), so an interrupted sync can never leave a
+# truncated or half-written builtin_sites.txt behind.
+ASSET_DIR="$(dirname "$ASSET")"
+TMP_LIST="$(mktemp "$ASSET_DIR/.builtin_sites-download.XXXXXX")" || exit 1
 # Trap right after the FIRST mktemp: if the second one fails, the first
 # file must still be removed.
 trap 'rm -f "${TMP_LIST:-}" "${TMP_OUT:-}"' EXIT INT TERM
-TMP_OUT="$(mktemp "${TMPDIR:-/tmp}/mdowser-sites-filtered.XXXXXX")" || exit 1
+TMP_OUT="$(mktemp "$ASSET_DIR/.builtin_sites-filtered.XXXXXX")" || exit 1
 
 if ! curl -fsSL --proto '=https' --proto-redir '=https' --max-time 60 \
     -A "$UA" "$SITES_UPSTREAM" -o "$TMP_LIST"; then
@@ -302,13 +306,17 @@ if [ "$OK_CNT" -eq 0 ]; then
     exit 1
 fi
 # Keep the asset's permission bits: `mv` would install the mktemp file's
-# 0600. `stat -f` is BSD/macOS, `stat -c` is GNU.
-ASSET_MODE=""
+# 0600. `stat -f` is BSD/macOS, `stat -c` is GNU. A brand-new asset gets the
+# normal 0644 so it is readable by every checkout.
+ASSET_MODE="644"
 if [ -e "$ASSET" ]; then
-    ASSET_MODE="$(stat -f '%Lp' "$ASSET" 2>/dev/null || stat -c '%a' "$ASSET" 2>/dev/null || true)"
+    _mode="$(stat -f '%Lp' "$ASSET" 2>/dev/null || stat -c '%a' "$ASSET" 2>/dev/null || true)"
+    [ -n "$_mode" ] && ASSET_MODE="$_mode"
+    unset _mode
 fi
-mv "$TMP_OUT" "$ASSET"
-if [ -n "$ASSET_MODE" ]; then
-    chmod "$ASSET_MODE" "$ASSET" 2>/dev/null || true
+if ! mv "$TMP_OUT" "$ASSET"; then
+    echo "ERROR: could not replace $ASSET (keeping the previous file)" >&2
+    exit 1
 fi
+chmod "$ASSET_MODE" "$ASSET" 2>/dev/null || true
 echo "synced $ASSET from $SITES_UPSTREAM"

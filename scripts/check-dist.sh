@@ -25,12 +25,14 @@
 # The build host's own nodename is checked too (RPM's `BUILDHOST` tag).
 #
 # Only REGULAR, non-hidden files are release artifacts. Finder/editor
-# droppings (`.DS_Store`) are ignored; a symlink or a leftover directory in
-# dist/ is reported as a problem (publishing would follow or skip it).
+# droppings (`.DS_Store`) are ignored; a hidden symlink or a hidden leftover
+# directory in dist/ is reported as a problem (publishing would follow or
+# silently skip it), like any other symlink/directory.
 #
-# Exit status: 0 when dist/ is absent/empty (nothing to check), or when every
-# artifact is clean; 1 when any leak is found; 2 when `--require` was passed
-# and the check could not run at all.
+# Exit status: 0 when dist/ is absent/empty without `--require` (nothing to
+# check), or when every artifact is clean; 1 when any leak is found (including
+# no artifacts at all under `--require`); 2 when `--require` was passed and
+# the gate cannot run (missing dist/ or inspector).
 set -u
 
 REQUIRE=0
@@ -60,7 +62,7 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 0
 fi
 
-exec python3 - "$DIST" <<'PY'
+exec python3 - "$DIST" "$REQUIRE" <<'PY'
 import io
 import os
 import socket
@@ -70,6 +72,7 @@ import tarfile
 import zipfile
 
 dist = sys.argv[1]
+require = sys.argv[2] == "1"
 
 # --- needles: what the builder's identity looks like ------------------------
 # The app intentionally ships example paths like `/Users/you/notes.md` and
@@ -208,9 +211,11 @@ checked = 0
 ignored = 0
 for entry in entries:
     path = os.path.join(dist, entry)
-    # Hidden entries are not release artifacts (Finder's `.DS_Store`, an
-    # editor swap file); shell globs skip them when publishing too.
-    if entry.startswith("."):
+    # Hidden regular files are not release artifacts (Finder's `.DS_Store`,
+    # an editor swap file); shell globs skip them when publishing too. Hidden
+    # directories and symlinks are NOT ignorable: an uploader that globs `*`
+    # would silently drop a staged tree or follow a link out of dist/.
+    if entry.startswith(".") and os.path.isfile(path) and not os.path.islink(path):
         ignored += 1
         continue
     # A symlink would be followed here but not necessarily by the uploader:
@@ -230,6 +235,10 @@ if problems:
     print(f"FAIL: {len(problems)} privacy issue(s) in {dist}:")
     for problem in problems:
         print(f"  - {problem}")
+    sys.exit(1)
+
+if require and checked == 0:
+    print(f"FAIL: no release artifacts in {dist} (--require)")
     sys.exit(1)
 
 ignored_note = f", {ignored} hidden file(s) ignored" if ignored else ""

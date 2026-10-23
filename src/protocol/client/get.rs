@@ -132,8 +132,8 @@ pub(crate) async fn get_bytes(
     // URL (`parse_navigable` strips userinfo), but this shared entry point
     // must never let a secret ride an `Authorization` header to the wire or
     // echo it in an error/log line. Strip once, up front; fail CLOSED when
-    // it cannot be removed. The clone only happens when userinfo is present:
-    // the common path borrows the caller's URL (no per-request allocation).
+    // it cannot be removed. A clone only happens when userinfo is present;
+    // `client.get(url.clone())` below still needs one owned URL per request.
     let stripped;
     let url = if !url.username().is_empty() || url.password().is_some() {
         let mut clean = url.clone();

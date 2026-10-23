@@ -390,10 +390,8 @@ pub(super) fn sanitize_glyph(raw: &str) -> Option<String> {
     for c in raw
         .chars()
         .filter(|c| !c.is_control() && !c.is_whitespace())
+        .take(config::MAX_BOOKMARK_ICON_CHARS)
     {
-        if out.chars().count() >= config::MAX_BOOKMARK_ICON_CHARS {
-            break;
-        }
         out.push(c);
     }
     (!out.is_empty()).then_some(out)

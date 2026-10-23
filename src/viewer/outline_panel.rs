@@ -293,7 +293,9 @@ fn row(
 ) -> egui::Response {
     let s = theme::scheme_ref(ui);
     let sense = egui::Sense::click();
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), sense);
+    // The explicit `interact` below owns keyboard focus; allocating with a
+    // non-focusable sense avoids a second, invisible tab stop per row.
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::hover());
     let resp = ui.interact(rect, id, sense);
     if current {
         // One step darker than the panel fill (`container_low`): the current

@@ -477,12 +477,12 @@ spec pins `%_buildhost` and `%defattr(-, root, root, -)`.
 `make validate`) fails the build if any `dist/` artifact carries the builder's
 paths, hostname, uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member.
 Only regular, non-hidden files count as artifacts: Finder's `.DS_Store` is
-ignored, while a symlink or a leftover staging directory in `dist/` fails the
-gate (a release must not point outside it or ship a stale tree).
-`make check-dist`, `make dist` and CI pass `--require`, so a missing `dist/`
-or inspector (no python3) is a hard failure, not a silent SKIP. Generic
-hostnames that collide with the `/build` and `/cargo` remap targets are never
-used as needles.
+ignored, while a symlink (hidden or not) or a leftover staging directory in
+`dist/` fails the gate (a release must not point outside it or ship a stale
+tree). `make check-dist`, `make dist` and CI pass `--require`, so a missing
+`dist/`, no artifact at all, or a missing inspector (no python3) is a hard
+failure, not a silent SKIP. Generic hostnames that collide with the `/build`
+and `/cargo` remap targets are never used as needles.
 See [`BUILDING.md#build-artifact-privacy`](BUILDING.md#build-artifact-privacy).
 
 Release builds run in CI (`.github/workflows/release.yml`) on fresh

@@ -6,7 +6,9 @@
 //! `error`: the browser's unified error type.
 //!
 //! - Every module converts its failures into `BrowserError`.
-//! - `Display` yields one-line messages, fit for the line-by-line error view.
+//! - `Display` yields one line per failure, except
+//!   [`BrowserError::NoCandidateWorked`], which renders the requested address
+//!   followed by its one-per-line attempt log (the error view's details).
 
 use std::fmt;
 

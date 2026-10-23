@@ -13,11 +13,13 @@ contract.
 - System C compiler: Xcode Command Line Tools on macOS
   (`xcode-select --install`), `build-essential` on Debian/Ubuntu, MSVC or
   MinGW on Windows.
-- NASM on x86/x86_64 hosts (Linux, Intel macOS, Windows): the AVIF decoder
-  (`rav1d`) and the rustls crypto provider (`aws-lc-sys`) compile assembly.
-  Install with `brew install nasm`, `sudo apt-get install nasm` or, on
-  Windows (used by `windows.ps1`), `winget install NASM.NASM`. ARM64 hosts
-  (Apple Silicon, Linux arm64, Windows on ARM) need no NASM.
+- NASM on x86/x86_64 hosts (Linux, Intel macOS, Windows), and on an Apple
+  Silicon host when building the universal macOS `.app` (its x86_64 slice):
+  the AVIF decoder (`rav1d`) and the rustls crypto provider (`aws-lc-sys`)
+  compile assembly. Install with `brew install nasm`,
+  `sudo apt-get install nasm` or, on Windows (used by `windows.ps1`),
+  `winget install NASM.NASM`. ARM64-only builds (Apple Silicon, Linux arm64,
+  Windows on ARM) need no NASM.
 - No `PATH` setup: the `Makefile` and `scripts/lib.sh` resolve the toolchain
   from `$HOME`-relative locations (`~/.cargo/env`, `~/.cargo/bin`,
   `rustup which cargo`, `brew --prefix`, the toolchain glob) and keep cargo's
@@ -72,16 +74,18 @@ SKIP_SETUP=1 make deps       # report only, install nothing
 A tool already on `PATH` is left alone; anything uninstallable is a `SKIP`
 with the reason, never a failure. The Xcode Command Line Tools (the macOS C
 compiler) cannot come from Homebrew, so the target prints
-`xcode-select --install`. `make dist` auto-installs the cross tools it needs
-(`SKIP_SETUP=1` opts out); `make deps` matters mostly for Rust itself and the
-  packaging/validation tools.
+`xcode-select --install`. `make dist` installs the cross tools through
+`make deps` on macOS (`SKIP_SETUP=1` opts out); on Linux install `zig` and
+`mingw-w64` with the package manager and `cargo-zigbuild` with
+`cargo install`. `make deps` matters mostly for Rust itself and the
+packaging/validation tools.
 
 ## Build, test and package
 
 `make` shortcuts (delegating to cargo and `scripts/`, POSIX sh):
 
 ```sh
-make              # deps + host release + current-OS dist into dist/
+make              # deps + current-OS dist into dist/ (builds what it packages)
                   #   macOS: universal .app.zip ONLY
                   #   Linux: .tar.gz + .deb/.rpm + Flatpak bundle
                   #   Windows: .exe zip
@@ -89,7 +93,7 @@ make build        # host release binary only (target/release/mdowser)
 make debug        # host debug (target/debug/mdowser)
 make test         # pipeline: sh syntax + version consistency + fmt --check + clippy -D warnings + test + doc + debug
 make audit        # supply-chain audit (cargo audit + cargo deny, best-effort)
-make dist         # deps + host release + EVERY platform into dist/ (+ SHA256SUMS.txt)
+make dist         # deps + EVERY platform into dist/ (+ SHA256SUMS.txt)
 make dist-host | make dist-mac | make dist-linux | make dist-windows
 make dist-rpm     # RPM from the full source tree (Linux host with rpmbuild)
 make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak/)
@@ -156,8 +160,7 @@ found, assuming macOS" notes. `[lints.rust] linker_messages = "allow"` in
 `Cargo.toml` silences it until NASM/`rav1d` emit the load command.
 
 Direct equivalents without make (the scripts alone skip the `make deps`
-bootstrap and, for dist, the host `cargo build --locked --release` that
-`make`/`make dist` run first; pass `SKIP_SETUP=1` to keep auto-install off):
+bootstrap; pass `SKIP_SETUP=1` to keep auto-install off):
 
 ```sh
 ./scripts/build-test.sh            # same as make test
@@ -174,15 +177,24 @@ SKIP_SETUP=1 ./scripts/build-dist.sh --all  # without auto-installing toolchains
 `--host-only` generates just the current OS's artifact set: on macOS the
 universal `.app.zip`; on Linux `mdowser-<ver>-linux-<arch>.tar.gz`, the
 matching `.deb` (and `.rpm` when `rpmbuild` is present) and the Flatpak
-bundle; on Windows `mdowser-<ver>-windows-<arch>.zip`. Plain `make` is the
-host binary in `target/release/mdowser` plus this.
+bundle; on Windows `mdowser-<ver>-windows-<arch>.zip`. Plain `make` produces
+this current-OS artifact set; `make build` produces just the host binary in
+cargo's release output (`target/release/mdowser` by default).
+
+On Linux, `--all` reuses the native host build for the host architecture's
+`.tar.gz`/`.deb` (the same binary `make` ships) and Zig-cross-builds the other
+architecture, so the host binary for those two artifacts is compiled once.
+The host artifact follows the host toolchain's libc, as `--host-only` does.
 
 `dist/` semantics: the COMPLETE modes (`--all`, the default, and
 `--host-only`) rebuild `dist/` from scratch; a single-group flag (`--mac`,
 `--linux`, `--windows`, `--rpm`, `--flatpak`) ADDS its artifacts to what is
 already there. Make recipe execution is serialized (`.NOTPARALLEL`): the
 goals share `target/` and `dist/`, so `make -j` must not race them (cargo
-still compiles in parallel internally). The Flatpak wrapper regenerates
+still compiles in parallel internally). `CARGO_TARGET_DIR` is honored by the
+packaging and install paths (relative values resolve against the repository
+root). For host packaging, `CARGO_BUILD_TARGET` must name the host triple;
+use the platform flags for cross targets. The Flatpak wrapper regenerates
 `cargo-sources.json` when `Cargo.lock` is newer and removes/verifies the
 bundle path, so a stale dependency set or old bundle is never reused.
 
@@ -225,8 +237,8 @@ version gate compares the normalized RPM form with the spec changelog.
 ### Native Windows
 
 On native Windows no `make` or `/bin/sh` is needed: `windows.ps1` (repo root)
-is the winget-only, idempotent equivalent of `make` (deps + host release +
-current-OS dist into `dist/`). It self-elevates via UAC unless `-NoElevate` is
+is the winget-only, idempotent equivalent of `make` (deps + current-OS dist
+into `dist/`). It self-elevates via UAC unless `-NoElevate` is
 passed, and installs what is missing: Rustup at the channel in
 `rust-toolchain.toml`, MSVC Build Tools + the C++ workload, NASM, Git with Git
 Bash (the `sh`/`tar`/`sha256sum` runtime packaging needs), Python 3.12 with a
@@ -260,14 +272,17 @@ Linux packaging is generated from ONE shared set of files
   `StartupWMClass`, Markdown MIME types).
 - `packaging/linux/dev.mdowser.app.metainfo.xml` — AppStream metadata: the
   page GNOME Software and KDE Discover render (name, summary, description,
-  links, icon, release). `scripts/packaging.sh` pins its `<release>` to the
-  `Cargo.toml` version at package time.
+  links, icon, release). `scripts/packaging.sh` pins its newest `<release>` to
+  the `Cargo.toml` version and today's date (or the date of
+  `SOURCE_DATE_EPOCH` for a reproducible build) at package time.
 - `packaging/linux/mdowser.1` — man page.
 - the hicolor icon ladder (`assets/icons/icon-*.png`) plus the scalable
   `assets/icon.svg`.
 
 `scripts/install.sh` (`make install`) lays those down under `DESTDIR`/`PREFIX`
-and is the RPM spec's `%install`:
+and is the RPM spec's `%install`. It expects cargo's release output
+(`target/release/mdowser` by default; `CARGO_TARGET_DIR` and
+`CARGO_BUILD_TARGET` are honored, and `BIN=...` overrides the path):
 `make install DESTDIR=/tmp/root PREFIX=/usr` stages a package tree.
 
 RPM: `packaging/rpm/mdowser.spec` builds the crate from the full source tree.
@@ -376,9 +391,9 @@ docker run --rm -v "$PWD:/w" -w /w fedora:latest bash -lc '
 ```
 
 Cross-building from macOS self-installs any missing tooling (rustup target,
-`zig` + `cargo-zigbuild`, `mingw-w64`, `nasm`); any failing group is skipped
-with a reason and the script moves on. For reliable GUI artifacts, build
-natively on each target OS.
+`zig` + `cargo-zigbuild`, `mingw-w64`, `nasm`); any failing group (including
+the host build in `--all`) is skipped with a reason and the script moves on.
+For reliable GUI artifacts, build natively on each target OS.
 
 ### Releases in CI (GitHub Actions)
 
@@ -425,9 +440,10 @@ use-at-your-own-risk disclaimer); tags carrying
 `-alpha`/`-beta`/`-rc` are published as pre-releases. A manual run
 (`workflow_dispatch`) with `dry_run: true` compiles everything without
 publishing; a `dry_run: false` run must be dispatched from the matching
-`v<version>` tag, and the `verify` job rejects a branch or a mismatched tag
-before any build starts. Standard runners are free for public repositories;
-every job is capped with `timeout-minutes` and no cache is kept between runs.
+`v<version>` tag, and the `verify` job rejects a branch, a tag without the
+`v` prefix, or a mismatched tag before any build starts. Standard runners are
+free for public repositories; every job is capped with `timeout-minutes` and
+no cache is kept between runs.
 
 Push a `v<version>` tag matching `Cargo.toml`; the workflow attaches the
 files to one GitHub Release. A local `make dist` set can be attached by hand

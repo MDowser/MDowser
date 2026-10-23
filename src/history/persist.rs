@@ -132,7 +132,9 @@ impl HistoryStore {
 
     /// Serializes entries oldest-first as `timestamp\turl\ttitle` lines.
     pub(super) fn serialize(&self) -> Vec<u8> {
-        let mut out = Vec::new();
+        // Rough per-entry budget (timestamp + two tabs + newline + a short
+        // URL/title); avoids repeated growth on a large store.
+        let mut out = Vec::with_capacity(self.entries.len().saturating_mul(96));
         for visit in &self.entries {
             out.extend_from_slice(visit.visited_at.to_string().as_bytes());
             out.push(b'\t');

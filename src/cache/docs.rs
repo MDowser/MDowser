@@ -383,9 +383,6 @@ impl DocsStore {
         // removals apply only AFTER the rewritten file lands: a failed
         // write below must leave the previous file + index consistent.
         entries.sort_by_key(|r| r.stored_at);
-        // Oldest-first while the host file is over its own cap. Index
-        // removals apply only AFTER the rewritten file lands: a failed
-        // write below must leave the previous file + index consistent.
         let (evicted, evicted_index_bytes) = evict_over_host_cap(
             &mut entries,
             &self.index,
@@ -725,11 +722,12 @@ pub(crate) fn rename_away_and_delete(dir: PathBuf) {
 }
 
 /// Oldest-first host-cap eviction (pure, unit-testable): drops entries from
-/// the front of `entries` while their serialized total exceeds `cap`,
-/// always keeping the newest record. Returns the INDEX-charged keys removed
-/// and the bytes they were charged, so the manager can shrink the global
-/// total by them (entries of another stem are poisoned records: dropped
-/// from the rewritten file, never charged).
+/// the front of `entries` while their serialized total exceeds `cap` or the
+/// file would exceed `MAX_ENTRIES_PER_HOST_FILE`, always keeping the newest
+/// record. Returns the INDEX-charged keys removed and the bytes they were
+/// charged, so the manager can shrink the global total by them (entries of
+/// another stem are poisoned records: dropped from the rewritten file,
+/// never charged).
 fn evict_over_host_cap(
     entries: &mut Vec<DocRecord>,
     index: &HashMap<String, DocIndexEntry>,
@@ -739,12 +737,18 @@ fn evict_over_host_cap(
     let mut evicted: Vec<String> = Vec::new();
     let mut evicted_index_bytes: u64 = 0;
     let mut host_bytes: u64 = entries.iter().map(|r| serialized_doc_len(r) as u64).sum();
-    while host_bytes > cap && entries.len() > 1 {
-        let old = entries.remove(0);
-        host_bytes = host_bytes.saturating_sub(serialized_doc_len(&old) as u64);
-        if index.get(&old.key).is_some_and(|e| e.host_stem == stem) {
-            evicted_index_bytes =
-                evicted_index_bytes.saturating_add(index.get(&old.key).map_or(0, |e| e.size));
+    // Find the prefix to drop first: `Vec::remove(0)` in the loop made an
+    // over-cap host file quadratic in its entry count.
+    let mut drop_count = 0usize;
+    while (host_bytes > cap || entries.len() - drop_count > MAX_ENTRIES_PER_HOST_FILE)
+        && entries.len() - drop_count > 1
+    {
+        host_bytes = host_bytes.saturating_sub(serialized_doc_len(&entries[drop_count]) as u64);
+        drop_count += 1;
+    }
+    for old in entries.drain(..drop_count) {
+        if let Some(entry) = index.get(&old.key).filter(|e| e.host_stem == stem) {
+            evicted_index_bytes = evicted_index_bytes.saturating_add(entry.size);
             evicted.push(old.key);
         }
     }
@@ -918,6 +922,48 @@ mod tests {
         assert!(evicted.is_empty());
         assert_eq!(bytes, 0);
         assert_eq!(entries.len(), 1);
+    }
+
+    /// Regression: the writer must enforce the same entry cap the READER
+    /// enforces. A host file over `MAX_ENTRIES_PER_HOST_FILE` failed to
+    /// parse, so the next insert silently restarted the file with one record
+    /// and every cached document for that host was lost.
+    #[test]
+    fn host_cap_eviction_enforces_the_entry_limit() {
+        let stem = stem_for("ex.com");
+        let mut entries: Vec<DocRecord> = (0..=MAX_ENTRIES_PER_HOST_FILE)
+            .map(|i| record(&format!("https://ex.com/page-{i}"), "ex.com"))
+            .collect();
+        for (i, r) in entries.iter_mut().enumerate() {
+            r.stored_at = i as u64 + 1;
+        }
+        let mut index: HashMap<String, DocIndexEntry> = HashMap::new();
+        for (i, r) in entries.iter().enumerate() {
+            index.insert(
+                r.key.clone(),
+                DocIndexEntry {
+                    host_stem: stem.clone(),
+                    fetched_url: r.fetched_url.clone(),
+                    size: serialized_doc_len(r) as u64,
+                    stored_at: r.stored_at,
+                    fresh_until: 0,
+                    seq: i as u64,
+                    has_validator: false,
+                },
+            );
+        }
+        let (evicted, _) = evict_over_host_cap(&mut entries, &index, &stem, u64::MAX);
+        assert_eq!(evicted, vec!["https://ex.com/page-0".to_string()]);
+        assert_eq!(entries.len(), MAX_ENTRIES_PER_HOST_FILE);
+        assert_eq!(
+            entries.first().map(|r| r.key.as_str()),
+            Some("https://ex.com/page-1")
+        );
+        // The rewritten file must be accepted by its own reader.
+        assert_eq!(
+            parse_host_file(&serialize_host_file(&entries), &stem).map(|parsed| parsed.len()),
+            Some(MAX_ENTRIES_PER_HOST_FILE)
+        );
     }
 
     #[test]

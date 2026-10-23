@@ -180,8 +180,19 @@ fn copy_for(
 ///
 /// Single helper so the painted `Requested:`/details lines and the `Copy log`
 /// clipboard text cannot drift apart again.
-fn display_line(line: &str) -> String {
-    strip_scheme_everywhere(&strip_credentials_for_log(line)).into_owned()
+fn display_line(line: &str) -> std::borrow::Cow<'_, str> {
+    // Keep the borrow when neither pass changes the line: the error page
+    // repaints during the retry cooldown, and allocating one `String` per
+    // log line per repaint defeated the helpers' `Cow` contract.
+    match strip_credentials_for_log(line) {
+        std::borrow::Cow::Borrowed(text) => strip_scheme_everywhere(text),
+        std::borrow::Cow::Owned(text) => match strip_scheme_everywhere(&text) {
+            // Scheme stripping found nothing: keep the owned credential-stripped
+            // string instead of cloning it through `into_owned`.
+            std::borrow::Cow::Borrowed(_) => std::borrow::Cow::Owned(text),
+            std::borrow::Cow::Owned(cleaned) => std::borrow::Cow::Owned(cleaned),
+        },
+    }
 }
 
 /// Shows the styled error with its attempt log (scheme hidden, credentials
@@ -310,7 +321,7 @@ pub fn show_error(ui: &mut egui::Ui, asked: &str, lines: &[String], kind: ErrorK
                     ui.monospace("(no details)");
                 } else {
                     for l in lines {
-                        ui.monospace(display_line(l));
+                        ui.monospace(display_line(l).as_ref());
                     }
                 }
             });

@@ -48,13 +48,15 @@ version_rpm() {
 }
 
 # Renders `packaging/linux/dev.mdowser.app.metainfo.xml` to $1 with the
-# <release> version pinned to $2 and its date to today (UTC). The committed
-# file keeps its own value so it stays valid standalone (Flatpak, appstream
-# tooling read it from the tree); every PACKAGED copy matches the binary it
-# ships with.
+# NEWEST <release> version pinned to $2 and its date to today (UTC), or to the
+# date of `SOURCE_DATE_EPOCH` when that is set (reproducible builds). The
+# committed file keeps its own value so it stays valid standalone (Flatpak,
+# appstream tooling read it from the tree); every PACKAGED copy matches the
+# binary it ships with.
 #
-# `sed` is scoped to the release line (the only place a version/date appears),
-# so the description's own text can never be touched.
+# Only the FIRST <release> entry (the current one, above the history) is
+# rewritten: a sed over every matching line used to relabel the whole release
+# history with the current version and date.
 #
 # NOTE: POSIX sh functions share one global scope. Every variable here is
 # uniquely named and NOT `unset` at the end: an `unset _root` would delete a
@@ -62,21 +64,43 @@ version_rpm() {
 render_metainfo() {
     _metainfo_out="$1"
     _metainfo_ver="$2"
-    _metainfo_date="$(date -u +%Y-%m-%d 2>/dev/null || printf '1970-01-01')"
-    # Fail closed on an unexpected version (never let `&` or `/` through to
-    # the `sed` replacement, where `&` would expand to the matched text).
+    _metainfo_date=""
+    if [ -n "${SOURCE_DATE_EPOCH:-}" ]; then
+        case "$SOURCE_DATE_EPOCH" in
+            *[!0-9]*)
+                echo "ERROR: SOURCE_DATE_EPOCH must be a Unix timestamp, not '$SOURCE_DATE_EPOCH'" >&2
+                return 1
+                ;;
+        esac
+        # GNU date takes `-d @<epoch>`, BSD date takes `-r <epoch>`. Try GNU
+        # first: `-r` on GNU treats its argument as a FILE name, which could
+        # silently use a same-named file's mtime.
+        _metainfo_date="$(date -u -d "@$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null \
+            || date -u -r "$SOURCE_DATE_EPOCH" +%Y-%m-%d 2>/dev/null \
+            || true)"
+        if [ -z "$_metainfo_date" ]; then
+            echo "ERROR: SOURCE_DATE_EPOCH '$SOURCE_DATE_EPOCH' is not a representable date" >&2
+            return 1
+        fi
+    else
+        _metainfo_date="$(date -u +%Y-%m-%d 2>/dev/null || printf '1970-01-01')"
+    fi
+    # Fail closed on an unexpected version: it is interpolated into the XML
+    # attribute (the allowed set excludes quotes, `&`, `\` and `/`).
     case "$_metainfo_ver" in
         '' | *[!0-9A-Za-z._+-]*)
             echo "ERROR: refusing to render metainfo with version '$_metainfo_ver'" >&2
             return 1
             ;;
     esac
-    # Escape `&` and `\` for the replacement side (the case above already
-    # rejects `/`, so the `/` delimiter stays safe).
-    _metainfo_esc="$(printf '%s' "$_metainfo_ver" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g')"
-    sed -e "/^[[:space:]]*<release /s/version=\"[^\"]*\"/version=\"$_metainfo_esc\"/" \
-        -e "/^[[:space:]]*<release /s/date=\"[^\"]*\"/date=\"$_metainfo_date\"/" \
-        "${ROOT:?ROOT must be set}/packaging/linux/dev.mdowser.app.metainfo.xml" \
+    awk -v ver="$_metainfo_ver" -v date="$_metainfo_date" '
+        !done && /^[[:space:]]*<release / {
+            sub(/version="[^"]*"/, "version=\"" ver "\"")
+            sub(/date="[^"]*"/, "date=\"" date "\"")
+            done = 1
+        }
+        { print }
+    ' "${ROOT:?ROOT must be set}/packaging/linux/dev.mdowser.app.metainfo.xml" \
         > "$_metainfo_out" || return 1
     # A restrictive caller umask must not ship a 0600 metainfo (desktop
     # software runs as other users): same explicit 0644 every other installed

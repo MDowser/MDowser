@@ -21,7 +21,8 @@
 //! in all visual states. The egui default `selectable_label` only grew its
 //! frame (and inner padding) on hover, which shifted the text and pushed the
 //! whole list. The dropdown rows here are painted into a fixed rect instead,
-//! and the window itself has no title bar, a fixed size and a custom header.
+//! and the window itself has no title bar, a fixed width and a custom header
+//! (the height follows the content; see `WIN_W`).
 //!
 //! FIT CONTENT: the dialog is sized to the disarmed card stack, and each
 //! delete-confirmation note only takes space while armed. Arming a delete

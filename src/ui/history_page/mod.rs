@@ -229,8 +229,11 @@ pub fn show_history_page(
             let field_id = egui::Id::unique(("history-page-search", tab.id));
             let mut filter = ui.data_mut(|d| d.get_temp::<String>(filter_id).unwrap_or_default());
             let cap_w = ui.available_width().max(80.0);
+            // `Sense::CLICK`, not `click()`: the capsule is decorative and
+            // the inner field owns the focus ring, so it must not add a
+            // ring-less tab stop.
             let (cap_rect, cap_resp) =
-                ui.allocate_exact_size(egui::vec2(cap_w, SEARCH_H), egui::Sense::click());
+                ui.allocate_exact_size(egui::vec2(cap_w, SEARCH_H), egui::Sense::CLICK);
             // Same contract as the omnibox: the whole capsule is the field,
             // so the padding shows the text cursor too. The clear button on
             // top keeps its own `PointingHand`.
