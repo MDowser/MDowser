@@ -419,8 +419,9 @@ jobs run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
 `rpmbuild`, and without the opt-out each job would also attach its own `.rpm`
 (a duplicate x86_64 package and an undocumented aarch64 one); the published
 RPM is always Fedora's. The Release is titled with the tag and its
-body is fixed text (CHANGELOG link, per-platform first-run and install notes,
-assets pointer and the use-at-your-own-risk disclaimer); tags carrying
+body is fixed text substituted with the release version (CHANGELOG link,
+per-platform first-run and install notes, assets pointer and the
+use-at-your-own-risk disclaimer); tags carrying
 `-alpha`/`-beta`/`-rc` are published as pre-releases. A manual run
 (`workflow_dispatch`) with `dry_run: true` compiles everything without
 publishing; a `dry_run: false` run must be dispatched from the matching

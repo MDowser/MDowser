@@ -40,6 +40,7 @@ use pulldown_cmark::{Event, TagEnd};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 /// Huge-block guard: above either bound the block renders as plain
 /// selectable lines instead of per-line highlighted spans.
@@ -434,6 +435,16 @@ fn render_plain_lines(
     widest
 }
 
+/// How long a code card's Copy button confirms the copy (`Copied`) before
+/// returning to its idle label. Matches the shared toast's ~2s lifetime.
+const COPY_CONFIRMATION: Duration = Duration::from_secs(2);
+
+/// Reserved width of the Copy button: the confirmation label ("Copied") is
+/// wider than the idle one ("Copy"), and a changing width would shift the
+/// language chip on every copy. 64px fits both at the small button text size
+/// and the 12px horizontal padding.
+const COPY_BUTTON_WIDTH: f32 = 64.0;
+
 /// Accessible/tooltip label for a code block's Copy button (`"Copy code"`,
 /// or `"Copy <lang> code"` so N blocks do not list N identical nodes).
 fn copy_a11y(chip: &str) -> String {
@@ -442,6 +453,23 @@ fn copy_a11y(chip: &str) -> String {
     } else {
         format!("Copy {chip} code")
     }
+}
+
+/// Same label after a successful copy, so screen readers and the hover card
+/// report the action's outcome instead of repeating the idle command.
+fn copied_a11y(chip: &str) -> String {
+    if chip.is_empty() {
+        "Copied code".to_string()
+    } else {
+        format!("Copied {chip} code")
+    }
+}
+
+/// Temporary-data key for one block's Copy confirmation. Salted by document
+/// and block event index like the block cache, so two tabs (or two blocks)
+/// never share a confirmation timer.
+fn copy_feedback_id(doc_salt: u64, block_at: usize) -> egui::Id {
+    egui::Id::unique(("code-copy-feedback", doc_salt, block_at))
 }
 
 /// Consumes one fenced code block (from just past its `Start` to its `End`)
@@ -495,6 +523,25 @@ fn code_card(
         // Card inner width: `code_card` pads `CODE_PAD_X` per side; leave
         // 2px of slack for the scroll area's rounding.
         ui.set_min_width((avail - 2.0 * theme::CODE_PAD_X - 2.0).max(0.0));
+        // The idle "Copy" and confirmation "Copied" labels share one reserved
+        // width: changing the button's size for two seconds would otherwise
+        // shift the language chip left on every copy.
+        let copy_id = copy_feedback_id(doc_salt, block_at);
+        let copied_at = ui.ctx().data(|d| d.get_temp::<Instant>(copy_id));
+        let copied = match copied_at {
+            Some(at) => {
+                let elapsed = at.elapsed();
+                if elapsed < COPY_CONFIRMATION {
+                    // Wake up exactly when the confirmation expires, so the
+                    // label returns even while the app is otherwise idle.
+                    ui.ctx().request_repaint_after(COPY_CONFIRMATION - elapsed);
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        };
         ui.horizontal(|ui| {
             let s = theme::scheme_ref(ui);
             // `lang_info` is ALREADY bounded by the caller
@@ -520,13 +567,24 @@ fn code_card(
                 // interaction, the tooltip only on hover), so a settled
                 // frame allocates nothing here.
                 let copy = ui.add(
-                    egui::Button::new("Copy")
+                    egui::Button::new(if copied { "Copied" } else { "Copy" })
                         .small()
-                        .min_size(egui::vec2(0.0, theme::BODY_LINE_HEIGHT)),
+                        .min_size(egui::vec2(COPY_BUTTON_WIDTH, theme::BODY_LINE_HEIGHT)),
                 );
-                let copy = crate::ui::hover_tooltip_lazy(copy, || copy_a11y(chip));
+                let copy = crate::ui::hover_tooltip_lazy(copy, || {
+                    if copied {
+                        copied_a11y(chip)
+                    } else {
+                        copy_a11y(chip)
+                    }
+                });
                 copy.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Button, true, copy_a11y(chip))
+                    let label = if copied {
+                        copied_a11y(chip)
+                    } else {
+                        copy_a11y(chip)
+                    };
+                    egui::WidgetInfo::labeled(egui::Role::Button, true, label)
                 });
                 if copy
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -535,6 +593,12 @@ fn code_card(
                     // The cached body (no trailing newline): one copy, no
                     // per-frame clone.
                     ui.ctx().copy_text(block.body.clone());
+                    // Confirm on THIS card only (the id carries the document
+                    // salt and block index); the next frame paints "Copied"
+                    // and schedules its own return to "Copy".
+                    ui.ctx()
+                        .data_mut(|d| d.insert_temp(copy_id, Instant::now()));
+                    ui.ctx().request_repaint_after(COPY_CONFIRMATION);
                 }
                 // The language chip fills the space LEFT of Copy and
                 // truncates there: laid out before Copy it could push the

@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   treating the name as a `.md` host. Explicit URLs and path spellings are
   unchanged, and a name that does not exist still navigates as a host.
   (`src/main.rs`, `docs/NAVIGATION.md`.)
+- Code-block Copy now confirms itself: the button reads `Copied` for two
+  seconds, its accessible name and hover card follow suit, and the reserved
+  button width keeps the language chip from shifting during the swap. Copying
+  still hands the complete block body to the clipboard. (`src/viewer/code/`,
+  `docs/INTERFACE.md`.)
 
 ### Changed
 
@@ -59,6 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   such as Finder's `.DS_Store` and reports a symlink or leftover directory in
   `dist/` as a problem, so the published set contains regular artifacts only.
   (`scripts/check-dist.sh`, `docs/SECURITY.md`.)
+- Refreshed `clipboard-win` 5.4.1 → 5.4.3 after 5.4.1 was yanked from
+  crates.io, so `cargo audit` and the release workflow's `cargo deny check`
+  gate are clean again. (`Cargo.lock`.)
 
 ### Fixed
 
@@ -75,6 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `mdowser(1)` man page no longer claims that nothing is written outside
   the data directory; Save page writes the document to the downloads folder
   by design. (`packaging/linux/mdowser.1`.)
+- Release notes no longer call every build an alpha: the fixed body now names
+  the release version, so stable tags read as stable. (`.github/workflows/release.yml`,
+  `docs/BUILDING.md`.)
 
 ## [0.6.3] - 2026-10-21
 

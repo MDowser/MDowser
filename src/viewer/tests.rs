@@ -192,6 +192,85 @@ fn code_bar_sits_below_the_code_in_the_sheet() {
     );
 }
 
+/// Copying a code block confirms on the button itself: the clipboard gets
+/// the exact body and the label turns into "Copied" on the next frame.
+#[test]
+fn code_copy_button_confirms_and_copies_the_block() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
+    let mut tab = loaded_tab("```rust\nlet answer = 42;\n```\n");
+    // Unique tab id: the code-block cache is keyed by document salt + block
+    // index, and other viewer tests share this URL on tab 1.
+    tab.id = 0xC0DE;
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let press = |pos: egui::Pos2, pressed: bool| egui::Event::PointerButton {
+        pos,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    let mut run = |events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let mut out = ctx.run_ui(input, |root| {
+            show_content(root, &mut tab, &mut store, &mut bookmarks, &mut favicons);
+        });
+        out.textures_delta.clear();
+        let copied: Vec<String> = out
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                egui::OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        (out.shapes, copied)
+    };
+
+    // Settle layout, then locate the code card's Copy button.
+    for _ in 0..3 {
+        run(Vec::new());
+    }
+    let (shapes, _) = run(Vec::new());
+    let copy_pos = shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text() == "Copy" => {
+                Some(t.pos + t.galley.rect.size() / 2.0)
+            }
+            _ => None,
+        })
+        .expect("the code card paints its Copy button");
+
+    let (_, copied) = run(vec![
+        egui::Event::PointerMoved(copy_pos),
+        press(copy_pos, true),
+        press(copy_pos, false),
+    ]);
+    assert_eq!(
+        copied.first().map(String::as_str),
+        Some("let answer = 42;"),
+        "Copy must hand the whole block body to the clipboard"
+    );
+
+    let (shapes, _) = run(Vec::new());
+    let confirmed = shapes.iter().any(|c| match &c.shape {
+        egui::epaint::Shape::Text(t) => t.galley.text() == "Copied",
+        _ => false,
+    });
+    assert!(
+        confirmed,
+        "the button confirms the copy with a Copied label"
+    );
+}
+
 /// Regression: a wide table's horizontal bar must sit BELOW its last
 /// row. The floating handle used to be painted over the row's bottom
 /// (covering text while scrolling); a scrolling table now reserves the

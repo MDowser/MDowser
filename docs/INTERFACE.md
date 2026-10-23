@@ -281,8 +281,9 @@ wrapping paragraphs at README line height.
   body baseline, linked code included, one tight pill per row when a span wraps;
   height capped at the body line minus 3px so the bundled mono cut's tall em box
   cannot inflate it into a full line.
-- Code cards (language chip + Copy button + lightweight per-line highlighting,
-  no line numbers) at the same body size as the prose.
+- Code cards (language chip + Copy button that confirms with a brief `Copied`
+  state + lightweight per-line highlighting, no line numbers) at the same body
+  size as the prose.
 - Striped bordered tables fill the drawn card (leftover width distributed
   proportionally); long cells (links included) shrink and wrap instead of
   forcing a horizontal scrollbar (a scrolling table keeps readable column
@@ -359,9 +360,10 @@ in-page `#anchor` becomes its absolute URL plus the fragment). Prose, headings,
 lists, quotes and table cells are natively selectable (drag + `Cmd/Ctrl+C`)
 with readable selection colors. A highlighted code block is virtualized and
 painted row by row, so it has no per-line drag selection; its Copy button (or
-menu Copy with no selection) copies the whole block verbatim. Right-clicking
-preserves an existing selection (its press is intercepted before egui), so menu
-Copy copies exactly the selected text.
+menu Copy with no selection) copies the whole block verbatim and briefly
+confirms with `Copied`. Right-clicking preserves an existing selection (its
+press is intercepted before egui), so menu Copy copies exactly the selected
+text.
 
 Opening the menu with the pointer leaves NO row highlighted (only the keyboard
 lights one). A primary press outside it — including the start of a drag

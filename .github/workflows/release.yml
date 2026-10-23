@@ -454,13 +454,14 @@ jobs:
         run: |
           set -eu
           # Fixed release body (no --generate-notes): only the tag is the
-          # release TITLE; the body is identical on every release. The
-          # heredoc is QUOTED so markdown backticks stay literal -- an
-          # unquoted one would EXECUTE them as command substitution -- and
-          # the version placeholder is substituted afterwards.
+          # release TITLE; the body is the same on every release except the
+          # version placeholders below. The heredoc is QUOTED so markdown
+          # backticks stay literal -- an unquoted one would EXECUTE them as
+          # command substitution -- and the version placeholders are
+          # substituted afterwards.
           NOTES="$(mktemp)"
           cat > "$NOTES" <<'EOF'
-          **Alpha release of MDowser.** See [CHANGELOG.md](https://github.com/MDowser/MDowser/blob/main/CHANGELOG.md) for update details.
+          **MDowser @VERSION@ release.** See [CHANGELOG.md](https://github.com/MDowser/MDowser/blob/main/CHANGELOG.md) for update details.
 
           Download the attached binaries from the **Assets** section below.
 
