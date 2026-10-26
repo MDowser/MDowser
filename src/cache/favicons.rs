@@ -17,7 +17,7 @@
 //!   first lookup: disk is the second level, network the last.
 
 use super::format::{now_secs, read_string, read_u64, read_u8, write_string, write_u64};
-use super::images::{parse_image, serialize_image, ImageHit, ImageRecord};
+use super::images::{parse_image, serialize_image, serialized_image_len, ImageHit, ImageRecord};
 use super::policy::CapturedHeaders;
 use crate::config;
 use crate::store::crypto::{decrypt, encrypt};
@@ -29,6 +29,9 @@ pub(crate) const FAVICON_MAGIC: &[u8; 4] = b"MDCF";
 const FAVICON_VERSION: u8 = 1;
 /// On-disk map format version (inside the AEAD plaintext).
 const RECORD_FORMAT: u8 = 1;
+/// Bytes the map header occupies before the first record (`RECORD_FORMAT` +
+/// entry count). Charged against the file cap by the manager's quota.
+pub(crate) const FILE_HEADER_BYTES: u64 = 9;
 
 pub(crate) struct FaviconStore {
     dir: PathBuf,
@@ -238,10 +241,16 @@ impl FaviconStore {
     }
 }
 
-/// Serialized-size estimate for one favicon record (body + key + fixed
-/// overhead), matching what [`FaviconStore::serialize`] writes.
+/// Exact serialized size of one favicon record: the key's length prefix and
+/// bytes, the image record's length prefix, and the image record itself.
+/// Matching the serializer keeps the class quota honest: an underestimate
+/// used to let `serialize` exceed `MAX_CACHE_FAVICON_BYTES` and fail every
+/// flush, silently losing the in-memory icons on exit.
 fn record_size(record: &ImageRecord) -> u64 {
-    record.body.len() as u64 + record.key.len() as u64 + 512
+    (record.key.len() as u64)
+        .saturating_add(4)
+        .saturating_add(8)
+        .saturating_add(serialized_image_len(record) as u64)
 }
 
 #[cfg(test)]
@@ -286,5 +295,18 @@ mod tests {
         assert_eq!(store.entry_count(), 0);
         assert!(!store.path().exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The quota must count exactly what `serialize` writes; the old
+    /// body+key+512 estimate undercounted long URLs/validators, so the
+    /// serializer could reject a map the eviction pass believed fit.
+    #[test]
+    fn record_size_matches_the_serialized_framing() {
+        let rec = record("https://ex.com/favicon.ico");
+        let image = serialize_image(&rec);
+        assert_eq!(
+            record_size(&rec),
+            (rec.key.len() + 4 + 8 + image.len()) as u64
+        );
     }
 }

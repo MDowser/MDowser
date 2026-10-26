@@ -282,13 +282,17 @@ impl ImageStore {
 
     pub(crate) fn lookup(&mut self, key: &str, now: u64) -> Option<ImageHit> {
         self.key?;
-        let stem = self.index.get(key)?.stem.clone();
-        let Some(record) = self.read_file(&stem, key) else {
+        let entry = self.index.get(key)?.clone();
+        let Some(mut record) = self.read_file(&entry.stem, key) else {
             // Missing/corrupt body or a hash collision: drop the poisoned
             // index entry instead of retrying it on every image render.
             self.remove(key);
             return None;
         };
+        // The index is authoritative for freshness: a 304 updates it
+        // without rewriting a multi-megabyte body (see `refresh`).
+        record.stored_at = entry.stored_at;
+        record.fresh_until = entry.fresh_until;
         if record.fresh_until > now {
             Some(ImageHit::Fresh(record))
         } else {
@@ -304,11 +308,20 @@ impl ImageStore {
         if record.body.len() > config::MAX_CACHE_IMAGE_BYTES {
             return None;
         }
-        if record.key.len() > config::MAX_URL_BYTES {
+        if record.key.len() > config::MAX_URL_BYTES
+            || record.fetched_url.len() > config::MAX_URL_BYTES
+        {
             return None;
         }
         let stem = stem_for(&record.key);
         let blob = serialize_image(&record);
+        // `read_file` reads at most `MAX_CACHE_IMAGE_BYTES + OVERHEAD + 4096`
+        // encrypted bytes: a body at the cap plus long URL/validator fields
+        // would be written here but rejected on every read, causing a
+        // re-fetch and a full rewrite each time. Reject it instead.
+        if blob.len() > config::MAX_CACHE_IMAGE_BYTES.saturating_add(4096) {
+            return None;
+        }
         let encrypted = encrypt(&key_bytes, IMAGE_MAGIC, IMAGE_VERSION, &blob)?;
         let path = self.file_path(&stem);
         if let Some(parent) = path.parent() {
@@ -390,9 +403,11 @@ impl ImageStore {
         self.index.iter().map(|(k, e)| (e.seq, k.clone())).collect()
     }
 
-    /// Refreshes expiry/validators after a 304 (body unchanged: only the
-    /// index entry is touched, no body rewrite). Returns the byte delta when
-    /// the metadata rewrite changed the stored size.
+    /// Refreshes expiry/validators after a 304. When the response repeats the
+    /// stored validators and content type, only the index is updated: the
+    /// body (up to `MAX_CACHE_IMAGE_BYTES`) is NOT read-modify-written. A
+    /// metadata change still rewrites it, because the body carries the
+    /// validators used by the next conditional request.
     pub(crate) fn refresh(
         &mut self,
         key: &str,
@@ -400,33 +415,53 @@ impl ImageStore {
         headers: &CapturedHeaders,
     ) -> Option<i64> {
         let now = now_secs();
-        let stem = self.index.get(key).map(|e| e.stem.clone());
-        let stem = stem?;
+        let entry = self.index.get(key)?.clone();
+        let Some(mut record) = self.read_file(&entry.stem, key) else {
+            self.remove(key);
+            return None;
+        };
+        let metadata_changed = headers.etag.as_deref().is_some_and(|v| v != record.etag)
+            || headers
+                .last_modified
+                .as_deref()
+                .is_some_and(|v| v != record.last_modified)
+            || headers
+                .content_type
+                .as_deref()
+                .is_some_and(|v| v != record.content_type);
+        if !metadata_changed {
+            if let Some(entry) = self.index.get_mut(key) {
+                entry.stored_at = now;
+                entry.fresh_until = fresh_until;
+            }
+            self.index_dirty = true;
+            return Some(0);
+        }
+        record.stored_at = now;
+        record.fresh_until = fresh_until;
+        if let Some(etag) = headers.etag.as_deref() {
+            record.etag = etag.to_string();
+        }
+        if let Some(lm) = headers.last_modified.as_deref() {
+            record.last_modified = lm.to_string();
+        }
+        if let Some(ct) = headers.content_type.as_deref() {
+            record.content_type = ct.to_string();
+        }
+        let seq = entry.seq;
+        if let Some(delta) = self.insert(record, seq) {
+            return Some(delta);
+        }
+        // The body rewrite failed (disk full, read-only data dir). The
+        // in-memory index still carries the refreshed expiry, exactly like
+        // the old implementation; the next lookup revalidates with the old
+        // validators instead of serving the entry as fresh forever.
         if let Some(entry) = self.index.get_mut(key) {
             entry.stored_at = now;
             entry.fresh_until = fresh_until;
         }
-        let delta = if let Some(mut record) = self.read_file(&stem, key) {
-            record.stored_at = now;
-            record.fresh_until = fresh_until;
-            if let Some(etag) = headers.etag.as_deref() {
-                record.etag = etag.to_string();
-            }
-            if let Some(lm) = headers.last_modified.as_deref() {
-                record.last_modified = lm.to_string();
-            }
-            if let Some(ct) = headers.content_type.as_deref() {
-                record.content_type = ct.to_string();
-            }
-            let seq = self.index.get(key).map(|e| e.seq).unwrap_or(0);
-            // A rewrite can fail (disk full): the in-memory index above is
-            // still refreshed, but no bytes changed.
-            self.insert(record, seq)
-        } else {
-            None
-        };
         self.index_dirty = true;
-        delta
+        Some(0)
     }
 
     fn read_file(&self, stem: &str, key: &str) -> Option<ImageRecord> {
@@ -449,7 +484,7 @@ impl ImageStore {
 }
 
 pub(crate) fn serialize_image(record: &ImageRecord) -> Vec<u8> {
-    let mut out = Vec::with_capacity(record.body.len() + 512);
+    let mut out = Vec::with_capacity(serialized_image_len(record));
     out.push(RECORD_FORMAT);
     write_string(&mut out, &record.key);
     write_string(&mut out, &record.fetched_url);
@@ -462,6 +497,24 @@ pub(crate) fn serialize_image(record: &ImageRecord) -> Vec<u8> {
     out
 }
 
+/// Exact byte length of [`serialize_image`]: one format byte, each field's
+/// `u32` length prefix plus bytes, and the two `u64` timestamps. Shared with
+/// the favicon store's quota accounting so its estimate matches the file the
+/// serializer actually produces.
+pub(crate) fn serialized_image_len(record: &ImageRecord) -> usize {
+    const PREFIX: usize = 4;
+    let string = |value: &str| PREFIX + value.len();
+    1 + string(&record.key)
+        + string(&record.fetched_url)
+        + string(&record.content_type)
+        + 8
+        + 8
+        + string(&record.etag)
+        + string(&record.last_modified)
+        + PREFIX
+        + record.body.len()
+}
+
 pub(crate) fn parse_image(plain: &[u8]) -> Option<ImageRecord> {
     let mut data = plain;
     if read_u8(&mut data)? != RECORD_FORMAT {
@@ -469,11 +522,11 @@ pub(crate) fn parse_image(plain: &[u8]) -> Option<ImageRecord> {
     }
     let key = read_string(&mut data, config::MAX_URL_BYTES)?;
     let fetched_url = read_string(&mut data, config::MAX_URL_BYTES)?;
-    let content_type = read_string(&mut data, 256)?;
+    let content_type = read_string(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
     let stored_at = read_u64(&mut data)?;
     let fresh_until = read_u64(&mut data)?;
     let etag = read_string(&mut data, 1024)?;
-    let last_modified = read_string(&mut data, 256)?;
+    let last_modified = read_string(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
     let body = read_bytes(&mut data, config::MAX_CACHE_IMAGE_BYTES)?.to_vec();
     Some(ImageRecord {
         key,
@@ -520,6 +573,20 @@ mod tests {
         let mut bad = blob.clone();
         bad[0] = 42;
         assert!(parse_image(&bad).is_none());
+    }
+
+    /// The record reader enforces the same header caps the capture path
+    /// writes; a maximum-length value must survive a round trip.
+    #[test]
+    fn persisted_headers_at_the_cap_roundtrip() {
+        let mut rec = record("https://ex.com/a.png");
+        rec.content_type = "t".repeat(config::MAX_CACHE_RECORD_HEADER_CHARS);
+        rec.last_modified = "l".repeat(config::MAX_CACHE_RECORD_HEADER_CHARS);
+        let blob = serialize_image(&rec);
+        let parsed = parse_image(&blob).expect("parses");
+        assert_eq!(parsed.content_type, rec.content_type);
+        assert_eq!(parsed.last_modified, rec.last_modified);
+        assert_eq!(blob.len(), serialized_image_len(&rec));
     }
 
     /// A file whose decrypted key does not match its filename (hash
@@ -585,6 +652,44 @@ mod tests {
         let freed = store.remove("https://ex.com/a.png");
         assert!(freed > 0);
         assert_eq!(store.entry_count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A 304 that repeats the stored validators must refresh the index only:
+    /// the body file (up to 16 MiB) stays byte-for-byte identical, and the
+    /// index is authoritative for the new expiry.
+    #[test]
+    fn unchanged_validators_refresh_without_rewriting_the_body() {
+        let dir = std::env::temp_dir().join(format!(
+            "mdowser-cache-img-refresh-{}.{}",
+            std::process::id(),
+            now_secs()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = ImageStore::open(dir.clone(), Some([9u8; 32]));
+        let rec = record("https://ex.com/a.png");
+        store.insert(rec, 1).expect("stored");
+        let path = store.file_path(&stem_for("https://ex.com/a.png"));
+        let before = std::fs::read(&path).expect("body");
+        let headers = CapturedHeaders {
+            etag: Some("\"v1\"".to_string()),
+            content_type: Some("image/png".to_string()),
+            ..Default::default()
+        };
+        let fresh_until = 1_700_003_900;
+        assert_eq!(
+            store.refresh("https://ex.com/a.png", fresh_until, &headers),
+            Some(0)
+        );
+        let after = std::fs::read(&path).expect("body");
+        assert_eq!(before, after, "the body must not be rewritten");
+        match store
+            .lookup("https://ex.com/a.png", 1_700_003_700)
+            .expect("hit")
+        {
+            ImageHit::Fresh(hit) => assert_eq!(hit.fresh_until, fresh_until),
+            ImageHit::Stale(_) => panic!("index refresh must make the entry fresh"),
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

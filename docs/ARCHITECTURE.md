@@ -133,7 +133,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
           menus/dropdowns/rows), `ui::forget_tab()` (single function registry
           for closed-tab egui-memory keys))
 ```
-Key contracts per area (the module map above names every module):
+Key contracts per area (the module map above names the main module areas):
 
 ## Network and documents
 

@@ -82,7 +82,7 @@ Or read a Markdown document hosted online:
 mdowser https://example.com/readme.md
 ```
 
-You can also type a URL or file path into the address bar, drop files or folders onto the window, or open a file from the application. Navigation stays inside MDowser, and `Esc` stops a load. `mdowser --help` prints the usage and `mdowser --version` the build, without opening a window.
+You can also type a URL or file path into the address bar, drop files or folders onto the window, or open a file from the application. Navigation stays inside MDowser, and `Esc` stops a load. `mdowser --help` prints the usage and `mdowser --version` the build, without opening a window (on Windows the windowed build has no console, so those flags are no-ops; see [Building MDowser](docs/BUILDING.md#native-windows)).
 
 For the URL-routing sequence, redirects and local-file rules, see [Navigation](docs/NAVIGATION.md).
 
@@ -111,7 +111,7 @@ The Makefile handles dependencies and packaging:
 
 ```sh
 make          # dependencies + current-OS packages in dist/
-make dist     # dependencies + packages for macOS, Linux and Windows in dist/
+make dist     # dependencies + packages for every platform the host can build in dist/
 make build    # host release binary in target/release/mdowser
 make install  # install that binary into /usr/local (PREFIX/DESTDIR supported)
 make run      # debug build and run

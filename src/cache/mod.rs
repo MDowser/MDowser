@@ -59,7 +59,8 @@ const DOCS_QUOTA_BYTES: u64 = 128 * 1024 * 1024;
 const IMAGES_QUOTA_BYTES: u64 = 352 * 1024 * 1024;
 #[cfg(test)]
 const IMAGES_QUOTA_BYTES: u64 = 8 * 1024;
-const FAVICONS_QUOTA_BYTES: u64 = crate::config::MAX_CACHE_FAVICON_BYTES as u64;
+const FAVICONS_QUOTA_BYTES: u64 =
+    (crate::config::MAX_CACHE_FAVICON_BYTES as u64).saturating_sub(favicons::FILE_HEADER_BYTES);
 
 /// Resource class (stable `u8` for the order map).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -314,7 +315,19 @@ impl CacheManager {
 
     pub(crate) fn doc_lookup(&self, key: &str) -> Option<DocHit> {
         let now = now_secs();
-        self.lock().docs.lookup(key, now)
+        let mut inner = self.lock();
+        let before = inner.docs.byte_total();
+        let hit = inner.docs.lookup(key, now);
+        // A poisoned body makes the store drop its index entry; the global
+        // total and FIFO must follow, or the phantom keeps consuming budget
+        // and can evict unrelated entries for the rest of the session.
+        let after = inner.docs.byte_total();
+        if after < before {
+            inner.total_bytes = inner.total_bytes.saturating_sub(before - after);
+            inner.drop_seq(Class::Docs, key);
+            inner.touched();
+        }
+        hit
     }
 
     pub(crate) fn doc_store(&self, record: DocRecord) {
@@ -358,7 +371,16 @@ impl CacheManager {
 
     pub(crate) fn image_lookup(&self, key: &str) -> Option<ImageHit> {
         let now = now_secs();
-        self.lock().images.lookup(key, now)
+        let mut inner = self.lock();
+        let before = inner.images.byte_total();
+        let hit = inner.images.lookup(key, now);
+        let after = inner.images.byte_total();
+        if after < before {
+            inner.total_bytes = inner.total_bytes.saturating_sub(before - after);
+            inner.drop_seq(Class::Images, key);
+            inner.touched();
+        }
+        hit
     }
 
     pub(crate) fn image_store(&self, record: ImageRecord) {
@@ -537,16 +559,24 @@ impl CacheManager {
     /// Per-frame flush check (cheap: one lock + timestamp compare). Spawns
     /// the background flusher at most every
     /// `CACHE_INDEX_FLUSH_DEBOUNCE_SECS` while dirty.
+    ///
+    /// Never waits for the lock: a background fetch or flush may be writing
+    /// a multi-megabyte body while holding it, and blocking the UI thread on
+    /// that would drop frames. A skipped check is harmless — the next frame
+    /// retries, and the exit path flushes synchronously.
     pub(crate) fn tick(&self) {
         let debounce = Duration::from_secs(crate::config::CACHE_INDEX_FLUSH_DEBOUNCE_SECS);
-        let should_flush = {
-            let inner = self.lock();
-            inner.dir.is_some()
-                && !inner.stopped
-                && !inner.flush_running
-                && inner.flushed_generation != inner.generation
-                && inner.last_flush.elapsed() >= debounce
+        let inner = match self.inner.try_lock() {
+            Ok(inner) => inner,
+            Err(std::sync::TryLockError::Poisoned(e)) => e.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) => return,
         };
+        let should_flush = inner.dir.is_some()
+            && !inner.stopped
+            && !inner.flush_running
+            && inner.flushed_generation != inner.generation
+            && inner.last_flush.elapsed() >= debounce;
+        drop(inner);
         if should_flush {
             self.spawn_flush();
         }
@@ -1021,6 +1051,45 @@ mod tests {
         mgr.doc_store(doc("https://ex.com/a", "ex.com", 8));
         assert_eq!(mgr.stats().doc_entries, 1);
         let _ = std::fs::remove_dir_all(tmp("suppress"));
+    }
+
+    /// A corrupt host file makes `DocsStore::lookup` drop the index entry.
+    /// The manager's global total and FIFO must drop it too: the phantom
+    /// used to keep consuming the budget and could evict unrelated entries.
+    #[test]
+    fn poisoned_lookup_releases_global_accounting() {
+        let dir = tmp("poisoned").join("cache");
+        let mgr = manager_in(dir.clone());
+        mgr.doc_store(doc("https://ex.com/a", "ex.com", 64));
+        assert_eq!(mgr.stats().doc_entries, 1);
+        // Reopen so the lookup reads the host file instead of the RAM fast
+        // path, like a fresh process with a poisoned file on disk.
+        assert!(mgr.flush_blocking(std::time::Duration::from_secs(5)));
+        drop(mgr);
+        let mgr = manager_in(dir);
+        let cache_dir = mgr.lock().dir.clone().expect("enabled cache");
+        let mut host_file = None;
+        if let Ok(shards) = std::fs::read_dir(cache_dir.join("docs")) {
+            for shard in shards.flatten() {
+                if let Ok(files) = std::fs::read_dir(shard.path()) {
+                    if let Some(file) = files
+                        .flatten()
+                        .find(|f| f.path().extension().and_then(|e| e.to_str()) == Some("bin"))
+                    {
+                        host_file = Some(file.path());
+                        break;
+                    }
+                }
+            }
+        }
+        let host_file = host_file.expect("host file written");
+        std::fs::write(&host_file, b"not a valid encrypted host file").expect("corrupt");
+        assert!(mgr.doc_lookup("https://ex.com/a").is_none());
+        let stats = mgr.stats();
+        assert_eq!(stats.doc_entries, 0);
+        assert_eq!(stats.doc_bytes, 0);
+        assert_eq!(mgr.lock().total_bytes, 0);
+        let _ = std::fs::remove_dir_all(tmp("poisoned"));
     }
 
     /// A cache path swapped for a symlink must disable the cache, never

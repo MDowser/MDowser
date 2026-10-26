@@ -383,9 +383,19 @@ pub(crate) async fn get_bytes(
 
 /// First value of a response header, length-capped (server-controlled).
 fn first_capped(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
+    first_capped_chars(resp, name, config::MAX_CACHE_HEADER_CHARS)
+}
+
+/// [`first_capped`] with an explicit cap, for values that are persisted in
+/// a cache record (the record parser enforces the same bound).
+fn first_capped_chars(
+    resp: &reqwest::Response,
+    name: reqwest::header::HeaderName,
+    max_chars: usize,
+) -> Option<String> {
     let value = resp.headers().get(name)?;
     let text = value.to_str().ok()?;
-    let capped = truncate_chars(text, config::MAX_CACHE_HEADER_CHARS).into_owned();
+    let capped = truncate_chars(text, max_chars).into_owned();
     if capped.is_empty() {
         None
     } else {
@@ -458,7 +468,11 @@ fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
         ),
         expires: first_capped(resp, reqwest::header::EXPIRES),
         etag: first_capped(resp, reqwest::header::ETAG),
-        last_modified: first_capped(resp, reqwest::header::LAST_MODIFIED),
+        last_modified: first_capped_chars(
+            resp,
+            reqwest::header::LAST_MODIFIED,
+            config::MAX_CACHE_RECORD_HEADER_CHARS,
+        ),
         date: first_capped(resp, reqwest::header::DATE),
         age: first_capped(resp, reqwest::header::AGE),
         vary: capped_values(
@@ -467,14 +481,17 @@ fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
             config::MAX_CACHE_HEADER_VALUES,
             true,
         ),
-        // The caller's gate already inspected every declared value: the
-        // record keeps them all (even empty ones).
+        // The caller's gate already inspected every declared value. The
+        // record only needs a bounded copy: keep the joined values, capped
+        // to the same per-field limit the record parser enforces, so a long
+        // or repeated header can never make the stored file unreadable.
         content_type: capped_values(
             resp,
             reqwest::header::CONTENT_TYPE,
             config::MAX_CONTENT_TYPE_VALUES,
             false,
-        ),
+        )
+        .map(|joined| truncate_chars(&joined, config::MAX_CACHE_RECORD_HEADER_CHARS).into_owned()),
         pragma_no_cache,
         too_many_headers,
     }

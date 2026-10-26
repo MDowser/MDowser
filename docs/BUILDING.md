@@ -167,10 +167,10 @@ bootstrap; pass `SKIP_SETUP=1` to keep auto-install off):
 
 ```sh
 ./scripts/build-test.sh            # same as make test
-./scripts/build-dist.sh --all      # same as make dist (every platform package)
+./scripts/build-dist.sh --all      # same as make dist (every platform the host can build)
 ./scripts/build-dist.sh --host-only   # current-OS package (fast, no cross)
 ./scripts/build-dist.sh --mac | --linux | --windows | --rpm | --flatpak  # one group
-./scripts/check-dist.sh            # privacy gate over dist/ (= make check-dist)
+./scripts/check-dist.sh --require  # privacy gate over dist/ (= make check-dist)
 ./scripts/validate.sh              # packaging metadata checks (= make validate)
 ./scripts/install.sh               # runtime files under PREFIX (= make install)
 ./scripts/deps.sh                  # build/packaging deps (= make deps)

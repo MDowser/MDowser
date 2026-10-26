@@ -242,6 +242,16 @@ pub(crate) fn wipe_all_data() -> io::Result<()> {
 /// check. Any failure (missing file, non-regular, over the cap, IO error)
 /// is `None`: every store treats that as "empty in-memory store".
 pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
+    read_regular_file_impl(path, max_len, true)
+}
+
+/// Same bounded, non-blocking read for a file the app does NOT own (for
+/// example `user-dirs.dirs`): it never changes the file's permissions.
+pub(crate) fn read_regular_file_unowned(path: &Path, max_len: u64) -> Option<Vec<u8>> {
+    read_regular_file_impl(path, max_len, false)
+}
+
+fn read_regular_file_impl(path: &Path, max_len: u64, tighten_perms: bool) -> Option<Vec<u8>> {
     use std::io::Read as _;
     // `symlink_metadata` inspects the directory entry itself: a store file is
     // never a symlink, and following one would let a planted link read (and
@@ -288,7 +298,11 @@ pub(crate) fn read_regular_file(path: &Path, max_len: u64) -> Option<Vec<u8>> {
     // save: tighten group/other bits best-effort on the OPENED handle (never
     // widens owner bits, never follows a symlink swapped in after the open).
     #[cfg(unix)]
-    tighten_opened_perms(&file);
+    if tighten_perms {
+        tighten_opened_perms(&file);
+    }
+    #[cfg(not(unix))]
+    let _ = tighten_perms;
     Some(out)
 }
 

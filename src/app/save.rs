@@ -490,7 +490,14 @@ fn xdg_config_home(home: &Path) -> PathBuf {
 /// falls back to `~/Downloads`). Quoting and comments follow the format the
 /// tool writes: one `KEY="value"` per line, `#` comments.
 fn xdg_download_dir_in(home: &Path, config: &Path) -> Option<PathBuf> {
-    let text = std::fs::read_to_string(config.join("user-dirs.dirs")).ok()?;
+    // Bounded, non-blocking read: this runs on the UI thread (Ctrl/Cmd+S),
+    // and the file is user/config-controlled. A FIFO swapped in at the path
+    // must not hang the window, and a huge file must not allocate without
+    // bound. `unowned`: the app does not own this file, so its permissions
+    // stay untouched.
+    let bytes =
+        crate::settings::read_regular_file_unowned(&config.join("user-dirs.dirs"), 64 * 1024)?;
+    let text = String::from_utf8(bytes).ok()?;
     for line in text.lines() {
         let line = line.trim();
         if line.is_empty() || line.starts_with('#') {
@@ -671,6 +678,21 @@ mod tests {
             None,
             "a relative entry must never resolve under the working directory"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The UI thread reads this file on save: an oversized one must be
+    /// ignored as a whole instead of allocating without bound.
+    #[test]
+    fn oversized_xdg_file_is_ignored() {
+        let dir = scratch("xdg-oversize");
+        let config = dir.join("config");
+        let home = dir.join("home");
+        std::fs::create_dir_all(&config).expect("config");
+        let mut text = String::from("XDG_DOWNLOAD_DIR=\"$HOME/Descargas\"\n");
+        text.push_str(&"#".repeat(64 * 1024));
+        std::fs::write(config.join("user-dirs.dirs"), text).expect("user-dirs.dirs");
+        assert_eq!(xdg_download_dir_in(&home, &config), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Cache maintenance stays off the frame clock: the per-frame flush check uses
+  a non-blocking lock, so a background body write can no longer stall the UI
+  thread. A skipped check retries on the next frame, and the exit path still
+  flushes synchronously. (`src/cache/mod.rs`.)
+- Revalidation writes less: a document 304 reads and decrypts its host file
+  once instead of twice, and an image 304 whose validators/content type did
+  not change updates only the index instead of re-encrypting and rewriting a
+  body of up to `MAX_CACHE_IMAGE_BYTES`. (`src/cache/docs.rs`,
+  `src/cache/images.rs`.)
+- Dependencies: `Cargo.lock` refreshed to the latest compatible patch
+  releases (accesskit, brotli, icu, uuid, …); no manifest or API changes.
+
+### Fixed
+
+- Cache records can no longer be written with header text their parser
+  rejects: persisted `Content-Type`/`Last-Modified` values share one
+  256-character cap on capture and on read, so a long or repeated header can
+  no longer make a whole host file or `favicons.bin` unreadable.
+  (`src/protocol/client/get.rs`, `src/cache/docs.rs`, `src/cache/images.rs`,
+  `src/config/mod.rs`.)
+- The image cache rejects a record whose serialized metadata would exceed the
+  reader's file cap, and the favicon quota now uses the exact serialized
+  record size; an underestimated favicon could previously make every flush
+  fail and lose the in-memory icons on exit. (`src/cache/images.rs`,
+  `src/cache/favicons.rs`, `src/cache/mod.rs`.)
+- A poisoned cache body dropped during lookup now also updates the global
+  byte total and FIFO, instead of leaving a phantom that could evict
+  unrelated entries for the rest of the session. (`src/cache/mod.rs`.)
+- `XDG_DOWNLOAD_DIR` is read through the bounded, non-blocking regular-file
+  reader, so a FIFO or oversized `user-dirs.dirs` can no longer hang or
+  exhaust the UI thread on save. The file's permissions are left untouched.
+  (`src/app/save.rs`, `src/settings/platform.rs`.)
+- JSX callouts and structural components ignore close tags inside fenced or
+  indented code, match their close tag case-insensitively, balance nested
+  same-name callouts, and do not treat a self-closing child as a nested
+  opener. (`src/markdown/document/normalize_markup.rs`.)
+- Documentation: the direct `check-dist` command now includes `--require`,
+  the README qualifies `--help`/`--version` on Windows and `make dist` by
+  host capability, and the architecture map no longer claims to name every
+  module. (`README.md`, `docs/BUILDING.md`, `docs/ARCHITECTURE.md`.)
+
 ## [0.7.1] - 2026-10-26
 
 Restore the Flatpak release artifact: the freedesktop 26.08 Rust extension is

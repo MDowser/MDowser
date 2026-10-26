@@ -967,11 +967,20 @@ fn expand_component(
     let close = format!("</{name_lower}>");
     let mut j = i + 1;
     let mut nest = 0usize;
+    let mut fence: FenceState = None;
     while j < lines.len() {
         if *scan_budget == 0 {
             return None;
         }
         *scan_budget -= 1;
+        // A close tag inside a fence or an indented code block is sample
+        // text, not structure. Without this the component ended at the
+        // fenced line, leaving the fence unclosed and swallowing the rest
+        // of the document.
+        if fence_update(&mut fence, lines[j]) || is_indented_code(lines[j]) {
+            j += 1;
+            continue;
+        }
         let t = lines[j].trim();
         if t.eq_ignore_ascii_case(&close) {
             if nest == 0 {
@@ -980,7 +989,7 @@ fn expand_component(
             nest -= 1;
         } else if lines[j].starts_with('<') {
             if let Some(tag) = whole_tag(lines[j]) {
-                if !tag.closing && tag.name.eq_ignore_ascii_case(name_lower) {
+                if !tag.closing && !tag.self_closing && tag.name.eq_ignore_ascii_case(name_lower) {
                     nest += 1;
                 }
             }
@@ -1459,11 +1468,36 @@ fn build_callout(
     }
     let close = format!("</{}>", op.name);
     let mut j = i + 1;
-    while j < lines.len() && lines[j].trim() != close {
+    let mut nest = 0usize;
+    let mut fence: FenceState = None;
+    while j < lines.len() {
         if *scan_budget == 0 {
             return None;
         }
         *scan_budget -= 1;
+        // Fenced/indented code is verbatim: a close tag shown as an example
+        // must not end the callout.
+        if fence_update(&mut fence, lines[j]) || is_indented_code(lines[j]) {
+            j += 1;
+            continue;
+        }
+        let t = lines[j].trim();
+        // The opener is matched case-insensitively; the close must be too
+        // (`<Note>…</note>` is a valid pair).
+        if t.eq_ignore_ascii_case(&close) {
+            if nest == 0 {
+                break;
+            }
+            nest -= 1;
+        } else if lines[j].starts_with('<') {
+            // Same-name callouts nest: the inner close must not end the
+            // outer one. A self-closing opener has no body to balance.
+            if let Some(tag) = whole_tag(lines[j]) {
+                if !tag.closing && !tag.self_closing && tag.name.eq_ignore_ascii_case(&op.name) {
+                    nest += 1;
+                }
+            }
+        }
         j += 1;
     }
     if j >= lines.len() {
@@ -1753,5 +1787,47 @@ mod tests {
         assert_eq!(out.matches("data=\"tabs\"").count(), 2, "{out:?}");
         assert_eq!(out.matches("data=\"/tabs\"").count(), 2, "{out:?}");
         assert_eq!(out.matches("data=\"tab|").count(), 2, "{out:?}");
+    }
+
+    #[test]
+    fn self_closing_components_do_not_balance_as_nested() {
+        // A `<Tab … />` has no body: counting it as a nested opener made the
+        // outer `<Tabs>` miss its real close tag.
+        let out = run("<Tabs>\n<Tab label=\"A\" />\n<Tab label=\"B\">\nBody\n</Tab>\n</Tabs>\n");
+        assert_eq!(out.matches("data=\"tabs\"").count(), 1, "{out:?}");
+        assert_eq!(out.matches("data=\"/tabs\"").count(), 1, "{out:?}");
+        assert!(out.contains("data=\"tab\" />"), "{out:?}");
+        assert!(out.contains("data=\"tab|B\""), "{out:?}");
+    }
+
+    #[test]
+    fn close_tags_inside_fences_do_not_end_components() {
+        let out = run("<Tabs>\n<Tab label=\"A\">\n```mdx\n</Tabs>\n```\n</Tab>\n</Tabs>\n");
+        assert_eq!(out.matches("data=\"tabs\"").count(), 1, "{out:?}");
+        assert!(out.contains("</Tabs>"), "fenced closer kept: {out:?}");
+    }
+
+    #[test]
+    fn callout_close_inside_a_fence_does_not_end_the_callout() {
+        let out = run("<Note>\n```mdx\n</Note>\n```\nAfter\n</Note>\n");
+        assert_eq!(out.matches("[!NOTE]").count(), 1, "{out:?}");
+        assert!(out.contains("> </Note>"), "fenced closer kept: {out:?}");
+        assert!(out.contains("> After"), "text after fence kept: {out:?}");
+    }
+
+    #[test]
+    fn callout_close_is_case_insensitive() {
+        let out = run("<Note>\nBody\n</note>\n");
+        assert!(out.contains("[!NOTE]"), "{out:?}");
+        assert!(out.contains("> Body"), "{out:?}");
+    }
+
+    #[test]
+    fn nested_same_name_callouts_are_balanced() {
+        let out = run("<Note>\nOuter\n<Note>\nInner\n</Note>\nAfter\n</Note>\n");
+        assert_eq!(out.matches("[!NOTE]").count(), 2, "{out:?}");
+        assert!(out.contains("Outer"), "{out:?}");
+        assert!(out.contains("Inner"), "{out:?}");
+        assert!(out.contains("After"), "{out:?}");
     }
 }

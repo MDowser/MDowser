@@ -364,7 +364,6 @@ impl DocsStore {
     /// drops evicted keys from the global FIFO too, so the order never holds
     /// phantoms. Over-cap hosts evict their own oldest first.
     pub(crate) fn insert(&mut self, record: DocRecord, seq: u64) -> Option<(i64, Vec<String>)> {
-        let key_bytes = self.key?;
         let host_key = record
             .fetched_url
             .parse::<Url>()
@@ -375,7 +374,21 @@ impl DocsStore {
         }
         let stem = stem_for(&host_key);
         // Read-modify-write the host file (bounded; corrupt = start fresh).
-        let mut entries = self.read_host_file(&stem).unwrap_or_default();
+        let entries = self.read_host_file(&stem).unwrap_or_default();
+        self.insert_into_host(record, seq, stem, entries)
+    }
+
+    /// Shared write path for [`Self::insert`] and [`Self::refresh`]: the
+    /// caller may already have read the host file (a 304 used to decrypt and
+    /// parse it twice, once for the record and again here).
+    fn insert_into_host(
+        &mut self,
+        record: DocRecord,
+        seq: u64,
+        stem: String,
+        mut entries: Vec<DocRecord>,
+    ) -> Option<(i64, Vec<String>)> {
+        let key_bytes = self.key?;
         entries.retain(|r| r.key != record.key);
         let size = serialized_doc_len(&record) as u64;
         entries.push(record.clone());
@@ -532,7 +545,11 @@ impl DocsStore {
         headers: &CapturedHeaders,
     ) -> Option<(i64, Vec<String>)> {
         let entry = self.index.get(key).cloned()?;
-        let mut record = self.read_host_entry(&entry.host_stem, key)?;
+        // Read the host file ONCE and reuse it for the rewrite; the old path
+        // read it here and again inside `insert`.
+        let mut entries = self.read_host_file(&entry.host_stem)?;
+        let pos = entries.iter().position(|r| r.key == key)?;
+        let mut record = entries.remove(pos);
         let now = now_secs();
         record.stored_at = now;
         record.fresh_until = fresh_until;
@@ -546,7 +563,7 @@ impl DocsStore {
             record.content_type = ct.to_string();
         }
         let seq = entry.seq;
-        self.insert(record, seq)
+        self.insert_into_host(record, seq, entry.host_stem, entries)
     }
 
     /// Drops one index entry whose body can no longer be read (corrupt host
@@ -802,11 +819,11 @@ fn parse_host_file(plain: &[u8], stem: &str) -> Option<Vec<DocRecord>> {
         let key = read_string(&mut data, config::MAX_URL_BYTES)?;
         let fetched_url = read_string(&mut data, config::MAX_URL_BYTES)?;
         let final_url = read_string(&mut data, config::MAX_URL_BYTES)?;
-        let content_type = read_string(&mut data, 256)?;
+        let content_type = read_string(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
         let stored_at = read_u64(&mut data)?;
         let fresh_until = read_u64(&mut data)?;
         let etag = read_string(&mut data, 1024)?;
-        let last_modified = read_string(&mut data, 256)?;
+        let last_modified = read_string(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
         let body = read_string(&mut data, config::MAX_BODY_BYTES)?;
         // The record must belong to this host file: a swapped/colliding
         // file can never serve another host's page.
@@ -871,6 +888,20 @@ mod tests {
         let mut bad = blob.clone();
         bad[0] = 99;
         assert!(parse_host_file(&bad, &stem).is_none());
+    }
+
+    /// The writer and the reader must agree on persisted header caps: a
+    /// maximum-length `Content-Type`/`Last-Modified` used to be written but
+    /// rejected on read, making the whole host file look corrupt.
+    #[test]
+    fn persisted_headers_at_the_cap_roundtrip() {
+        let mut rec = record("https://ex.com/love", "ex.com");
+        rec.content_type = "t".repeat(config::MAX_CACHE_RECORD_HEADER_CHARS);
+        rec.last_modified = "l".repeat(config::MAX_CACHE_RECORD_HEADER_CHARS);
+        let blob = serialize_host_file(std::slice::from_ref(&rec));
+        let parsed = parse_host_file(&blob, &stem_for("ex.com")).expect("parses");
+        assert_eq!(parsed[0].content_type, rec.content_type);
+        assert_eq!(parsed[0].last_modified, rec.last_modified);
     }
 
     /// Regression (global accounting): the host-cap eviction must report the

@@ -1036,6 +1036,12 @@ pub const CACHE_RAM_DOC_BYTES: usize = 64 * 1024 * 1024;
 /// entries and log lines derived from them.
 pub const MAX_CACHE_HEADER_CHARS: usize = 512;
 
+/// Max chars of a header value PERSISTED inside a cache record
+/// (`Content-Type`, `Last-Modified`). The record parser enforces the same
+/// cap: a longer captured value would be written but rejected on read,
+/// making the whole host/favicon file look corrupt.
+pub const MAX_CACHE_RECORD_HEADER_CHARS: usize = 256;
+
 /// Max repeated values captured per cache-policy header (`Cache-Control`,
 /// `Vary`). Past this the response is treated as non-storable: the values
 /// that did not fit could forbid caching.
