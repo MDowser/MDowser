@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-26
+
+Browser navigation shortcuts, command-line relative paths, drag and drop,
+code-block Copy feedback, and a toolchain and dependency refresh with reader,
+cache and packaging hardening.
+
 ### Added
 
 - Browser navigation shortcuts. `Alt+Left`/`Alt+Right` (and `Cmd+[`/`Cmd+]`

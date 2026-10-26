@@ -7,10 +7,10 @@ See also: [`ARCHITECTURE.md`](ARCHITECTURE.md) for the internal contracts and
 
 | Version | Supported |
 | ------- | --------- |
-| 0.6.x   | Yes       |
-| < 0.6   | No        |
+| 0.7.x   | Yes       |
+| < 0.7   | No        |
 
-Only the latest `0.6.x` release line (see the `Cargo.toml` version and
+Only the latest `0.7.x` release line (see the `Cargo.toml` version and
 `CHANGELOG.md`) receives security fixes. The table is checked against
 `Cargo.toml` by `make check-version`, so a release cannot leave this policy
 advertising an older line.
