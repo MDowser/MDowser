@@ -30,6 +30,8 @@
 //!   internal `about:licenses` page renders through `viewer` from the
 //!   embedded `THIRD_PARTY_NOTICES.md` (`licenses::document`).
 //! - `error_view`: line-by-line access error.
+//! - `drop_overlay`: the non-interactive full-window target painted while
+//!   the OS reports local files hovering over the window.
 //! - `preferences`: the floating, tabbed Preferences window (General:
 //!   theme, zoom, restore-tabs + version/licenses link; Data: retention and
 //!   data deletion; Shortcuts: keyboard reference); the history LIST
@@ -227,6 +229,7 @@ pub(crate) fn forget_scroll_state(ctx: &egui::Context, id_salt: &'static str, ta
 }
 
 pub mod bookmarks;
+pub mod drop_overlay;
 pub mod error_view;
 pub mod history_page;
 pub mod home;

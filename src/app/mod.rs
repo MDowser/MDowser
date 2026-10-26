@@ -20,6 +20,9 @@
 //!   default or forced in Preferences (`settings::Prefs`). Preferences also
 //!   hold the startup zoom and "restore tabs on startup" (open tabs are
 //!   remembered in `settings` and reopened on the next launch).
+//! - File drag and drop: while files hover over the window a full-window
+//!   target is painted; dropped local files/folders open in new tabs after
+//!   the active one, with the first dropped tab selected.
 //! - Keyboard shortcuts: Ctrl/Cmd+T (new tab), Ctrl/Cmd+W (close tab),
 //!   Ctrl/Cmd+Shift+T (reopen the last closed tab), Ctrl+Tab /
 //!   Ctrl+Shift+Tab and Ctrl+PageDown/PageUp (cycle tabs), Alt+Left/Right
@@ -69,6 +72,12 @@ pub struct MdowserApp {
     tabs_overlay_rect: Option<egui::Rect>,
     /// Focus the address field on the next frame (new tab / Ctrl+Cmd+L).
     focus_address: bool,
+    /// Local paths dropped onto the window, queued by `raw_input_hook` and
+    /// opened by `logic` (tab creation belongs to the app, not the hook).
+    pending_drops: Vec<std::path::PathBuf>,
+    /// True while the OS reports files hovering over the window: paints the
+    /// non-interactive drop target above every panel.
+    drop_hover: bool,
     /// Encrypted local browsing history (configurable retention).
     history: HistoryStore,
     /// Encrypted local bookmarks (listed only on the Home page).
@@ -197,6 +206,8 @@ impl MdowserApp {
             favicons: FaviconCache::new(),
             tabs_overlay_rect: None,
             focus_address,
+            pending_drops: Vec::new(),
+            drop_hover: false,
             history,
             bookmarks: BookmarkStore::load(),
             prefs,
@@ -486,6 +497,51 @@ impl MdowserApp {
         let len = self.tabs.len() as isize;
         let next = (self.active as isize + delta).rem_euclid(len) as usize;
         self.activate_tab(next);
+    }
+
+    /// Opens one NEW tab per dropped local path, in drop order, inserted
+    /// right after the active tab. The first opened tab becomes visible
+    /// (unlike [`Self::open_url_in_new_tab`], a drop is an explicit "open
+    /// these now" gesture); the current page keeps its state.
+    ///
+    /// Paths go through [`Tab::navigate_to_file_path`], never the address
+    /// parser, so a dropped path can never turn into an HTTPS host. A
+    /// directory resolves through the local resolver's conventional indexes
+    /// (`index.md`, `README.md`). At `MAX_TABS` the remaining paths are
+    /// refused with the usual toast, while any tabs already opened stay.
+    fn open_dropped_files(&mut self, paths: Vec<std::path::PathBuf>) {
+        if paths.is_empty() {
+            return;
+        }
+        self.drop_hover = false;
+        self.heal_active();
+        // Standard browser behavior: the batch sits right after the active
+        // tab, in drop order; the first one is selected, the rest stay
+        // background tabs. Advance the insertion point ourselves: `active`
+        // only moves to the first slot, so inserting at `active + 1` every
+        // time would reverse the remaining paths ahead of tabs to the right.
+        let mut at = self.active.saturating_add(1).min(self.tabs.len());
+        let mut first = true;
+        let mut refused = false;
+        for path in paths {
+            if self.tabs.len() >= config::MAX_TABS {
+                refused = true;
+                break;
+            }
+            let id = self.next_id;
+            self.next_id += 1;
+            let mut tab = Tab::new(id);
+            tab.navigate_to_file_path(&path, true);
+            self.tabs.insert(at.min(self.tabs.len()), tab);
+            if first {
+                self.activate_tab(at);
+                first = false;
+            }
+            at = at.saturating_add(1);
+        }
+        if refused {
+            self.active_tab_mut().set_toast("Tab limit reached");
+        }
     }
 
     /// Opens `input` in a NEW background tab, inserted right after the

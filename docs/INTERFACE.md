@@ -42,11 +42,22 @@ surface pill and accent bar in the left gutter.
 - A loading tab shows an hourglass where the favicon will be; a cached favicon
   stays with a small progress dot.
 - New tabs cap at `config::MAX_TABS` (128); one past the cap (`+ New Tab`, a
-  bookmark, `Ctrl/Cmd+T`) is refused with a "Tab limit reached" toast.
+  bookmark, `Ctrl/Cmd+T`, a file drop) is refused with a "Tab limit reached"
+  toast.
 - Rows reorder: a drag reorders the rail live (list follows pointer, dragged
   row carries a primary ring, overlay stays open), `Alt+Up`/`Alt+Down` moves a
   focused row one slot. The active tab follows its page; the new order is what
   "restore tabs on startup" remembers.
+
+## Drag and drop
+
+Local files and folders can be dropped anywhere on the window. While the OS
+reports files hovering, a translucent scrim and a centered target cover the
+chrome and the page; dropping opens one tab per path in drop order, right after
+the active tab, and selects the first dropped tab. The page that was open is
+never replaced. Folders resolve through the local-file resolver's conventional
+indexes (`index.md`, `README.md`), and a drop that exceeds the remaining tab
+slots opens what fits and reports "Tab limit reached".
 
 ## Favicons
 

@@ -39,12 +39,37 @@ impl eframe::App for MdowserApp {
     ///
     /// On macOS it also injects the menu bar commands queued by the platform
     /// menu, as the raw key events they stand for.
+    ///
+    /// OS file drags are captured here too, before the label-selection early
+    /// return: the hover state drives the full-window drop target and dropped
+    /// paths are queued for `logic`, which creates the tabs.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         // macOS menu bar: replay each queued command as its keyboard event,
         // into the raw input egui is about to process.
         #[cfg(target_os = "macos")]
         if !self.pending_menu_events.is_empty() {
             raw_input.events.append(&mut self.pending_menu_events);
+        }
+        // A file drag is not a keyboard/pointer event, so it must be handled
+        // before the early return below. Native drops always carry a path.
+        self.drop_hover = !raw_input.hovered_files.is_empty();
+        if !raw_input.dropped_files.is_empty() {
+            self.drop_hover = false;
+            // Bound the queue like the OS/CLI target list. Keep one path
+            // beyond the tab cap so `open_dropped_files` can still report the
+            // overflow with the usual toast instead of dropping it silently.
+            // The room is computed against what is already queued, so several
+            // drops before the next `logic` pass cannot grow it without bound.
+            let room = config::MAX_TABS
+                .saturating_add(1)
+                .saturating_sub(self.pending_drops.len());
+            self.pending_drops.extend(
+                raw_input
+                    .dropped_files
+                    .drain(..)
+                    .take(room)
+                    .map(|file| file.path().to_path_buf()),
+            );
         }
         if raw_input.events.is_empty() || !crate::viewer::has_label_selection(ctx) {
             return;
@@ -113,6 +138,12 @@ impl eframe::App for MdowserApp {
         // the platforms that have no menu.
         #[cfg(target_os = "macos")]
         self.poll_menu(ctx);
+        // OS file drops captured by `raw_input_hook`: open them before the
+        // poll below so their loads start on this same frame.
+        if !self.pending_drops.is_empty() {
+            let drops = std::mem::take(&mut self.pending_drops);
+            self.open_dropped_files(drops);
+        }
         // Poll ALL tabs: background loads must resolve even when not visible.
         let mut any_loading = false;
         let mut any_changed = false;
@@ -395,6 +426,13 @@ impl eframe::App for MdowserApp {
         }
         if prefs_actions.open_licenses {
             self.open_licenses();
+        }
+
+        // File drag over the window: the target sits above every panel and
+        // the Preferences window, and never takes pointer input (it is only
+        // a layer painter, not a widget).
+        if self.drop_hover {
+            ui::drop_overlay::show(ui.ctx());
         }
 
         // Jobs registered while drawing this frame (image `ensure`, favicon

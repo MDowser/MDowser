@@ -25,6 +25,8 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         favicons: FaviconCache::new(),
         tabs_overlay_rect: None,
         focus_address: false,
+        pending_drops: Vec::new(),
+        drop_hover: false,
         history: HistoryStore::in_memory(),
         bookmarks: BookmarkStore::in_memory(),
         prefs: Prefs::default(),
@@ -41,6 +43,23 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         mac_menu: None,
         #[cfg(target_os = "macos")]
         pending_menu_events: Vec::new(),
+    }
+}
+
+/// A native dropped-file handle for `raw_input_hook` tests. eframe's
+/// production handles come from egui-winit; the hook only reads the path.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+struct TestDroppedFile(std::path::PathBuf);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl eframe::egui::DroppedFile for TestDroppedFile {
+    fn path(&self) -> &std::path::Path {
+        &self.0
+    }
+
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        Ok(Vec::new())
     }
 }
 
@@ -90,6 +109,187 @@ fn new_tab_respects_the_cap() {
     assert_eq!(app.tabs.len(), crate::config::MAX_TABS);
     // The refused attempt leaves a visible toast instead of silence.
     assert!(app.active_tab_mut().toast_text.is_some());
+}
+
+/// OS drag state is read before the label-selection early return: hovering
+/// paints the target, and dropped handles are drained into the app queue
+/// (`logic` owns tab creation).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn raw_input_tracks_hover_and_queues_dropped_paths() {
+    use eframe::App as _;
+
+    let ctx = eframe::egui::Context::default();
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    let path = std::env::temp_dir().join("mdowser-dropped-test.md");
+
+    let mut hover = eframe::egui::RawInput {
+        hovered_files: vec![eframe::egui::HoveredFile {
+            path: Some(path.clone()),
+            mime: "text/markdown".to_string(),
+        }],
+        ..Default::default()
+    };
+    app.raw_input_hook(&ctx, &mut hover);
+    assert!(app.drop_hover, "hovering shows the drop target");
+    assert!(app.pending_drops.is_empty(), "nothing dropped yet");
+
+    let mut drop = eframe::egui::RawInput {
+        dropped_files: vec![std::sync::Arc::new(TestDroppedFile(path.clone()))],
+        ..Default::default()
+    };
+    app.raw_input_hook(&ctx, &mut drop);
+    assert!(!app.drop_hover, "a completed drop clears the target");
+    assert_eq!(app.pending_drops, vec![path]);
+    assert!(
+        drop.dropped_files.is_empty(),
+        "the hook owns the drop list after queueing it"
+    );
+}
+
+/// An oversized drag cannot grow the queue without bound: keep just enough
+/// paths for `open_dropped_files` to open the remaining slots and toast the
+/// overflow, and drain the raw list either way.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn raw_input_bounds_the_drop_queue() {
+    use eframe::App as _;
+
+    let ctx = eframe::egui::Context::default();
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    let mut drop = eframe::egui::RawInput::default();
+    for i in 0..(crate::config::MAX_TABS + 10) {
+        let path = std::env::temp_dir().join(format!("mdowser-drop-{i}.md"));
+        drop.dropped_files
+            .push(std::sync::Arc::new(TestDroppedFile(path)));
+    }
+
+    app.raw_input_hook(&ctx, &mut drop);
+
+    assert_eq!(
+        app.pending_drops.len(),
+        crate::config::MAX_TABS + 1,
+        "one path beyond the cap is enough to report the overflow"
+    );
+    assert!(drop.dropped_files.is_empty(), "the hook owns the drop list");
+}
+
+/// Two drops delivered before the next `logic` pass share one bounded queue;
+/// the second cannot grow it past the cap (and its handles are still drained).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn raw_input_bounds_the_drop_queue_across_calls() {
+    use eframe::App as _;
+
+    let ctx = eframe::egui::Context::default();
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    for round in 0..2 {
+        let mut drop = eframe::egui::RawInput::default();
+        for i in 0..(crate::config::MAX_TABS + 10) {
+            let path = std::env::temp_dir().join(format!("mdowser-drop-{round}-{i}.md"));
+            drop.dropped_files
+                .push(std::sync::Arc::new(TestDroppedFile(path)));
+        }
+        app.raw_input_hook(&ctx, &mut drop);
+        assert!(drop.dropped_files.is_empty(), "the hook owns the drop list");
+    }
+
+    assert_eq!(
+        app.pending_drops.len(),
+        crate::config::MAX_TABS + 1,
+        "the queue stays capped across hook calls"
+    );
+}
+
+/// A drop opens one tab per path right after the active tab, in drop order,
+/// and selects only the first new tab (the current page is not replaced).
+#[test]
+fn dropped_paths_open_after_active_and_select_the_first() {
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 1);
+    let first = std::env::temp_dir().join("mdowser-drop-first.md");
+    let second = std::env::temp_dir().join("mdowser-drop-second.md");
+    app.drop_hover = true;
+
+    app.open_dropped_files(vec![first.clone(), second.clone()]);
+
+    assert_eq!(app.tabs.len(), 5);
+    assert_eq!(app.active, 2, "the first dropped tab is visible");
+    assert!(!app.drop_hover);
+    assert_eq!(app.tabs[2].id, 99);
+    assert_eq!(app.tabs[3].id, 100);
+    assert_eq!(app.tabs[4].id, 3, "the original page follows the batch");
+    let first_url = url::Url::from_file_path(&first).unwrap();
+    let second_url = url::Url::from_file_path(&second).unwrap();
+    assert_eq!(app.tabs[2].session_url(), Some(&first_url));
+    assert_eq!(app.tabs[3].session_url(), Some(&second_url));
+}
+
+/// More than two paths keep their drop order even when tabs already exist to
+/// the right of the active tab (the batch must not interleave with them).
+#[test]
+fn dropped_paths_keep_their_order_ahead_of_later_tabs() {
+    let mut app = app_with(vec![Tab::new(1), Tab::new(2), Tab::new(3)], 1);
+    let paths: Vec<_> = (0..3)
+        .map(|i| std::env::temp_dir().join(format!("mdowser-drop-order-{i}.md")))
+        .collect();
+
+    app.open_dropped_files(paths.clone());
+
+    assert_eq!(app.tabs.len(), 6);
+    assert_eq!(app.active, 2, "the first dropped tab is visible");
+    assert_eq!(
+        app.tabs.iter().map(|tab| tab.id).collect::<Vec<_>>(),
+        vec![1, 2, 99, 100, 101, 3],
+        "the whole batch sits between the active tab and its right neighbor"
+    );
+    for (offset, path) in paths.iter().enumerate() {
+        let expected = url::Url::from_file_path(path).unwrap();
+        assert_eq!(
+            app.tabs[2 + offset].session_url(),
+            Some(&expected),
+            "tab {offset} keeps its drop position"
+        );
+    }
+}
+
+/// At the cap, a drop still opens the tabs that fit and reports the rest
+/// with the shared toast instead of silently dropping them.
+#[test]
+fn a_drop_at_the_tab_cap_opens_what_fits_and_toasts() {
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    while app.tabs.len() < crate::config::MAX_TABS - 1 {
+        let id = app.tabs.len() + 2;
+        app.tabs.push(Tab::new(id));
+    }
+    let first = std::env::temp_dir().join("mdowser-drop-at-cap.md");
+    let second = std::env::temp_dir().join("mdowser-drop-over-cap.md");
+    // The fixture seeds `next_id` at 99, which the synthetic rail above also
+    // uses; move it past the fixture ids so the dropped tab stays unique.
+    app.next_id = 1000;
+
+    app.open_dropped_files(vec![first.clone(), second]);
+
+    assert_eq!(app.tabs.len(), crate::config::MAX_TABS);
+    assert_eq!(app.active, 1);
+    assert_eq!(app.tabs[1].id, 1000);
+    let first_url = url::Url::from_file_path(&first).unwrap();
+    assert_eq!(app.tabs[1].session_url(), Some(&first_url));
+    assert_eq!(
+        app.active_tab_mut().toast_text.as_deref(),
+        Some("Tab limit reached")
+    );
+}
+
+/// A dropped path the URL type cannot represent becomes a visible local
+/// error, never an HTTPS host lookup (the address parser would read a bare
+/// relative name as a web host).
+#[test]
+fn a_relative_drop_becomes_a_local_error_not_a_host_lookup() {
+    let mut app = app_with(vec![Tab::new(1)], 0);
+    app.open_dropped_files(vec![std::path::PathBuf::from("relative.md")]);
+    assert_eq!(app.tabs.len(), 2);
+    assert!(matches!(app.tabs[1].state, TabState::Failed { .. }));
+    assert!(app.tabs[1].address.contains("relative.md"));
 }
 
 /// A loaded tab for Ctrl/Cmd+D tests (no fetch, no network).

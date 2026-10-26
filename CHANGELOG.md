@@ -27,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   button width keeps the language chip from shifting during the swap. Copying
   still hands the complete block body to the clipboard. (`src/viewer/code/`,
   `docs/INTERFACE.md`.)
+- Drag and drop: dropping local files or folders onto the window opens one new
+  tab per path in drop order, right after the active tab, with the first
+  dropped tab selected. A full-window target appears while files hover, folders
+  resolve through `index.md`/`README.md`, and a drop that exceeds `MAX_TABS`
+  opens what fits and shows the usual "Tab limit reached" toast. Dropped paths
+  go straight to the local-file resolver and never through the address parser.
+  (`src/app/`, `src/browser/tab/nav.rs`, `src/ui/drop_overlay.rs`, `README.md`,
+  `docs/`.)
 
 ### Changed
 

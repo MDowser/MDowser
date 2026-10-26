@@ -83,10 +83,15 @@ minimal.
 ### Local files
 
 - Local files (`file://` or an absolute/`~/` path) are reachable ONLY from
-  user input (address bar, command line, OS hand-off) and from links inside an
-  already-local document. A remote page can never name a local file:
-  `protocol::rewrite` keeps `file:` destinations inert when the base document
-  is not local.
+  user input (address bar, command line, OS hand-off, a file or folder dropped
+  onto the window) and from links inside an already-local document. A remote
+  page can never name a local file: `protocol::rewrite` keeps `file:`
+  destinations inert when the base document is not local.
+- A dropped path is converted straight to a `file:` URL and never parsed as
+  address text, so a bare name cannot become an HTTPS host. The same
+  regular-file, UTF-8, size, cancellation and no-directory-listing rules apply
+  as for a typed local path. The drop queue keeps at most `MAX_TABS + 1` paths,
+  so an oversized drag cannot grow it without bound.
 - A `file://host/...` URL (remote share) is rejected before any read;
   `file://localhost/...` is the local machine and is accepted. Only REGULAR
   files are readable: the open runs with `O_NONBLOCK` and the OPENED handle is

@@ -74,6 +74,7 @@ document:
 - a home path (`~/notes.md`)
 - an explicit relative path (`./notes.md`, `../notes.md`)
 - a Windows drive path (`C:\notes.md`)
+- a file or folder dropped onto the window
 
 Resolution is simpler:
 
@@ -107,6 +108,12 @@ mdowser file:///tmp/a.md            # file URL
 mdowser --help                      # usage (also -h); --version prints the build (-V)
 open -a MDowser --args ~/notes.md   # macOS, while the app is not running
 ```
+
+Files and folders can also be dropped onto the window. Each dropped path opens
+in its own tab after the active tab, the first dropped tab becomes visible, and
+a folder resolves through the same `index.md`/`README.md` rules as a typed
+directory. The drop is a local path hand-off: it never goes through the address
+parser, so a dropped name cannot become an HTTPS host.
 
 A bare relative target is resolved against the working directory only when it
 actually names a file or directory (or a stem's `.md` sibling). Explicit URL

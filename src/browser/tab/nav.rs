@@ -11,6 +11,7 @@
 //! sibling `nav_moves` module.
 
 use super::*;
+use std::path::Path;
 
 impl Tab {
     /// Navigates to the `address` field text (Go button / Enter).
@@ -102,6 +103,31 @@ impl Tab {
                 // explicit error (cancel cooperatively so the old thread
                 // stops early). History snapshots are restored exactly like
                 // a failed network load.
+                self.fail_locally(
+                    truncate_chars(&safe, config::MAX_ASKED_DISPLAY_CHARS).into_owned(),
+                    vec![line],
+                );
+            }
+        }
+    }
+
+    /// Navigates to a local path handed over by the OS (file drag and drop).
+    ///
+    /// The path is converted to a `file:` URL directly, never re-parsed as
+    /// address text: a dropped path must not become an HTTPS host. A path the
+    /// URL type cannot represent becomes this tab's local error, with no
+    /// network attempt.
+    pub(crate) fn navigate_to_file_path(&mut self, path: &Path, push_history: bool) {
+        match Url::from_file_path(path) {
+            Ok(url) => self.navigate_to_url(&url, push_history),
+            Err(_) => {
+                let safe = client::sanitize_for_display(&path.to_string_lossy());
+                let line = format!("not a local path: {}", crate::util::safe_input_echo(&safe));
+                self.address = truncate_chars(
+                    &strip_scheme_prefix(&safe),
+                    config::MAX_ADDRESS_DISPLAY_CHARS,
+                )
+                .into_owned();
                 self.fail_locally(
                     truncate_chars(&safe, config::MAX_ASKED_DISPLAY_CHARS).into_owned(),
                     vec![line],

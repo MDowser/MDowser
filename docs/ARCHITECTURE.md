@@ -11,7 +11,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
            (`save`) + the macOS-only native menu bar
            (`menu`, macOS only) + native window geometry (`window`:
            first-frame placement + persisted position/size/maximized) +
-           OS/CLI open targets)
+           OS/CLI open targets + file drag and drop)
   ├─ error (the unified `BrowserError` every module converts its failures
   │          into: one message-shaped type for the error view and logs)
   ├─ util (shared helpers: panic guard for background jobs, display caps
@@ -128,7 +128,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
           preferences (tabbed Preferences window: General/Data/Shortcuts,
           incl. the licenses link; `widgets` kit), history_page (internal about:history
-          page), error_view, `row` (the shared painted-row recipe behind
+          page), error_view, drop_overlay (the full-window file-drop target),
+          `row` (the shared painted-row recipe behind
           menus/dropdowns/rows), `ui::forget_tab()` (single function registry
           for closed-tab egui-memory keys))
 ```
@@ -195,6 +196,14 @@ Key contracts per area (the module map above names every module):
   `mdowser example.com` stays a host. Per-target length stays enforced by
   `parse_navigable`: oversized input becomes that tab's local error, never a
   truncated navigation.
+- Drag and drop is the same local-path input, without the address parser:
+  `raw_input_hook` records `hovered_files` for the full-window overlay and
+  drains `dropped_files` into `pending_drops`; `logic` opens each path through
+  `Tab::navigate_to_file_path` (`Url::from_file_path`), one tab per path after
+  the active tab, selecting the first. A path the URL type cannot represent
+  becomes that tab's local error, never an HTTPS host; `MAX_TABS` still bounds
+  creation, and the hook keeps at most `MAX_TABS + 1` paths so an oversized
+  drag cannot grow the queue without bound.
 
 ## Encrypted disk cache
 
@@ -1027,6 +1036,10 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   start of a drag). The press is dropped and its release arrives as
   `Tab::pending_context_click`, which opens the menu; the selection (and its
   highlight) survives, so the menu's Copy copies exactly the selected text.
+- The same hook owns OS file drags before that early return: hovered files
+  drive `ui::drop_overlay`, and dropped paths are queued for `logic` (tab
+  creation belongs to `App`). The overlay is a layer painter, not a widget, so
+  it never takes input or reflows the page under the OS-owned gesture.
 
 ## macOS menu bar
 
