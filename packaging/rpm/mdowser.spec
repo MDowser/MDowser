@@ -113,6 +113,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Mon Oct 26 2026 MDowser <noreply@mdowser.invalid> - 0.7.1-1
+- Flatpak build bridges the Rust 1.98.0 SDK extension with --ignore-rust-version (see CHANGELOG.md 0.7.1).
 * Mon Oct 26 2026 MDowser <noreply@mdowser.invalid> - 0.7.0-1
 - Browser navigation shortcuts, CLI relative paths, drag and drop, code-block Copy feedback, and a toolchain and dependency refresh (see CHANGELOG.md 0.7.0).
 * Wed Oct 21 2026 MDowser <noreply@mdowser.invalid> - 0.6.3-1

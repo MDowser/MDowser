@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-26
+
+Restore the Flatpak release artifact: the freedesktop 26.08 Rust extension is
+still on 1.98.0, so the sandbox bridges cargo's 1.99 MSRV check.
+
 ### Fixed
 
 - Flatpak release builds no longer stop on the freedesktop 26.08
