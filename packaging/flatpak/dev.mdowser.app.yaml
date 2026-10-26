@@ -70,7 +70,11 @@ modules:
   - name: mdowser
     buildsystem: simple
     build-commands:
-      - cargo build --release --locked --offline
+      # The freedesktop 26.08 rust-stable extension still ships Rust 1.98.0,
+      # while Cargo.toml declares MSRV 1.99. The tree compiles on 1.98.0 and
+      # every dependency supports it, so bridge the version gate for this
+      # sandbox only. Remove the flag when the extension ships Rust 1.99.
+      - cargo build --release --locked --offline --ignore-rust-version
       # `strip = "none"` ships unstripped from cargo (see Cargo.toml); strip
       # here, exactly like build-dist.sh does for the .tar.gz/.deb/.zip
       # binaries, so every artifact has the same size class.

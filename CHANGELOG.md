@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Flatpak release builds no longer stop on the freedesktop 26.08
+  `rust-stable` extension's Rust 1.98.0: the manifest passes
+  `--ignore-rust-version` for that sandbox only. The tree compiles on 1.98.0,
+  every dependency supports it, and the other release targets keep the pinned
+  1.99 toolchain. (`packaging/flatpak/dev.mdowser.app.yaml`, `docs/BUILDING.md`.)
+
 ## [0.7.0] - 2026-10-26
 
 Browser navigation shortcuts, command-line relative paths, drag and drop,

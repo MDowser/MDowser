@@ -53,7 +53,10 @@ their tools there, best-effort:
   `org.freedesktop.Sdk` 26.08 runtimes and the
   `org.freedesktop.Sdk.Extension.rust-stable` extension (`make flatpak`). The
   branch is the manifest's `runtime-version`, the single source of truth
-  `scripts/build-flatpak.sh` derives the refs from.
+  `scripts/build-flatpak.sh` derives the refs from. The 26.08 extension still
+  ships Rust 1.98.0, so the manifest passes `--ignore-rust-version` to cargo
+  (the tree compiles on 1.98.0 and every dependency supports it); remove the
+  flag when the extension ships Rust 1.99.
 
 ## Installing dependencies
 
