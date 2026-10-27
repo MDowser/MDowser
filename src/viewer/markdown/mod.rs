@@ -542,3 +542,5 @@ mod tests_docs;
 mod tests_images;
 #[cfg(test)]
 mod tests_layout;
+#[cfg(test)]
+mod tests_robustness;

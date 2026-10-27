@@ -329,7 +329,7 @@ fn byte_cap_drops_only_the_oldest() {
     let big =
         "https://ex.com/".to_string() + &"a".repeat(crate::config::MAX_HISTORY_STORE_BYTES + 1024);
     store.entries.push(Visit {
-        url: big.clone(),
+        url: big,
         title: None,
         visited_at: 2,
     });
@@ -670,6 +670,5 @@ fn files_and_directory_are_user_only() {
 fn now_for_test() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }

@@ -1536,3 +1536,41 @@ fn identical_tabs_sets_keep_independent_selections() {
         "no ghost switch in the second set: {texts:?}"
     );
 }
+
+/// A `<Steps>`/`<Tabs>` container without any child pair (the children were
+/// plain text, or missing) used to skip its whole body: the author's text
+/// vanished from the page. The body now renders in place.
+#[test]
+fn childless_containers_render_their_body() {
+    for md in [
+        "<Steps>\n\nLoose step text.\n\n</Steps>\n",
+        "<Tabs>\n\nLoose step text.\n\n</Tabs>\n",
+    ] {
+        let (texts, _) = render_probe(md);
+        assert!(
+            texts.iter().any(|(t, _, _)| t.contains("Loose step text.")),
+            "{md:?} lost its body: {texts:?}"
+        );
+    }
+}
+
+/// One-line `<Step>` children render as numbered steps with their titles.
+#[test]
+fn one_line_steps_render_titles_and_bodies() {
+    let (texts, _) = render_probe(
+        "<Steps>\n<Step title=\"Install\">Run the installer.</Step>\n<Step title=\"Run\">Open the app.</Step>\n</Steps>\n",
+    );
+    for want in [
+        "Install",
+        "Run the installer.",
+        "Run",
+        "Open the app.",
+        "1",
+        "2",
+    ] {
+        assert!(
+            texts.iter().any(|(t, _, _)| t == want),
+            "{want:?} missing: {texts:?}"
+        );
+    }
+}

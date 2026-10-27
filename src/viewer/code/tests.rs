@@ -277,8 +277,7 @@ fn plain_lines_paint_at_their_absolute_rows() {
     let y_of = |name: &str| {
         rows.iter()
             .find(|(t, _)| t == name)
-            .map(|(_, y)| *y)
-            .unwrap_or_else(|| panic!("{name} not painted: {rows:?}"))
+            .map_or_else(|| panic!("{name} not painted: {rows:?}"), |(_, y)| *y)
     };
     assert_eq!(y_of("line 100"), 0.0, "row 100 at its absolute offset");
     assert_eq!(y_of("line 109"), 180.0, "row 109 at its absolute offset");

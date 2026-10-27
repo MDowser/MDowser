@@ -346,8 +346,7 @@ fn inline_image_has_horizontal_breathing_room() {
                 .rows
                 .first()
                 .and_then(|r| r.glyphs.first())
-                .map(|g| g.pos.x)
-                .unwrap_or(0.0);
+                .map_or(0.0, |g| g.pos.x);
             match t.galley.text().trim() {
                 "x" => x_end = t.pos.x + gx + t.galley.rect.width(),
                 "y" => y_x = Some(t.pos.x + gx),

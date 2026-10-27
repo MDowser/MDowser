@@ -765,15 +765,7 @@ fn render_body(
     let find_bg = find_active.then(|| theme::find_match_bg(ui));
     let find_current_bg = find_active.then(|| theme::find_current_bg(ui));
     let content_w = if lines.is_none() {
-        render_plain_lines(
-            ui,
-            block,
-            selected,
-            visible.clone(),
-            row_h,
-            find_query,
-            current_row,
-        )
+        render_plain_lines(ui, block, selected, visible, row_h, find_query, current_row)
     } else {
         let cache = block.galleys.borrow();
         // The widest laid-out line covers every row, not just the visible

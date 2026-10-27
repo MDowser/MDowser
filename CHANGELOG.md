@@ -7,8 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A seeded robustness sweep runs generated markup (components, callouts,
+  `:::` containers, tables, fences, autolinks, shortcodes) mixed with
+  multibyte text through the whole document pipeline and the renderer on
+  every `make test`, failing on any panic with the offending document.
+  (`src/viewer/markdown/tests_robustness.rs`.)
+
 ### Changed
 
+- Quotes and callouts keep the same air above their box as below it, with
+  8px of body padding: a quote right after a list or paragraph no longer
+  nearly touches it, and stacked callouts no longer crowd each other.
+  (`src/viewer/markdown/walk.rs`.)
+- `<Steps>` badges are joined by a thin rail, so a numbered sequence reads as
+  one unit. (`src/viewer/markdown/components.rs`.)
+- The macOS zip keeps its versioned name, but the bundle inside is now plain
+  `MDowser.app`: Finder and Launchpad show "MDowser", and an upgrade replaces
+  the previous copy in `/Applications` instead of adding another versioned
+  one. (`scripts/build-dist.sh`, `docs/BUILDING.md`, `README.md`.)
+- Code quality: `Cargo.toml` enforces `redundant_clone`, `map_unwrap_or`,
+  `unnested_or_patterns` and `redundant_else`, and the tree is cleaned up to
+  match (no behavior change). (`Cargo.toml`, `docs/CONTRIBUTING.md`.)
 - Cache maintenance stays off the frame clock: the per-frame flush check uses
   a non-blocking lock, so a background body write can no longer stall the UI
   thread. A skipped check retries on the next frame, and the exit path still
@@ -19,10 +40,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   body of up to `MAX_CACHE_IMAGE_BYTES`. (`src/cache/docs.rs`,
   `src/cache/images.rs`.)
 - Dependencies: `Cargo.lock` refreshed to the latest compatible patch
-  releases (accesskit, brotli, icu, uuid, …); no manifest or API changes.
+  releases (accesskit, brotli, icu, rustix, uuid, …); no manifest or API
+  changes.
 
 ### Fixed
 
+- One-line MDX components (`<Step title="Install">Run it.</Step>`, likewise
+  `<Tab>`, `<Accordion>`, `<Card>`) expand like their multi-line form. They
+  used to lose their title and wrapper, and a `<Steps>` made only of one-line
+  steps rendered nothing at all. (`src/markdown/document/normalize_markup.rs`.)
+- A `<Tabs>`/`<Steps>` container without child tabs/steps renders its body in
+  place instead of silently dropping the author's text.
+  (`src/viewer/markdown/components.rs`.)
 - Cache records can no longer be written with header text their parser
   rejects: persisted `Content-Type`/`Last-Modified` values share one
   256-character cap on capture and on read, so a long or repeated header can

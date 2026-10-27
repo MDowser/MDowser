@@ -31,7 +31,9 @@ URL is still probed over the network). Manual maintainer step: no CI.
 - `cargo fmt` with the stable `rustfmt.toml` options (max 100 columns) and
   `.editorconfig` (LF).
 - `cargo clippy --locked --workspace --all-targets -- -D warnings`; no
-  pedantic/nursery lints globally. The shipped binary denies
+  pedantic/nursery lints globally, only the cherry-picked set in
+  `Cargo.toml` `[lints.clippy]` (`redundant_clone`, `map_unwrap_or`,
+  `unnested_or_patterns`, `redundant_else`). The shipped binary denies
   `clippy::unwrap_used`, `expect_used`, `panic` and `unreachable` (tests are
   exempt); new failure paths return typed errors or skip gracefully, and an
   embedded-asset invariant guard needs a documented `#[allow]`.

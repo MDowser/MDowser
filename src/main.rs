@@ -145,10 +145,10 @@ fn resolve_cli_target(target: String, cwd: &Path) -> String {
             .extension()
             .and_then(|e| e.to_str())
             .map(str::to_ascii_lowercase);
-        if matches!(ext.as_deref(), Some("md") | Some("markdown")) {
+        if matches!(ext.as_deref(), Some("md" | "markdown")) {
             return target;
         }
-        let mut name = path.clone().into_os_string();
+        let mut name = path.into_os_string();
         name.push(".md");
         let with_md = std::path::PathBuf::from(name);
         if with_md.is_file() {

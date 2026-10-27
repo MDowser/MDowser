@@ -87,8 +87,7 @@ pub(super) fn avatar_letter(bookmark: &Bookmark) -> char {
     strip_scheme_prefix(source)
         .chars()
         .find(|c| c.is_alphanumeric())
-        .map(|c| c.to_uppercase().next().unwrap_or(c))
-        .unwrap_or('?')
+        .map_or('?', |c| c.to_uppercase().next().unwrap_or(c))
 }
 
 /// Ready favicon texture for a bookmark (HTTPS only; local files have

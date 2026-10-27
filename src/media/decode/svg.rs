@@ -234,10 +234,7 @@ pub(super) fn sanitize_svg_structure(bytes: &[u8]) -> Result<Cow<'_, [u8]>, Stri
         // matches the attribute by local name).
         for attr in node.attributes() {
             if attr.name() == "filter"
-                && matches!(
-                    attr.namespace(),
-                    None | Some(SVG_NS) | Some(XLINK_NS) | Some(XML_NS)
-                )
+                && matches!(attr.namespace(), None | Some(SVG_NS | XLINK_NS | XML_NS))
             {
                 cut.push(attr.range());
             }
@@ -365,7 +362,7 @@ fn css_has_filter_declaration(css: &str) -> bool {
         if css_word_is_filter(bytes, i) {
             // `*` accepts the IE star hack simplecss itself strips before
             // reading the property name (`*filter:blur(1px)`).
-            let after_separator = matches!(prev, None | Some(b'{') | Some(b';') | Some(b'*'));
+            let after_separator = matches!(prev, None | Some(b'{' | b';' | b'*'));
             if after_separator {
                 // simplecss skips spaces AND comments between the property
                 // name and the `:` (`filter/**/:blur(1px)` is a filter), so

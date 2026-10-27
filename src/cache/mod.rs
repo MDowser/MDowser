@@ -886,8 +886,7 @@ fn file_len(path: &PathBuf) -> u64 {
     std::fs::metadata(path)
         .ok()
         .filter(|m| m.is_file())
-        .map(|m| m.len())
-        .unwrap_or(0)
+        .map_or(0, |m| m.len())
 }
 
 /// Metadata estimate for one docs/images index row: the key, the stored

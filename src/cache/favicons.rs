@@ -160,7 +160,7 @@ impl FaviconStore {
             return None;
         }
         let size = record_size(&record);
-        let old = self.map.get(&record.key).map(record_size).unwrap_or(0);
+        let old = self.map.get(&record.key).map_or(0, record_size);
         self.map.insert(record.key.clone(), record);
         self.bytes = self.bytes.saturating_add(size).saturating_sub(old);
         self.file_dirty = true;

@@ -232,8 +232,7 @@ pub(super) fn detect_callout_ahead(
     let mut probe = String::new();
     while i < end {
         match &events[i] {
-            Event::End(TagEnd::BlockQuote(_))
-            | Event::End(TagEnd::Paragraph)
+            Event::End(TagEnd::BlockQuote(_) | TagEnd::Paragraph)
             | Event::SoftBreak
             | Event::HardBreak => return None,
             Event::Text(t) => {

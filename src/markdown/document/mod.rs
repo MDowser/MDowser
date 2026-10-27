@@ -89,7 +89,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 pub fn is_html_break(html: &str) -> bool {
     fn delim_ok(rest: &str) -> bool {
         match rest.chars().next() {
-            Some('>') | Some('/') => true,
+            Some('>' | '/') => true,
             Some(c) => c.is_ascii_whitespace(),
             None => false,
         }

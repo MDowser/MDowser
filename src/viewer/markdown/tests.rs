@@ -400,8 +400,7 @@ pub(super) fn probe_shapes(shapes: &[egui::epaint::Shape]) -> (Vec<TextRun>, Vec
                     .rows
                     .first()
                     .and_then(|r| r.glyphs.first())
-                    .map(|g| g.pos.x)
-                    .unwrap_or(0.0);
+                    .map_or(0.0, |g| g.pos.x);
                 texts.push((t.galley.text().to_string(), t.pos.x + gx, t.pos.y));
             }
             egui::epaint::Shape::LineSegment { points, .. }
@@ -449,19 +448,17 @@ pub(super) fn galley_at<'a>(
 }
 
 pub(super) fn x_of(texts: &[(String, f32, f32)], needle: &str) -> f32 {
-    texts
-        .iter()
-        .find(|(t, _, _)| t == needle)
-        .map(|(_, x, _)| *x)
-        .unwrap_or_else(|| panic!("text {needle:?} not found in {texts:?}"))
+    texts.iter().find(|(t, _, _)| t == needle).map_or_else(
+        || panic!("text {needle:?} not found in {texts:?}"),
+        |(_, x, _)| *x,
+    )
 }
 
 pub(super) fn y_of(texts: &[(String, f32, f32)], needle: &str) -> f32 {
-    texts
-        .iter()
-        .find(|(t, _, _)| t == needle)
-        .map(|(_, _, y)| *y)
-        .unwrap_or_else(|| panic!("text {needle:?} not found in {texts:?}"))
+    texts.iter().find(|(t, _, _)| t == needle).map_or_else(
+        || panic!("text {needle:?} not found in {texts:?}"),
+        |(_, _, y)| *y,
+    )
 }
 
 /// Y of the first painted text that CONTAINS `needle`: fragment boundaries
@@ -470,8 +467,10 @@ pub(super) fn y_of_contains(texts: &[(String, f32, f32)], needle: &str) -> f32 {
     texts
         .iter()
         .find(|(t, _, _)| t.contains(needle))
-        .map(|(_, _, y)| *y)
-        .unwrap_or_else(|| panic!("text containing {needle:?} not found in {texts:?}"))
+        .map_or_else(
+            || panic!("text containing {needle:?} not found in {texts:?}"),
+            |(_, _, y)| *y,
+        )
 }
 
 /// Position of the nth document bullet (`·`) in paint order.
@@ -480,6 +479,8 @@ pub(super) fn bullet_at(texts: &[(String, f32, f32)], n: usize) -> (f32, f32) {
         .iter()
         .filter(|(t, _, _)| t == "\u{00B7}")
         .nth(n)
-        .map(|(_, x, y)| (*x, *y))
-        .unwrap_or_else(|| panic!("bullet {n} not found in {texts:?}"))
+        .map_or_else(
+            || panic!("bullet {n} not found in {texts:?}"),
+            |(_, x, y)| (*x, *y),
+        )
 }

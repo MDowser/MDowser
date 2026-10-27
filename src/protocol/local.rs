@@ -42,7 +42,7 @@ pub(crate) fn is_file_url(url: &Url) -> bool {
 /// remote filesystem share and is rejected. Shared with
 /// `protocol::rewrite`, which must agree on what a local destination is.
 pub(crate) fn is_local_host(url: &Url) -> bool {
-    matches!(url.host_str(), None | Some("") | Some("localhost"))
+    matches!(url.host_str(), None | Some("" | "localhost"))
 }
 
 /// Parses user input as a local target, when it is local-shaped.
@@ -122,8 +122,7 @@ pub(crate) fn parse_file_url(input: &str) -> Result<Url, BrowserError> {
     // Only `file:` followed by a slash is an absolute local target.
     let absolute_spelling = input
         .find(':')
-        .map(|colon| input[colon + 1..].starts_with('/'))
-        .unwrap_or(false);
+        .is_some_and(|colon| input[colon + 1..].starts_with('/'));
     if !absolute_spelling || url.to_file_path().is_err() {
         return Err(BrowserError::BadUrl(format!(
             "not a local path: {}",
@@ -175,7 +174,7 @@ fn normalize_path(path: &Path) -> PathBuf {
                     out.pop();
                 }
                 // At the root (or a Windows prefix) `..` cannot go higher.
-                Some(Component::RootDir) | Some(Component::Prefix(_)) => {}
+                Some(Component::RootDir | Component::Prefix(_)) => {}
                 _ => out.push(".."),
             },
             other => out.push(other.as_os_str()),
@@ -237,8 +236,8 @@ fn candidates_for(start: &Url) -> Result<Vec<(Url, PathBuf)>, String> {
         .extension()
         .and_then(|e| e.to_str())
         .map(str::to_ascii_lowercase);
-    if !matches!(lower_ext.as_deref(), Some("md") | Some("markdown")) {
-        let mut name = path.clone().into_os_string();
+    if !matches!(lower_ext.as_deref(), Some("md" | "markdown")) {
+        let mut name = path.into_os_string();
         name.push(".md");
         push(PathBuf::from(name));
     }

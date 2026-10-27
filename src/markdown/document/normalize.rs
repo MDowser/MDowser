@@ -358,15 +358,17 @@ fn colon_labeled_attrs(kind: &str, remainder: &str) -> String {
         let href = attr_value(remainder, "href").unwrap_or("");
         let title = attr_value(remainder, "title")
             .or_else(|| attr_value(remainder, "label"))
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                let bare = bare_colon_label(remainder);
-                if !href.is_empty() && is_bare_href_pair(&bare) {
-                    String::new()
-                } else {
-                    bare
-                }
-            });
+            .map_or_else(
+                || {
+                    let bare = bare_colon_label(remainder);
+                    if !href.is_empty() && is_bare_href_pair(&bare) {
+                        String::new()
+                    } else {
+                        bare
+                    }
+                },
+                str::to_string,
+            );
         if title.is_empty() {
             return String::new();
         }
@@ -381,8 +383,7 @@ fn colon_labeled_attrs(kind: &str, remainder: &str) -> String {
     }
     let label = attr_value(remainder, "label")
         .or_else(|| attr_value(remainder, "title"))
-        .map(str::to_string)
-        .unwrap_or_else(|| bare_colon_label(remainder));
+        .map_or_else(|| bare_colon_label(remainder), str::to_string);
     if label.is_empty() {
         return String::new();
     }

@@ -79,10 +79,10 @@ impl Saved {
     /// File NAME for the confirmation toast (`notes.md`), or the whole path
     /// for a destination with no file name at all.
     pub(super) fn file_name(&self) -> String {
-        self.path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| self.path.display().to_string())
+        self.path.file_name().map_or_else(
+            || self.path.display().to_string(),
+            |name| name.to_string_lossy().into_owned(),
+        )
     }
 
     /// Was the downloads folder unwritable and home used instead?

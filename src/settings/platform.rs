@@ -104,8 +104,7 @@ fn temp_owner_is_alive(name: &str) -> bool {
             .args(["-o", "pid=", "-p", &pid.to_string()])
             .stdin(std::process::Stdio::null())
             .output()
-            .map(|out| !out.stdout.iter().all(u8::is_ascii_whitespace))
-            .unwrap_or(false)
+            .is_ok_and(|out| !out.stdout.iter().all(u8::is_ascii_whitespace))
     }
 }
 
@@ -198,8 +197,7 @@ pub(crate) fn tighten_opened_perms(file: &std::fs::File) -> bool {
     }
     // Verify on the same handle: the call "succeeding" is not proof.
     file.metadata()
-        .map(|meta| meta.permissions().mode() & 0o077 == 0)
-        .unwrap_or(false)
+        .is_ok_and(|meta| meta.permissions().mode() & 0o077 == 0)
 }
 
 /// Non-Unix: POSIX modes do not exist; the per-user data directory and the

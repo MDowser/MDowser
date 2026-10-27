@@ -554,8 +554,7 @@ impl Tab {
         self.refresh_display();
         self.display_cache
             .as_ref()
-            .map(|(_, _, display)| display.window_title.as_str())
-            .unwrap_or("MDowser")
+            .map_or("MDowser", |(_, _, display)| display.window_title.as_str())
     }
 
     /// Title computation behind the window-title accessors / the memo.

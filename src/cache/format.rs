@@ -73,8 +73,7 @@ pub(crate) fn shard_for(stem: &str) -> &str {
 pub(crate) fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |d| d.as_secs())
 }
 
 /// Bounded `u32`-prefixed byte string reader: `None` on truncation or when

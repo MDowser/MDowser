@@ -564,7 +564,7 @@ mod tests {
                 let u = u.to_string();
                 std::thread::spawn(move || {
                     let result = fetch_image_blocking(&u, Arc::new(AtomicBool::new(false)));
-                    (u, result.map(|d| d.pixels.size).map_err(|e| e.to_string()))
+                    (u, result.map(|d| d.pixels.size))
                 })
             })
             .collect();

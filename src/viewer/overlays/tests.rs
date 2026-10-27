@@ -50,8 +50,7 @@ fn row_position(ctx: &egui::Context, tab: &mut Tab, label: &str) -> egui::Pos2 {
     render_menu_positions(ctx, tab, Vec::new())
         .into_iter()
         .find(|(t, _)| t == label)
-        .map(|(_, pos)| pos)
-        .unwrap_or_else(|| panic!("row {label:?} painted"))
+        .map_or_else(|| panic!("row {label:?} painted"), |(_, pos)| pos)
 }
 
 /// One completed primary click at `pos` (press + release, like a real
@@ -809,8 +808,7 @@ fn find_bar_paints_the_chrome_capsule_and_keeps_its_geometry() {
         texts
             .iter()
             .find(|(t, _)| t == needle)
-            .map(|(_, x)| *x)
-            .unwrap_or_else(|| panic!("{needle:?} not painted: {texts:?}"))
+            .map_or_else(|| panic!("{needle:?} not painted: {texts:?}"), |(_, x)| *x)
     };
     assert_eq!(
         x_of(&after, "markdown"),

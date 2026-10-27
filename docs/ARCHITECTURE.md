@@ -121,7 +121,9 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │    │   `tests_find.rs` (fragment highlight + layout/scroll contract) and
   │    │   `tests_outline.rs` (outline sidebar end-to-end: wrapped rows, row
   │    │   click, scrollspy cursor, dense heading clusters, page end,
-  │    │   headingless slot, responsive width)
+  │    │   headingless slot, responsive width); `markdown/tests_robustness.rs`
+  │    │   sweeps seeded generated markup through the whole document
+  │    │   pipeline and the renderer and fails on any panic
   └─ ui (browser chrome: `theme/` document styling + widget kit, icons,
           tabs (`TabsResponse`, `rows`) with the live drag reorder, navbar,
           omnibox, home (with the

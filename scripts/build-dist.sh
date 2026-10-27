@@ -145,7 +145,7 @@ sweep_apple_double() {
 stage_dirs() {
     rm -rf "$DIST"/.deb-stage "$DIST"/.linux-x86_64 "$DIST"/.linux-aarch64 \
         "$DIST"/.rpmbuild "$DIST"/.win-x64 "$DIST"/.host-stage \
-        "$DIST"/.universal-bin "$DIST"/.flatpak-repo \
+        "$DIST"/.universal-bin "$DIST"/.mac-stage "$DIST"/.flatpak-repo \
         "$DIST"/.flatpak-build "$DIST"/.flatpak-state 2>/dev/null || true
 }
 # `EXIT` (not `0`) for readability: supported by dash, bash and zsh in `sh`
@@ -718,11 +718,20 @@ do_mac() {
         return 0
     fi
     unset _lipo_archs
-    if ! mk_app "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/.universal-bin"; then
+    # The zip carries the version; the bundle INSIDE it is plain
+    # `MDowser.app`. Finder, Launchpad and Spotlight name the app after its
+    # bundle directory, and a versioned bundle made every upgrade leave
+    # another `MDowser-<ver>-macos-universal` copy in /Applications instead
+    # of replacing the old one.
+    mac_stage="$DIST/.mac-stage"
+    mac_app="$mac_stage/$APP_UI.app"
+    mac_zip="$DIST/$APP_UI-$VER-macos-universal.app.zip"
+    rm -rf "$mac_stage"
+    if ! mkdir -p "$mac_stage" || ! mk_app "$mac_app" "$DIST/.universal-bin"; then
         warn "mac-app-universal (staging the .app failed)"
         rm -f "$DIST/.universal-bin"
-        rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
-        unset arm_bin x64_bin
+        rm -rf "$mac_stage"
+        unset arm_bin x64_bin mac_stage mac_app mac_zip
         return 0
     fi
     rm -f "$DIST/.universal-bin"
@@ -732,7 +741,7 @@ do_mac() {
     # fail `codesign --verify`). Strip them from the staged bundle BEFORE
     # packing — the ad-hoc signature does not seal xattrs (verified: it still
     # passes `codesign --verify --deep --strict` after the sweep).
-    sweep_apple_double "$DIST/$APP_UI-$VER-macos-universal.app"
+    sweep_apple_double "$mac_app"
     # Guarded like the deb/zip steps: a failed packaging step skips the
     # artifact with a reason instead of aborting the whole `--all` run
     # (`set -e` would otherwise kill the script on a plain `return 1`).
@@ -740,20 +749,21 @@ do_mac() {
     # Info-ZIP, so it packs the macOS artifact when present; the metadata
     # flags keep the AppleDouble sidecars out even if an xattr escapes the
     # sweep.
+    rm -f "$mac_zip"
     if have ditto; then
-        if (cd "$DIST" && rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI-$VER-macos-universal.app" "$APP_UI-$VER-macos-universal.app.zip") \
-            && [ -s "$DIST/$APP_UI-$VER-macos-universal.app.zip" ]; then
+        if (cd "$mac_stage" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI.app" "$mac_zip") \
+            && [ -s "$mac_zip" ]; then
             BUILT="$BUILT mac-app-universal"
         else
             warn "mac-app-universal (zip failed)"
         fi
-    elif (cd "$DIST" && zip_of "$DIST/$APP_UI-$VER-macos-universal.app" "$DIST/$APP_UI-$VER-macos-universal.app.zip"); then
+    elif zip_of "$mac_app" "$mac_zip"; then
         BUILT="$BUILT mac-app-universal"
     else
         warn "mac-app-universal (zip failed)"
     fi
-    rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
-    unset arm_bin x64_bin
+    rm -rf "$mac_stage"
+    unset arm_bin x64_bin mac_stage mac_app mac_zip
 }
 
 do_linux() {
@@ -1208,10 +1218,6 @@ esac
 # EXIT trap covers aborts; this covers success and keeps `dist/` final-only.
 stage_dirs
 rm -f "$DIST"/.DS_Store
-# If the versioned .app survived zipping (it should not), out too:
-if [ -f "$DIST/$APP_UI-$VER-macos-universal.app.zip" ]; then
-    rm -rf "$DIST/$APP_UI-$VER-macos-universal.app"
-fi
 
 # Single-group modes ADD to dist/: after a version bump, an earlier run's
 # artifacts can sit next to the new ones and end up in the checksums (and in

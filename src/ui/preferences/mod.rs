@@ -508,8 +508,7 @@ impl PreferencesState {
                 let selected = Retention::options()
                     .iter()
                     .find(|(retention, _)| *retention == current)
-                    .map(|(_, label)| *label)
-                    .unwrap_or("Keep 3 months (default)");
+                    .map_or("Keep 3 months (default)", |(_, label)| *label);
                 if let Some(retention) = dropdown(
                     ui,
                     s,

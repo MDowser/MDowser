@@ -337,6 +337,7 @@ fn render_tabs(
 ) {
     let Some(Scan {
         ranges: tabs,
+        close,
         after: end,
         labels,
     }) = scan_pairs(events, *i, "tabs", "tab")
@@ -344,6 +345,9 @@ fn render_tabs(
         return;
     };
     if tabs.is_empty() {
+        // No `<Tab>` children: the body is still the author's content, so
+        // it renders in place instead of vanishing with the empty bar.
+        render_range(ui, events, *i, close, ctx);
         *i = end;
         return;
     }
@@ -454,7 +458,7 @@ fn render_section(
     let label = if title.is_empty() {
         "Details".to_string()
     } else {
-        title.clone()
+        title
     };
     let id = section_state_id(ctx.doc_salt, at, &label);
     // A pending target inside this section must be rendered before it can
@@ -503,6 +507,7 @@ fn render_card(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx:
 fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx: &mut RenderCtx) {
     let Some(Scan {
         ranges: steps,
+        close,
         after: end,
         labels: titles,
     }) = scan_pairs(events, *i, "steps", "step")
@@ -510,15 +515,32 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
         return;
     };
     if steps.is_empty() {
+        // No `<Step>` children: render the body in place (see `render_tabs`).
+        render_range(ui, events, *i, close, ctx);
         *i = end;
         return;
     }
     let scheme = theme::scheme_ref(ui);
+    // Previous step's badge: a thin rail joins consecutive badges so the
+    // numbered sequence reads as one unit instead of loose circles.
+    let mut prev_badge: Option<egui::Rect> = None;
     for (n, (start, stop)) in steps.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             let (rect, _) =
                 ui.allocate_exact_size(egui::vec2(STEP_BADGE, STEP_BADGE), egui::Sense::hover());
+            if let Some(prev) = prev_badge {
+                let top = prev.bottom() + theme::spacing::XS;
+                let bottom = rect.top() - theme::spacing::XS;
+                if bottom > top {
+                    ui.painter().vline(
+                        rect.center().x,
+                        top..=bottom,
+                        egui::Stroke::new(theme::stroke::HAIRLINE, scheme.outline_variant),
+                    );
+                }
+            }
+            prev_badge = Some(rect);
             ui.painter()
                 .circle_filled(rect.center(), STEP_BADGE / 2.0, scheme.secondary_container);
             ui.painter().text(
@@ -549,10 +571,11 @@ fn render_steps(ui: &mut egui::Ui, events: &[Event<'static>], i: &mut usize, ctx
     *i = end;
 }
 
-/// A scanned container: each child's content range, the index after the
-/// container's close marker, and each child's label.
+/// A scanned container: each child's content range, the index of the
+/// container's close marker and the index after it, and each child's label.
 struct Scan {
     ranges: Vec<(usize, usize)>,
+    close: usize,
     after: usize,
     labels: Vec<String>,
 }
@@ -578,6 +601,7 @@ fn scan_pairs(events: &[Event<'static>], start: usize, outer: &str, inner: &str)
                         }
                         return Some(Scan {
                             ranges,
+                            close: j,
                             after,
                             labels,
                         });

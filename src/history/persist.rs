@@ -373,7 +373,7 @@ impl HistoryStore {
 pub(super) fn entry_bytes(visit: &Visit) -> usize {
     // 20 timestamp digits (u64 max, so the bound holds for a forged file
     // too) + two tabs + newline + fields.
-    24 + visit.url.len() + visit.title.as_deref().map(str::len).unwrap_or(0)
+    24 + visit.url.len() + visit.title.as_deref().map_or(0, str::len)
 }
 
 /// Parses the serialized plaintext. Invalid lines are skipped: a partial

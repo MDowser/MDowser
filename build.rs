@@ -396,8 +396,7 @@ fn is_executable_file(path: &Path) -> bool {
         use std::os::unix::fs::PermissionsExt;
         if path
             .metadata()
-            .map(|meta| meta.permissions().mode() & 0o111 == 0)
-            .unwrap_or(true)
+            .map_or(true, |meta| meta.permissions().mode() & 0o111 == 0)
         {
             return false;
         }

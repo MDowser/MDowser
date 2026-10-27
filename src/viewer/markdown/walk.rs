@@ -146,8 +146,16 @@ pub(super) fn render_block(
             // quote boxes (their backgrounds expand BOX_PAD beyond the
             // content, so without it the next box would touch).
             const BAR_W: f32 = 5.0;
-            const BOX_PAD: f32 = 6.0;
+            const BOX_PAD: f32 = 8.0;
             const QUOTE_GAP: f32 = 12.0;
+            // The box grows BOX_PAD above its content, so reserve that much
+            // first: without it the background ate into the gap above and a
+            // quote right after a list or paragraph nearly touched it. Not at
+            // the top of a container (document, item, quote), where the
+            // reserve would only push the content off its marker/edge.
+            if quote_at > 0 && !matches!(events[quote_at - 1], Event::Start(_)) {
+                ui.add_space(BOX_PAD);
+            }
             let pad = begin_item_block(ui, ctx);
             // The box spans the full quote column (callouts are block
             // elements), not just the widest line: record the indented

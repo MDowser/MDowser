@@ -436,8 +436,7 @@ pub(crate) fn normalize_stored_url(url: &str) -> Option<String> {
 pub(crate) fn now_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|delta| delta.as_secs())
-        .unwrap_or(0)
+        .map_or(0, |delta| delta.as_secs())
 }
 
 /// Runs `f`, converting a panic into a bounded `Err` string.

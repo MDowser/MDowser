@@ -599,10 +599,7 @@ struct Section {
 fn build_sections(entries: &[Visit], rows: &[usize], now: u64) -> Vec<Section> {
     let mut sections: Vec<Section> = Vec::new();
     for &index in rows {
-        let visited_at = entries
-            .get(index)
-            .map(|visit| visit.visited_at)
-            .unwrap_or(0);
+        let visited_at = entries.get(index).map_or(0, |visit| visit.visited_at);
         let group = age_group(now, visited_at);
         match sections.last_mut() {
             Some(section) if section.group == group => section.len += 1,

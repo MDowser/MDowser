@@ -222,10 +222,10 @@ impl Drop for RepairLock {
 /// `None` when the caller should proceed WITHOUT the lock (timeout/open
 /// failure: a plain re-read decides, never a block).
 fn acquire_repair_lock(key_path: &Path) -> Option<RepairLock> {
-    let name = key_path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "store.key".to_string());
+    let name = key_path.file_name().map_or_else(
+        || "store.key".to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let lock_path = key_path.with_file_name(format!("{name}.repair"));
     let start = std::time::Instant::now();
     loop {
@@ -280,10 +280,10 @@ enum KeyLink {
 fn link_fresh_key(path: &Path, key: &[u8; 32]) -> KeyLink {
     use std::sync::atomic::{AtomicU64, Ordering};
     static TMP_SEQ: AtomicU64 = AtomicU64::new(0);
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "store.key".to_string());
+    let name = path.file_name().map_or_else(
+        || "store.key".to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    );
     let tmp = path.with_file_name(format!(
         "{name}.tmp.{}.{}",
         std::process::id(),

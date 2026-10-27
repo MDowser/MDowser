@@ -160,8 +160,7 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     let has_selection = has_label_selection(&ctx);
     let anchor = tab.context_pos.unwrap_or_else(|| {
         tab.doc_rect
-            .map(|r| r.center())
-            .unwrap_or_else(|| egui::pos2(200.0, 200.0))
+            .map_or_else(|| egui::pos2(200.0, 200.0), |r| r.center())
     });
     let copy_hint: &str = if cfg!(target_os = "macos") {
         "Cmd+C"

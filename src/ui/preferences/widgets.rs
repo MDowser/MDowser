@@ -698,7 +698,7 @@ fn dropdown_field(
     let lane_left = rect.min.x + pad;
     let lane_w = (rect.max.x - pad - icon_slot.x - lane_left).max(1.0);
     let mut job =
-        egui::text::LayoutJob::simple(selected_text.to_owned(), font.clone(), s.on_surface, lane_w);
+        egui::text::LayoutJob::simple(selected_text.to_owned(), font, s.on_surface, lane_w);
     job.wrap.max_rows = 1;
     job.wrap.overflow_character = Some('\u{2026}');
     let galley = ui.fonts_mut(|fonts| fonts.layout_job(job));

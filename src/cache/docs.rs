@@ -428,7 +428,7 @@ impl DocsStore {
         // Commit the index entry (replaces any previous size accounting),
         // then the host-cap evictions: the file already landed, so the index
         // follows it atomically from the reader's point of view.
-        let old_size = self.index.get(&record.key).map(|e| e.size).unwrap_or(0);
+        let old_size = self.index.get(&record.key).map_or(0, |e| e.size);
         self.index.insert(
             record.key.clone(),
             DocIndexEntry {
@@ -885,7 +885,7 @@ mod tests {
         let parsed = parse_host_file(&blob, &stem_for("evil.com")).unwrap();
         assert!(parsed.is_empty());
         // Bad version rejected.
-        let mut bad = blob.clone();
+        let mut bad = blob;
         bad[0] = 99;
         assert!(parse_host_file(&bad, &stem).is_none());
     }

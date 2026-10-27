@@ -292,10 +292,10 @@ pub(crate) fn is_same_logical(a: &Url, b: &Url) -> bool {
 pub fn server_home_of(current: &Url) -> Url {
     if current.scheme() == "file" {
         if let Ok(path) = current.to_file_path() {
-            let parent = path
-                .parent()
-                .map(std::path::Path::to_path_buf)
-                .unwrap_or_else(|| std::path::PathBuf::from("/"));
+            let parent = path.parent().map_or_else(
+                || std::path::PathBuf::from("/"),
+                std::path::Path::to_path_buf,
+            );
             if let Ok(mut u) = Url::from_directory_path(&parent) {
                 u.set_fragment(None);
                 u.set_query(None);

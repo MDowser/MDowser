@@ -180,8 +180,7 @@ fn delete_confirmation_fits_content_and_pushes_below() {
         let find = |v: &[(String, egui::Pos2)]| {
             v.iter()
                 .find(|(text, _)| text == label)
-                .map(|(_, pos)| *pos)
-                .unwrap_or_else(|| panic!("{label} visible"))
+                .map_or_else(|| panic!("{label} visible"), |(_, pos)| *pos)
         };
         assert_eq!(
             find(&base_texts),
@@ -196,8 +195,7 @@ fn delete_confirmation_fits_content_and_pushes_below() {
         let find = |v: &[(String, egui::Pos2)]| {
             v.iter()
                 .find(|(text, _)| text == label)
-                .map(|(_, pos)| *pos)
-                .unwrap_or_else(|| panic!("{label} visible"))
+                .map_or_else(|| panic!("{label} visible"), |(_, pos)| *pos)
         };
         assert!(
             find(&armed_texts).y >= find(&base_texts).y,
@@ -1088,8 +1086,7 @@ fn cache_card_lists_three_clears() {
         rendered
             .iter()
             .find(|(text, _)| text == needle)
-            .map(|(_, pos)| pos.y)
-            .unwrap_or_else(|| panic!("{needle:?} visible"))
+            .map_or_else(|| panic!("{needle:?} visible"), |(_, pos)| pos.y)
     };
     // Section first, then one row per class in a stable order.
     let caption = y_of("CACHE");
@@ -1172,8 +1169,10 @@ fn cache_clear_needs_two_clicks_per_class() {
         texts(&out.shapes)
             .iter()
             .find(|(text, _)| text.starts_with(prefix))
-            .map(|(_, pos)| *pos + egui::vec2(1.0, 1.0))
-            .unwrap_or_else(|| panic!("{prefix:?} row visible"))
+            .map_or_else(
+                || panic!("{prefix:?} row visible"),
+                |(_, pos)| *pos + egui::vec2(1.0, 1.0),
+            )
     };
     let click = |pos: egui::Pos2| {
         vec![
@@ -1206,8 +1205,7 @@ fn cache_clear_needs_two_clicks_per_class() {
     let at = |v: &[(String, egui::Pos2)], needle: &str| {
         v.iter()
             .find(|(text, _)| text.starts_with(needle))
-            .map(|(_, pos)| *pos)
-            .unwrap_or_else(|| panic!("{needle:?} visible"))
+            .map_or_else(|| panic!("{needle:?} visible"), |(_, pos)| *pos)
     };
     let images_at = row_center(&settled, "Clear images (");
     let _ = run(&mut windows, Some(images_at), click(images_at));

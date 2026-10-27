@@ -283,8 +283,7 @@ pub(crate) async fn get_bytes(
         .take(config::MAX_CONTENT_TYPE_VALUES)
         .map(|v| {
             v.to_str()
-                .map(str::to_string)
-                .unwrap_or_else(|_| "(invalid)".to_string())
+                .map_or_else(|_| "(invalid)".to_string(), str::to_string)
         })
         .collect();
 

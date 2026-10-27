@@ -341,17 +341,16 @@ pub fn split(raw: &str) -> Result<(Meta, std::borrow::Cow<'_, str>), String> {
             // The body starts after this line.
             body_start = Some(byte_idx + line.len());
             break;
-        } else {
-            if !over_cap {
-                if yaml.len() + line.len() > crate::config::MAX_FRONTMATTER_BYTES + 1024 {
-                    over_cap = true;
-                    yaml.shrink_to_fit();
-                } else {
-                    yaml.push_str(line);
-                }
-            }
-            byte_idx += line.len();
         }
+        if !over_cap {
+            if yaml.len() + line.len() > crate::config::MAX_FRONTMATTER_BYTES + 1024 {
+                over_cap = true;
+                yaml.shrink_to_fit();
+            } else {
+                yaml.push_str(line);
+            }
+        }
+        byte_idx += line.len();
     }
     let body_start = match body_start {
         Some(i) => i,

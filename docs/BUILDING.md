@@ -206,7 +206,9 @@ shown here as `<ver>`):
 
 - macOS: `MDowser-<ver>-macos-universal.app.zip` — the ONLY macOS artifact
   (arm64 + Intel universal binary via `lipo`, ad-hoc signature, app icon in
-  `Contents/Resources`; no loose per-arch `.tar.gz`).
+  `Contents/Resources`; no loose per-arch `.tar.gz`). The zip is versioned;
+  the bundle inside is plain `MDowser.app`, so an upgrade replaces the
+  previous copy in `/Applications`.
 - Linux x86_64/arm64: `mdowser-<ver>-linux-<arch>.tar.gz` +
   `mdowser_<ver>_<amd64|arm64>.deb` (minimal deb from the python3 stdlib, no
   `cargo-deb`; installs the binary, the hicolor icon ladder plus a scalable

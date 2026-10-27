@@ -159,7 +159,7 @@ fn scan_tag(s: &str) -> Option<Tag<'_>> {
     }
     let name = &s[name_start..j];
     match b.get(j) {
-        Some(b'>') | Some(b'/') => {}
+        Some(b'>' | b'/') => {}
         Some(c) if c.is_ascii_whitespace() => {}
         _ => return None,
     }
@@ -257,8 +257,7 @@ pub(super) fn attr_value<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
             i += attrs[iter_start..]
                 .chars()
                 .next()
-                .map(|c| c.len_utf8())
-                .unwrap_or(1);
+                .map_or(1, |c| c.len_utf8());
         }
     }
     None
@@ -323,8 +322,7 @@ fn attr_expr_value<'a>(attrs: &'a str, key: &str) -> Option<&'a str> {
             i += attrs[iter_start..]
                 .chars()
                 .next()
-                .map(|c| c.len_utf8())
-                .unwrap_or(1);
+                .map_or(1, |c| c.len_utf8());
         }
     }
     None
@@ -851,7 +849,7 @@ fn label_items_tabs(body: &str, labels: &[String]) -> String {
                     out.push_str(line);
                 }
                 "tab" if depth == 0 => {
-                    let label = fields.get(1).map(String::as_str).unwrap_or("");
+                    let label = fields.get(1).map_or("", String::as_str);
                     let item = labels.get(next);
                     next += 1;
                     if label.is_empty() {
@@ -1002,6 +1000,41 @@ fn expand_component(
     let body = lines[i + 1..j].join("\n");
     let body = markup_pass(&body, depth + 1, scan_budget).unwrap_or(body);
     Some((j - i + 1, render_component_markup(kind, attrs, &body)))
+}
+
+/// A structural component written on ONE line (`<Step title="A">Body</Step>`)
+/// expands exactly like its multi-line form, with the inline text as the
+/// body. Without this the line fell through to transparent tag stripping:
+/// the step lost its title and badge, and a `<Steps>` whose children were all
+/// one-liners rendered nothing at all. `None` unless the whole line is
+/// `<Name …>body</Name>` for one structural name, with no second close of
+/// that name inside (`<Tab>a</Tab><Tab>b</Tab>` keeps the transparent path).
+fn expand_one_line_component(line: &str, depth: usize, scan_budget: &mut usize) -> Option<String> {
+    if depth >= MAX_CALLOUT_DEPTH {
+        return None;
+    }
+    let t = line.trim_end();
+    let open = scan_tag(t)?;
+    if open.closing || open.self_closing {
+        return None;
+    }
+    let lower = open.name.to_ascii_lowercase();
+    // A `<CodeGroup>` needs fenced children, which cannot share one line.
+    let kind = structural_kind(&lower).filter(|k| *k != "codegroup")?;
+    let close = format!("</{lower}>");
+    let close_at = t.len().checked_sub(close.len())?;
+    if close_at < open.end
+        || !t.is_char_boundary(close_at)
+        || !t[close_at..].eq_ignore_ascii_case(&close)
+    {
+        return None;
+    }
+    let inner = t[open.end..close_at].trim();
+    if crate::util::contains_ignore_ascii_case(inner, &close[..close.len() - 1]) {
+        return None;
+    }
+    let body = markup_pass(inner, depth + 1, scan_budget).unwrap_or_else(|| inner.to_string());
+    Some(render_component_markup(kind, open.attrs, &body))
 }
 
 /// Decoded marker fields of an HTML block, when it is a component marker.
@@ -1405,6 +1438,11 @@ fn markup_core(
                         continue;
                     }
                 }
+            } else if let Some(rep) = expand_one_line_component(line, depth, scan_budget) {
+                changed = true;
+                out.push_str(&rep);
+                i += 1;
+                continue;
             }
         }
         if let Some(tag) = scan_tag(line.trim_start()) {
@@ -1787,6 +1825,36 @@ mod tests {
         assert_eq!(out.matches("data=\"tabs\"").count(), 2, "{out:?}");
         assert_eq!(out.matches("data=\"/tabs\"").count(), 2, "{out:?}");
         assert_eq!(out.matches("data=\"tab|").count(), 2, "{out:?}");
+    }
+
+    #[test]
+    fn one_line_components_expand_like_multi_line_ones() {
+        let out = run(
+            "<Steps>\n<Step title=\"Install\">Run the **installer**.</Step>\n<Step title=\"Run\">Open it.</Step>\n</Steps>\n",
+        );
+        assert_eq!(out.matches("data=\"steps\"").count(), 1, "{out:?}");
+        assert!(out.contains("data=\"step|Install\""), "{out:?}");
+        assert!(out.contains("data=\"step|Run\""), "{out:?}");
+        assert_eq!(out.matches("data=\"/step\"").count(), 2, "{out:?}");
+        assert!(out.contains("Run the **installer**."), "{out:?}");
+        // A one-line tab and accordion take their label/title attribute.
+        let out = run("<Tabs>\n<Tab title=\"A\">Alpha</Tab>\n</Tabs>\n");
+        assert!(out.contains("data=\"tab|A\""), "{out:?}");
+        let out = run("<Accordion title=\"More\">Hidden text</Accordion>\n");
+        assert!(out.contains("data=\"sec|More\""), "{out:?}");
+        assert!(out.contains("Hidden text"), "{out:?}");
+    }
+
+    #[test]
+    fn several_components_on_one_line_stay_transparent() {
+        // Two siblings on one line are not one component: the text survives
+        // through the transparent path instead of becoming a broken pair.
+        let out = run("<Tab title=\"A\">a</Tab><Tab title=\"B\">b</Tab>\n");
+        assert!(!out.contains("mdowser-cmp"), "{out:?}");
+        assert!(out.contains('a') && out.contains('b'), "{out:?}");
+        // Multibyte text right before the close tag never splits a char.
+        let out = run("<Step title=\"é\">日本語</Step>\n");
+        assert!(out.contains("日本語"), "{out:?}");
     }
 
     #[test]

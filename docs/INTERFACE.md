@@ -302,7 +302,9 @@ wrapping paragraphs at README line height.
   reaching the card border and 5px/11px cell padding.
 - Muted quotes in a soft full-width box with ONE thick bar (neutral for plain
   quotes, the alert accent for `> [!NOTE]`/`TIP`/`WARNING` callouts, whose body
-  keeps normal text color) and vertical air between consecutive boxes.
+  keeps normal text color), 8px of padding around the body and the same
+  vertical air above the box as below it, so a quote right after a list or
+  paragraph never crowds it.
 - SVG badges/logos, emoji, CJK, RTL and bundled script faces, and real images
   (hourglass placeholder while loading, a warning icon with the reason as
   tooltip on failure, centered captions, natural-size images clamped to the

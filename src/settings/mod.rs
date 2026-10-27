@@ -204,8 +204,7 @@ impl Prefs {
             .unwrap_or_default();
         let default_zoom = read_setting(&dir, "zoom")
             .and_then(|value| value.parse::<f32>().ok())
-            .map(Self::clamp_zoom)
-            .unwrap_or(1.0);
+            .map_or(1.0, Self::clamp_zoom);
         let restore_tabs = match read_setting(&dir, "restore_tabs") {
             // No stored value: restore is ON by default.
             None => true,

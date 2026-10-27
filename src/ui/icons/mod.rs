@@ -364,18 +364,12 @@ fn cache() -> &'static Mutex<crate::media::emoji::EmojiCache> {
 /// Uploads any finished chrome-glyph rasters. Called once per frame from
 /// `App::logic`; `true` when a texture changed (extra repaint).
 pub(crate) fn poll_text_glyphs(ctx: &egui::Context) -> bool {
-    cache()
-        .lock()
-        .map(|mut cache| cache.poll(ctx))
-        .unwrap_or(false)
+    cache().lock().is_ok_and(|mut cache| cache.poll(ctx))
 }
 
 /// `true` while a chrome glyph rasterizes on a worker (repaint scheduler).
 pub(crate) fn text_glyphs_pending() -> bool {
-    cache()
-        .lock()
-        .map(|cache| cache.has_pending())
-        .unwrap_or(false)
+    cache().lock().is_ok_and(|cache| cache.has_pending())
 }
 
 /// Device-pixel side for one emoji texture: the drawn side times the

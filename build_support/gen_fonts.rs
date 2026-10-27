@@ -187,12 +187,11 @@ fn input_stats(manifest_dir: &Path) -> Vec<InputStat> {
         .iter()
         .map(|(name, _)| {
             let meta = fs::metadata(manifest_dir.join(name)).ok();
-            let size = meta.as_ref().map(|m| m.len()).unwrap_or(u64::MAX);
+            let size = meta.as_ref().map_or(u64::MAX, |m| m.len());
             let mtime_nanos = meta
                 .and_then(|m| m.modified().ok())
                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_nanos())
-                .unwrap_or(u128::MAX);
+                .map_or(u128::MAX, |d| d.as_nanos());
             InputStat {
                 name,
                 size,

@@ -345,7 +345,7 @@ impl ImageStore {
             return None;
         }
         let size = blob.len() as u64 + OVERHEAD_BYTES as u64;
-        let old_size = self.index.get(&record.key).map(|e| e.size).unwrap_or(0);
+        let old_size = self.index.get(&record.key).map_or(0, |e| e.size);
         self.index.insert(
             record.key.clone(),
             ImageIndexEntry {
@@ -570,7 +570,7 @@ mod tests {
         let parsed = parse_image(&blob).unwrap();
         assert_eq!(parsed.body, vec![137, 80, 78, 71]);
         assert_eq!(parsed.etag, "\"v1\"");
-        let mut bad = blob.clone();
+        let mut bad = blob;
         bad[0] = 42;
         assert!(parse_image(&bad).is_none());
     }

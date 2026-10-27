@@ -180,7 +180,7 @@ fn push_span(spans: &mut Vec<Span>, kind: TokenKind, start: usize, end: usize) {
         return;
     }
     debug_assert!(
-        spans.is_empty() || start >= spans.last().map(|s| s.end).unwrap_or(0),
+        spans.is_empty() || start >= spans.last().map_or(0, |s| s.end),
         "spans must be pushed in order"
     );
     if let Some(last) = spans.last_mut() {
@@ -195,7 +195,7 @@ fn push_span(spans: &mut Vec<Span>, kind: TokenKind, start: usize, end: usize) {
 /// Byte width of the UTF-8 char starting at `line[i]`. Callers guarantee `i < len`
 /// and `i` is a char boundary; falls back to 1 so the scanner always advances.
 fn char_len_at(line: &str, i: usize) -> usize {
-    line[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1)
+    line[i..].chars().next().map_or(1, |c| c.len_utf8())
 }
 
 /// Highlights one line. Returned ranges always cover `0..line.len()`

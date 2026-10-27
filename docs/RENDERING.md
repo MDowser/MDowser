@@ -55,8 +55,12 @@ STRUCTURE and never evaluates it:
   by title, each section keeping its own state, so two same-titled or untitled
   sections — both shown as `Details` — never toggle each other); `<Card>` as a
   bordered box (`title` first line,
-  linked with `href`); `<Steps>`/`<Step>` as numbered rows; `<CodeGroup>` as one
+  linked with `href`); `<Steps>`/`<Step>` as numbered rows joined by a thin
+  rail; `<CodeGroup>` as one
   code tab per fenced child (label from the fence `title=`, else its language).
+  A component may also sit on ONE line (`<Step title="Install">Run it.</Step>`):
+  it renders exactly like the multi-line form. A `<Tabs>`/`<Steps>` container
+  with no child tabs/steps renders its body in place instead of dropping it.
   A section's disclosure chevron is a themed vector glyph (`ui::icons`,
   right when collapsed, down when expanded) in a fixed slot, so the title
   column never moves and no font fallback is involved. An outline row or a
