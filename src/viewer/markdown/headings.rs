@@ -146,7 +146,7 @@ fn render_heading_split(
     // the text.
     crate::viewer::inline::paint_find_wash(
         ui,
-        style_heading(f, text, size, title_color),
+        heading_rt(f, text, size, title_color),
         text,
         &ranges,
         start,
@@ -157,15 +157,14 @@ fn render_heading_split(
 }
 
 /// The heading's own inline styling: strong at the heading size, in
-/// `title_color`, with the emphasis/strike the fragment carries. Shared with
-/// the unsearched heading path so a searched heading lays out identically.
-fn style_heading(
-    f: &Frag<'_>,
-    text: &str,
-    size: f32,
-    title_color: egui::Color32,
-) -> egui::RichText {
-    let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(title_color);
+/// `color`, with the monospace/emphasis/strike the fragment carries. Shared
+/// by every heading path (find split, emoji, links, plain runs) so a searched
+/// or selected heading lays out exactly like an untouched one.
+fn heading_rt(f: &Frag<'_>, text: &str, size: f32, color: egui::Color32) -> egui::RichText {
+    let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(color);
+    if f.code {
+        rt = rt.monospace();
+    }
     if f.em {
         rt = rt.italics();
     }
@@ -292,13 +291,7 @@ pub(super) fn render_heading_frag(
             })
             .or(sel_bg);
         let rendered = render_emoji_text(ui, text, size, ctx.emoji, emoji_bg, &|ui, piece| {
-            let mut rt = theme::strong(egui::RichText::new(piece).size(size)).color(title_color);
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
+            let mut rt = heading_rt(f, piece, size, title_color);
             if let Some(current) = find_hl {
                 rt = theme::find_text(ui, rt, current);
             } else if let Some(bg) = sel_bg {
@@ -318,117 +311,48 @@ pub(super) fn render_heading_frag(
             return;
         }
     }
-    if let Some(dest) = f.link.as_ref() {
-        if dest.is_empty() {
-            // Ignored destination: plain text, no hand, no nav.
-            let mut rt = theme::strong(egui::RichText::new(text).size(size));
-            if f.code {
-                rt = rt.monospace();
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            if let Some(current) = find_hl {
-                let resp = body_text(ui, theme::find_text(ui, rt, current));
-                if current && find_scroll {
-                    scroll_to(ui, resp.rect);
-                }
-            } else {
-                if let Some(bg) = sel_bg {
-                    rt = rt.background_color(bg).color(title_color);
-                }
-                body_text(ui, rt);
-            }
-        } else if !ctx.interactive {
-            // Backdrop: blue like a link, but inert.
-            let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(link_color);
-            if f.code {
-                rt = rt.monospace();
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            if let Some(current) = find_hl {
-                let resp = body_text(ui, theme::find_text(ui, rt, current));
-                if current && find_scroll {
-                    scroll_to(ui, resp.rect);
-                }
-            } else {
-                if let Some(bg) = sel_bg {
-                    rt = rt.background_color(bg);
-                }
-                body_text(ui, rt);
-            }
-        } else {
-            let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(link_color);
-            if f.code {
-                rt = rt.monospace();
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            let hl_current = find_hl;
-            if let Some(current) = hl_current {
-                rt = theme::find_text(ui, rt, current);
-            } else if let Some(bg) = sel_bg {
-                rt = rt.background_color(bg);
-            }
-            let resp = ui.link(rt);
-            if let Some(current) = hl_current {
-                if current && find_scroll {
-                    scroll_to(ui, resp.rect);
-                }
-            }
-            // In-document anchors are jump targets, never new tabs.
-            if !dest.starts_with('#') {
-                push_link_hit(ctx.links, resp.rect, dest);
-            }
-            if resp.clicked() {
-                (ctx.on_link)(dest);
-            }
-        }
-    } else if f.code {
-        let mut rt = theme::strong(egui::RichText::new(text).size(size))
-            .monospace()
-            .color(title_color);
+    // Interactive link: accent, real `ui.link` (hand cursor, click).
+    if let Some(dest) = f.link.as_ref().filter(|d| !d.is_empty() && ctx.interactive) {
+        let mut rt = heading_rt(f, text, size, link_color);
         if let Some(current) = find_hl {
-            let resp = body_text(ui, theme::find_text(ui, rt, current));
-            if current && find_scroll {
-                scroll_to(ui, resp.rect);
-            }
-        } else {
-            if let Some(bg) = sel_bg {
-                rt = rt.background_color(bg);
-            }
-            body_text(ui, rt);
+            rt = theme::find_text(ui, rt, current);
+        } else if let Some(bg) = sel_bg {
+            rt = rt.background_color(bg);
+        }
+        let resp = ui.link(rt);
+        if find_hl == Some(true) && find_scroll {
+            scroll_to(ui, resp.rect);
+        }
+        // In-document anchors are jump targets, never new tabs.
+        if !dest.starts_with('#') {
+            push_link_hit(ctx.links, resp.rect, dest);
+        }
+        if resp.clicked() {
+            (ctx.on_link)(dest);
+        }
+        return;
+    }
+    // Everything else is inert text: a backdrop link stays accent-blue, an
+    // ignored destination (`[x]()`) and plain/code runs take the heading
+    // color (the ignored-link run used to drop it, so an H6 or a quoted
+    // heading lost its tone there).
+    let color = match f.link.as_deref() {
+        Some(dest) if !dest.is_empty() => link_color,
+        _ => title_color,
+    };
+    let rt = heading_rt(f, text, size, color);
+    if let Some(current) = find_hl {
+        let resp = body_text(ui, theme::find_text(ui, rt, current));
+        if current && find_scroll {
+            scroll_to(ui, resp.rect);
         }
     } else {
-        let mut rt = theme::strong(egui::RichText::new(text).size(size)).color(title_color);
-        if f.em {
-            rt = rt.italics();
-        }
-        if f.strike {
-            rt = rt.strikethrough();
-        }
-        if let Some(current) = find_hl {
-            let resp = body_text(ui, theme::find_text(ui, rt, current));
-            if current && find_scroll {
-                scroll_to(ui, resp.rect);
-            }
-        } else {
-            if let Some(bg) = sel_bg {
-                rt = rt.background_color(bg);
-            }
-            body_text(ui, rt);
-        }
+        body_text(
+            ui,
+            match sel_bg {
+                Some(bg) => rt.background_color(bg),
+                None => rt,
+            },
+        );
     }
 }

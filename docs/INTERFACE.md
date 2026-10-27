@@ -68,7 +68,10 @@ without one get a home/globe icon.
 
 ## Home
 
-The new-tab page has three elements: a display wordmark, one large address
+The new-tab page has three elements: the wordmark lockup (the app mark — the
+blue `M↓` tile, drawn as vectors so it stays crisp at any zoom — beside
+"MDowser" in the display face; a window too narrow for both keeps the word),
+one large address
 capsule (the toolbar's omnibox, with a schemeless hint) and the encrypted
 bookmark "quick access" grid — the only place bookmarks are LISTED. `about:home`
 (typeable like `about:history`) is a real back/forward entry: Back and Forward

@@ -9,6 +9,7 @@
 //! `[!NOTE]`-style callouts (badge color + stripped marker).
 
 use super::*;
+use crate::ui::icons::Icon;
 
 /// Returns the single image fragment when a paragraph holds exactly one
 /// image and nothing else (whitespace-only text is ignored).
@@ -311,21 +312,33 @@ pub(super) fn strip_callout<'a>(frags: &[Frag<'a>]) -> Vec<Frag<'a>> {
     out
 }
 
+/// Box of the callout title glyph: a square about as tall as the title text,
+/// so the glyph and the word read at one optical size.
+const CALLOUT_ICON: f32 = 20.0;
+/// Gap between the callout glyph and its title.
+const CALLOUT_ICON_GAP: f32 = 6.0;
+
 /// Callout badge above the quoted content (alert accent).
 pub(super) fn render_callout_badge(ui: &mut egui::Ui, label: &'static str, selected: bool) {
     let scheme = theme::scheme_ref(ui);
     let badge = callout_color(scheme, label);
     // Callout title: body size, medium weight, title
     // case ("Note", not "NOTE").
-    let title = match label {
-        "NOTE" => "Note",
-        "TIP" => "Tip",
-        "IMPORTANT" => "Important",
-        "WARNING" => "Warning",
-        _ => "Caution",
+    // Each kind leads with its own vector glyph in the accent (GitHub's alert
+    // set: info, bulb, report, alert, stop), so the kind reads before the
+    // word does and the five accents are not the only distinction.
+    let (title, icon) = match label {
+        "NOTE" => ("Note", Icon::Info),
+        "TIP" => ("Tip", Icon::Lightbulb),
+        "IMPORTANT" => ("Important", Icon::Report),
+        "WARNING" => ("Warning", Icon::BrokenImage),
+        _ => ("Caution", Icon::Stop),
     };
     ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.spacing_mut().item_spacing.x = CALLOUT_ICON_GAP;
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(CALLOUT_ICON, CALLOUT_ICON), egui::Sense::hover());
+        crate::ui::icons::paint(ui, rect, icon, badge);
         let mut rt = theme::strong(egui::RichText::new(title)).color(badge);
         if selected {
             rt = theme::selected_text(ui, rt);

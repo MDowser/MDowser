@@ -859,7 +859,10 @@ Key contracts per area (the module map above names the main module areas):
 - Chrome icons are monochrome vector strokes (`ui::icons`), each hand-drawn on
   one 24x24 grid and tinted with the active theme. Buttons ease the glyph from
   muted to accent while it grows ~10% on hover (pulling back on press); focus
-  draws `theme::focus_ring`.
+  draws `theme::focus_ring`. The same module paints the app's brand mark
+  (`icons::paint_brand_mark`, the Home lockup) from `assets/icon.svg`'s own
+  geometry: a gradient-recolored tessellated tile plus white strokes, never the
+  256px raster, which aliased when shrunk (epaint has no mipmaps here).
 - Flat filled buttons share one body (`theme::widgets::sized_button`, labels
   centered with `add_sized` whatever the parent layout, where `Button::min_size`
   alone left them on the parent's cross axis):

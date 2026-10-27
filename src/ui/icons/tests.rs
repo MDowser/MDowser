@@ -10,7 +10,7 @@ use super::{paint, paint_text, Icon};
 use eframe::egui;
 
 /// Every variant, so a new icon cannot dodge the checks below.
-const ALL: [Icon; 28] = [
+const ALL: [Icon; 31] = [
     Icon::Home,
     Icon::Back,
     Icon::Forward,
@@ -39,6 +39,9 @@ const ALL: [Icon; 28] = [
     Icon::ChevronRight,
     Icon::CloudOff,
     Icon::Archive,
+    Icon::Lightbulb,
+    Icon::Report,
+    Icon::Stop,
 ];
 
 /// Every icon paints vector geometry: no text fallback and no texture.
@@ -281,4 +284,61 @@ fn icon_button_disabled_keeps_its_slot() {
         marker_x(false),
         "disabling the button moved the following widget"
     );
+}
+
+/// The brand mark paints the gradient tile plus white strokes inside its
+/// square, with no text and no texture, and an empty rect paints nothing.
+#[test]
+fn brand_mark_paints_a_gradient_tile_inside_its_rect() {
+    let ctx = egui::Context::default();
+    let input = egui::RawInput {
+        screen_rect: Some(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(200.0, 200.0),
+        )),
+        ..Default::default()
+    };
+    let rect = egui::Rect::from_min_size(egui::pos2(20.0, 20.0), egui::vec2(46.0, 46.0));
+    let mut out = ctx.run_ui(input, |root| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::new())
+            .show(root, |ui| {
+                super::paint_brand_mark(ui.painter(), rect);
+                super::paint_brand_mark(ui.painter(), egui::Rect::NOTHING);
+            });
+    });
+    let mut tile = None;
+    let mut strokes = 0;
+    for clipped in &out.shapes {
+        match &clipped.shape {
+            egui::Shape::Mesh(mesh) => tile = Some(mesh.clone()),
+            egui::Shape::Path(_) | egui::Shape::Circle(_) => strokes += 1,
+            egui::Shape::Text(_) => panic!("the brand mark must not fall back to text"),
+            _ => {}
+        }
+    }
+    let tile = tile.expect("the gradient tile painted");
+    let bounds = tile.calc_bounds();
+    assert!(
+        rect.expand(1.0).contains_rect(bounds),
+        "tile {bounds:?} escapes its rect {rect:?}"
+    );
+    // A real gradient: the opaque top and bottom vertices differ in color.
+    let opaque: Vec<_> = tile
+        .vertices
+        .iter()
+        .filter(|v| v.color.a() == 255)
+        .collect();
+    let top = opaque
+        .iter()
+        .min_by(|a, b| a.pos.y.total_cmp(&b.pos.y))
+        .expect("opaque vertices");
+    let bottom = opaque
+        .iter()
+        .max_by(|a, b| a.pos.y.total_cmp(&b.pos.y))
+        .expect("opaque vertices");
+    assert_ne!(top.color, bottom.color, "the tile must carry the gradient");
+    // Three strokes (two `M` legs + arrow) with their round joints.
+    assert!(strokes >= 3, "the M and the arrow paint (got {strokes})");
+    out.textures_delta.clear();
 }

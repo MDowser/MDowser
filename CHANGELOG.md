@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Callout titles lead with their own vector glyph in the alert accent (info
+  for Note, a bulb for Tip, a report bubble for Important, the alert triangle
+  for Warning, a stop octagon for Caution), so the kind reads before the word
+  and color is no longer its only distinction. (`src/ui/icons/`,
+  `src/viewer/markdown/links.rs`, `docs/RENDERING.md`.)
+- The Home page shows the app mark beside the wordmark: the blue `M↓` tile is
+  drawn as vectors from `assets/icon.svg`'s own geometry (gradient included),
+  so it stays crisp at every zoom instead of aliasing like a shrunk raster. A
+  window too narrow for both keeps the word alone. (`src/ui/home.rs`,
+  `src/ui/icons/`, `docs/INTERFACE.md`, `docs/ARCHITECTURE.md`.)
 - A seeded robustness sweep runs generated markup (components, callouts,
   `:::` containers, tables, fences, autolinks, shortcodes) mixed with
   multibyte text through the whole document pipeline and the renderer on
@@ -17,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The Home wordmark paints in the main text color: the brand blue now lives in
+  the mark beside it, so the lockup pairs one colored tile with a neutral word.
+  (`src/ui/theme/widgets.rs`.)
+- Code quality: heading and body-text fragments style through one helper each
+  (`heading_rt`, `style_frag`) instead of six hand-copied
+  bold/italic/strike/monospace chains, removing ~200 lines from the reader
+  with no layout change. (`src/viewer/markdown/headings.rs`,
+  `src/viewer/inline/mod.rs`.)
 - Quotes and callouts keep the same air above their box as below it, with
   8px of body padding: a quote right after a list or paragraph no longer
   nearly touches it, and stacked callouts no longer crowd each other.
@@ -45,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A heading link with an ignored destination (`# [Title]()`) keeps the
+  heading's color: it used to fall back to the surrounding text tone, so the
+  run turned muted inside a quote and lost the muted tone in an H6.
+  (`src/viewer/markdown/headings.rs`.)
 - One-line MDX components (`<Step title="Install">Run it.</Step>`, likewise
   `<Tab>`, `<Accordion>`, `<Card>`) expand like their multi-line form. They
   used to lose their title and wrapper, and a `<Steps>` made only of one-line

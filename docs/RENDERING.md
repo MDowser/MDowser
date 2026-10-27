@@ -163,7 +163,8 @@ README styling: a neutral palette (light/dark), H1/H2 bottom rules, muted H6 and
 quotes, borderless code cards (a `pre` recipe: muted surface, no border) at the
 BODY type size (code exactly as wide as the prose) with syntax colors, striped
 bordered tables with collapsed interior row/column separators, 4px `<hr>`,
-callout accents and a soft text selection tint. Inside a callout or quote,
+callout accents (each callout title leads with its own vector glyph: info,
+bulb, report, alert or stop) and a soft text selection tint. Inside a callout or quote,
 paragraph air goes BETWEEN blocks, not after the last, so the box hugs its
 text. The document closes with a `theme::spacing::PAGE_END` (24px) blank
 pad under its last block, so a page scrolled to its end keeps a margin.

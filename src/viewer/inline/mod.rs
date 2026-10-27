@@ -632,17 +632,7 @@ pub(crate) fn render_frag(
             })
             .or_else(|| selected.then(|| theme::select_bg(ui)));
         let rendered = render_emoji_text(ui, text, size, emoji, emoji_bg, &|ui, piece| {
-            let mut rt = egui::RichText::new(piece);
-            if f.strong {
-                rt = theme::strong(rt);
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
+            let mut rt = style_frag(f, piece);
             if let Some(current) = find_hl {
                 rt = apply_hl(ui, rt, current);
             } else if selected {
@@ -665,111 +655,42 @@ pub(crate) fn render_frag(
         }
     }
 
-    if let Some(dest) = f.link.as_ref() {
-        if f.code {
-            // Code inside a link: the same tight pill as bare code (the old
-            // `.code()` background painted the full line box, with a gray
-            // band under the words), clickable only when the link is live.
-            let color = if selected {
-                theme::scheme_ref(ui).on_surface
-            } else if dest.is_empty() {
-                ui.visuals().text_color()
-            } else {
-                ui.visuals().hyperlink_color
-            };
-            let clickable = (interactive && !dest.is_empty()).then_some(dest);
-            render_code_span(
-                ui,
-                f,
-                text,
-                selected,
-                color,
-                clickable,
-                on_link,
-                links,
-                find,
-                find_hl,
-                find_scroll,
-            );
-            return;
-        }
-        if dest.is_empty() {
-            // Ignored destination (scheme the base may not follow / `#frag`):
-            // plain text, never nav.
-            let mut rt = egui::RichText::new(text);
-            if f.strong {
-                rt = theme::strong(rt);
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-            if let Some(current) = find_hl {
-                let resp = body_text(ui, apply_hl(ui, rt, current));
-                if current && find_scroll {
-                    scroll_to(find, ui, resp.rect);
-                }
-            } else {
-                if selected {
-                    rt = theme::selected_text(ui, rt);
-                }
-                body_text(ui, rt);
-            }
-            return;
-        }
-        if !interactive {
-            // Backdrop: blue like a link but inert (no hand, no nav) so the
-            // page doesn't flash black->blue when the load resolves.
-            // Select-all forces readable on-surface instead of blue-on-blue.
-            let mut rt = egui::RichText::new(text).color(ui.visuals().hyperlink_color);
-            if f.strong {
-                rt = theme::strong(rt);
-            }
-            if f.em {
-                rt = rt.italics();
-            }
-            if f.strike {
-                rt = rt.strikethrough();
-            }
-            rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-            if let Some(current) = find_hl {
-                let resp = body_text(ui, apply_hl(ui, rt, current));
-                if current && find_scroll {
-                    scroll_to(find, ui, resp.rect);
-                }
-            } else {
-                if selected {
-                    rt = theme::selected_text(ui, rt);
-                }
-                body_text(ui, rt);
-            }
-            return;
-        }
-        let mut rt = egui::RichText::new(text).color(ui.visuals().hyperlink_color);
-        if f.strong {
-            rt = theme::strong(rt);
-        }
-        if f.em {
-            rt = rt.italics();
-        }
-        if f.strike {
-            rt = rt.strikethrough();
-        }
-        rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-        let find_current = find_hl;
-        if let Some(current) = find_current {
+    if f.code {
+        // Inline code (styled variants and code inside a link included): the
+        // same tight pill on the body baseline (the old `.code()` background
+        // painted the full line box under linked code), clickable only when
+        // the link is live.
+        let color = match f.link.as_ref() {
+            Some(_) if selected => theme::scheme_ref(ui).on_surface,
+            Some(dest) if !dest.is_empty() => ui.visuals().hyperlink_color,
+            _ => ui.visuals().text_color(),
+        };
+        let clickable = f.link.as_ref().filter(|d| interactive && !d.is_empty());
+        render_code_span(
+            ui,
+            f,
+            text,
+            selected,
+            color,
+            clickable,
+            on_link,
+            links,
+            find,
+            find_hl,
+            find_scroll,
+        );
+        return;
+    }
+    if let Some(dest) = f.link.as_ref().filter(|d| interactive && !d.is_empty()) {
+        let mut rt = style_frag(f, text).color(ui.visuals().hyperlink_color);
+        if let Some(current) = find_hl {
             rt = apply_hl(ui, rt, current);
         } else if selected {
             rt = theme::selected_text(ui, rt);
         }
         let resp = ui.link(rt);
-        if let Some(current) = find_current {
-            if current && find_scroll {
-                scroll_to(find, ui, resp.rect);
-            }
+        if find_hl == Some(true) && find_scroll {
+            scroll_to(find, ui, resp.rect);
         }
         // In-document anchors are jump targets, not pages: never offer
         // "Open link in new tab" for them.
@@ -779,69 +700,26 @@ pub(crate) fn render_frag(
         if resp.clicked() {
             on_link(dest);
         }
-    } else if f.code {
-        // Inline code (styled variants included): tight pill, body baseline.
-        render_code_span(
-            ui,
-            f,
-            text,
-            selected,
-            ui.visuals().text_color(),
-            None,
-            on_link,
-            links,
-            find,
-            find_hl,
-            find_scroll,
-        );
-    } else if f.strong || f.em || f.strike {
-        let mut rt = egui::RichText::new(text);
-        if f.strong {
-            rt = theme::strong(rt);
-        }
-        if f.em {
-            rt = rt.italics();
-        }
-        if f.strike {
-            rt = rt.strikethrough();
-        }
-        rt = rt.line_height(Some(theme::BODY_LINE_HEIGHT));
-        if let Some(current) = find_hl {
-            let resp = body_text(ui, apply_hl(ui, rt, current));
-            if current && find_scroll {
-                scroll_to(find, ui, resp.rect);
-            }
-        } else {
-            if selected {
-                rt = theme::selected_text(ui, rt);
-            }
-            body_text(ui, rt);
-        }
-    } else if let Some(current) = find_hl {
-        let resp = body_text(
-            ui,
-            apply_hl(
-                ui,
-                egui::RichText::new(text).line_height(Some(theme::BODY_LINE_HEIGHT)),
-                current,
-            ),
-        );
+        return;
+    }
+    // Inert text. A backdrop link (page still loading) stays blue but has no
+    // hand or nav, so the page does not flash black->blue when the load
+    // resolves; an ignored destination (a scheme the base may not follow)
+    // reads as plain text. Select-all forces the readable on-surface tone.
+    let mut rt = style_frag(f, text);
+    if f.link.as_ref().is_some_and(|d| !d.is_empty()) {
+        rt = rt.color(ui.visuals().hyperlink_color);
+    }
+    if let Some(current) = find_hl {
+        let resp = body_text(ui, apply_hl(ui, rt, current));
         if current && find_scroll {
             scroll_to(find, ui, resp.rect);
         }
-    } else if selected {
-        body_text(
-            ui,
-            theme::selected_text(
-                ui,
-                egui::RichText::new(text).line_height(Some(theme::BODY_LINE_HEIGHT)),
-            ),
-        );
     } else {
-        body_text(
-            ui,
-            egui::RichText::new(text).line_height(Some(theme::BODY_LINE_HEIGHT)),
-        );
+        if selected {
+            rt = theme::selected_text(ui, rt);
+        }
+        body_text(ui, rt);
     }
 }
 

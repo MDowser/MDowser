@@ -6,7 +6,8 @@
 //! `ui::home`: landing page with a large centered omnibox.
 //!
 //! - Shown when the tab is in `TabState::Home`.
-//! - Exactly three elements, nothing else: the wordmark, one large address
+//! - Exactly three elements, nothing else: the wordmark lockup (vector app
+//!   mark + "MDowser"), one large address
 //!   capsule (the shared `ui::omnibox`: padlock indicator, clear action, no
 //!   `https://`; Enter navigates with cascading resolution, no `Go`) and the
 //!   encrypted bookmark grid (`ui::bookmarks`), the ONLY place bookmarks are
@@ -26,6 +27,40 @@ use eframe::egui;
 /// Same pixels as before (`XL` = 16 would undershoot the calm band).
 const HOME_TOP_AIR: f32 = 84.0;
 const HOME_WORDMARK_GAP: f32 = 36.0;
+
+/// Side of the brand mark beside the wordmark: a touch taller than the
+/// display face's cap height so the tile and the letters read as one unit.
+const HOME_MARK: f32 = 46.0;
+/// Gap between the brand mark and the wordmark.
+const HOME_MARK_GAP: f32 = 14.0;
+
+/// The wordmark lockup: the vector app mark ([`crate::ui::icons::paint_brand_mark`])
+/// followed by "MDowser" in the display face, centered as ONE unit. A window
+/// too narrow for both keeps the wordmark alone, so the lockup never clips.
+fn brand_lockup(ui: &mut egui::Ui) {
+    let text = theme::display(ui, "MDowser");
+    let galley = egui::WidgetText::from(text.clone()).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Extend),
+        f32::INFINITY,
+        egui::TextStyle::Body,
+    );
+    let total = HOME_MARK + HOME_MARK_GAP + galley.size().x;
+    let avail = ui.available_width();
+    if avail < total {
+        ui.label(text);
+        return;
+    }
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.add_space(((avail - total) * 0.5).max(0.0));
+        let (rect, _) =
+            ui.allocate_exact_size(egui::vec2(HOME_MARK, HOME_MARK), egui::Sense::hover());
+        crate::ui::icons::paint_brand_mark(ui.painter(), rect);
+        ui.add_space(HOME_MARK_GAP);
+        ui.label(text);
+    });
+}
 
 /// Drops the Home page's egui-memory state for one closed tab (the two
 /// scroll offsets). Called from the single registry
@@ -64,7 +99,7 @@ pub fn show_home(
                 // Generous top air: the wordmark sits in a calm band under
                 // the toolbar (optical, not mechanical, centering).
                 ui.add_space(HOME_TOP_AIR);
-                ui.label(theme::display(ui, "MDowser"));
+                brand_lockup(ui);
                 ui.add_space(HOME_WORDMARK_GAP);
 
                 // One large address capsule (shared widget): same behavior

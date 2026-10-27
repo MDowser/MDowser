@@ -639,9 +639,11 @@ pub fn type_scale(avail: f32) -> f32 {
     }
 }
 
-/// Display type (landing): large, bold, primary color.
+/// Display type (landing wordmark): large, bold, main text color. The brand
+/// blue lives in the mark beside it (`ui::icons::paint_brand_mark`), so the
+/// lockup pairs one colored tile with a neutral word instead of two blues.
 pub fn display(ui: &egui::Ui, text: &str) -> egui::RichText {
-    strong(egui::RichText::new(text).size(typography::DISPLAY)).color(scheme_ref(ui).primary)
+    strong(egui::RichText::new(text).size(typography::DISPLAY)).color(scheme_ref(ui).on_surface)
 }
 
 /// Muted secondary text.

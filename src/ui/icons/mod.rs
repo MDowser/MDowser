@@ -59,7 +59,8 @@ pub enum Icon {
     File,
     /// Framed picture: image placeholder.
     Image,
-    /// Warning sign: image failed to load.
+    /// Warning sign: image failed to load, and the `[!WARNING]` callout
+    /// title.
     BrokenImage,
     /// Cross mark: close tab / clear field / stop loading.
     Close,
@@ -99,6 +100,13 @@ pub enum Icon {
     /// Archive box: a saved copy (the server answered without providing a
     /// fresh document).
     Archive,
+    /// Light bulb: the `[!TIP]` callout title.
+    Lightbulb,
+    /// Speech bubble with an exclamation mark: the `[!IMPORTANT]` callout
+    /// title.
+    Report,
+    /// Octagon with an exclamation mark: the `[!CAUTION]` callout title.
+    Stop,
 }
 
 /// Design grid side: every glyph below is drawn in a 24x24 unit square.
@@ -192,6 +200,33 @@ impl Icon {
                     (15.8, 13.3),
                     (19.5, 17.2),
                 ]);
+            }
+            Icon::Lightbulb => {
+                // Bulb open at the bottom, narrowing into the neck, plus the
+                // screw base line.
+                pen.arc(12.0, 9.4, 6.0, 135.0, 405.0);
+                pen.stroke(&[(7.76, 13.64), (9.4, 16.4), (14.6, 16.4), (16.24, 13.64)]);
+                pen.stroke(&[(9.6, 19.6), (14.4, 19.6)]);
+            }
+            Icon::Report => {
+                // Speech bubble (tail at the lower left) with an exclamation.
+                pen.rounded_rect((3.6, 3.8), (20.4, 16.2), 2.6);
+                pen.stroke(&[(7.4, 16.2), (7.4, 20.6), (11.6, 16.2)]);
+                pen.stroke(&[(12.0, 6.8), (12.0, 10.6)]);
+                pen.dot(12.0, 13.2, 1.15);
+            }
+            Icon::Stop => {
+                // Regular octagon (flat top) with an exclamation.
+                let (cx, cy, r) = (12.0_f32, 12.0_f32, 9.0_f32);
+                let octagon: Vec<(f32, f32)> = (0..8)
+                    .map(|k| {
+                        let a = (22.5 + 45.0 * k as f32).to_radians();
+                        (cx + r * a.cos(), cy + r * a.sin())
+                    })
+                    .collect();
+                pen.closed(&octagon);
+                pen.stroke(&[(12.0, 7.6), (12.0, 12.6)]);
+                pen.dot(12.0, 15.8, 1.15);
             }
             Icon::BrokenImage => {
                 pen.closed(&[(12.0, 3.6), (21.0, 19.8), (3.0, 19.8)]);
@@ -340,6 +375,81 @@ fn paint_scaled(
         color,
     };
     icon.draw(&pen);
+}
+
+/// Paints the app's brand mark (`assets/icon.svg`: the rounded blue tile with
+/// the white Markdown `M↓`) as vectors filling the square `rect`.
+///
+/// Drawn, not sampled from `APP_ICON_256`: epaint has no mipmaps on this
+/// renderer, so a 256px raster shrunk to a ~44px Home mark aliased its white
+/// strokes. The geometry is the SVG's own 1024-unit grid, so the two cannot
+/// drift apart visually. Brand colors are fixed (identity, not chrome): the
+/// tile keeps its gradient in both themes, like the OS icon does.
+pub fn paint_brand_mark(painter: &egui::Painter, rect: egui::Rect) {
+    /// The SVG's design grid and its tile inset/radius/stroke on it.
+    const GRID: f32 = 1024.0;
+    const INSET: f32 = 64.0;
+    const RADIUS: f32 = 208.0;
+    const STROKE_W: f32 = 88.0;
+    /// `#2f81f7` -> `#0a4f9e`, the SVG's vertical gradient.
+    const TOP: egui::Color32 = egui::Color32::from_rgb(0x2f, 0x81, 0xf7);
+    const BOTTOM: egui::Color32 = egui::Color32::from_rgb(0x0a, 0x4f, 0x9e);
+    let side = rect.width().min(rect.height());
+    if side <= 0.0 || !side.is_finite() {
+        return;
+    }
+    let unit = side / GRID;
+    let origin = rect.center() - egui::vec2(side * 0.5, side * 0.5);
+    let at = |x: f32, y: f32| origin + egui::vec2(x * unit, y * unit);
+    let tile = egui::Rect::from_min_max(at(INSET, INSET), at(GRID - INSET, GRID - INSET));
+    // Tessellate the rounded tile in white (feathered edge included), then
+    // recolor every vertex by its height: a gradient fill with the same
+    // anti-aliased edge a plain `rect_filled` gets.
+    let mut mesh = egui::Mesh::default();
+    let ppp = painter.pixels_per_point();
+    let mut tess = egui::epaint::Tessellator::new(
+        ppp,
+        egui::epaint::TessellationOptions::default(),
+        [1, 1],
+        Vec::new(),
+    );
+    tess.tessellate_rect(
+        &egui::epaint::RectShape::filled(
+            tile,
+            egui::CornerRadius::same((RADIUS * unit).round().clamp(0.0, 255.0) as u8),
+            egui::Color32::WHITE,
+        ),
+        &mut mesh,
+    );
+    for v in &mut mesh.vertices {
+        let t = ((v.pos.y - tile.top()) / tile.height().max(1.0)).clamp(0.0, 1.0);
+        let coverage = f32::from(v.color.a()) / 255.0;
+        v.color = TOP.lerp_to_gamma(BOTTOM, t).gamma_multiply(coverage);
+    }
+    painter.add(mesh);
+    // The `M` and the down arrow: round caps and joins like the SVG
+    // (`stroke-linecap/linejoin="round"`), drawn as discs at every vertex
+    // under the straight segments (egui lines have neither).
+    let w = STROKE_W * unit;
+    let stroke = egui::Stroke::new(w, egui::Color32::WHITE);
+    let paths: [&[(f32, f32)]; 3] = [
+        &[
+            (192.0, 704.0),
+            (192.0, 344.0),
+            (356.0, 528.0),
+            (520.0, 344.0),
+            (520.0, 704.0),
+        ],
+        &[(740.0, 344.0), (740.0, 704.0)],
+        &[(640.0, 588.0), (740.0, 704.0), (840.0, 588.0)],
+    ];
+    for path in paths {
+        let points: Vec<egui::Pos2> = path.iter().map(|&(x, y)| at(x, y)).collect();
+        for p in &points {
+            painter.circle_filled(*p, w * 0.5, egui::Color32::WHITE);
+        }
+        painter.add(egui::Shape::line(points, stroke));
+    }
 }
 
 /// Paints an arbitrary glyph (a letter, digit or emoji cluster) centered
