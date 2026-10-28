@@ -168,7 +168,7 @@ pub struct Tab {
     /// so a window move invalidates it: the menu closes instead of drifting.
     pub context_viewport: Option<egui::Rect>,
     /// Link under the cursor when the menu opened: the menu offers
-    /// "Open link in new tab" above Copy / Select all.
+    /// "Open link in new tab" and "Copy link address" above Copy / Select all.
     pub context_link: Option<String>,
     /// A secondary press over the document was intercepted BEFORE egui (see
     /// `MdowserApp::raw_input_hook`) because a text selection existed: the

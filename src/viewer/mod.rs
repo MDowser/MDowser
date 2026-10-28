@@ -58,7 +58,8 @@ use url::Url;
 use self::markdown::{doc_id_salt, show_markdown_with_find};
 
 /// Screen-space hitbox of one rendered document link, collected while the
-/// document renders so the right-click menu can offer "Open link in new tab".
+/// document renders so the right-click menu can offer "Open link in new tab"
+/// and "Copy link address", and the hover chip can show the destination.
 /// A link split into several inline fragments pushes one hitbox per fragment;
 /// they sit next to each other and never overlap.
 #[derive(Debug, Clone)]
@@ -69,17 +70,28 @@ pub(crate) struct LinkHit {
     /// Interned (`Arc`): a link split into many fragments shares one
     /// allocation instead of copying the URL per fragment per frame.
     pub(crate) url: std::sync::Arc<str>,
+    /// Pointer is on this fragment this frame. Overlays sit on higher layers,
+    /// so `Response::hovered` also turns this off when a floating surface
+    /// (menu, find bar, toast) covers the link.
+    pub(crate) hovered: bool,
 }
 
 /// Pushes one link hitbox, bounded by [`crate::config::MAX_LINK_HITS`].
 /// Clicking and navigation never depend on the hitboxes: past the cap the
-/// link still works, only its right-click "Open link in new tab" entry is
-/// missing. This bounds the per-frame URL copies the hit list retains.
-pub(crate) fn push_link_hit(links: &mut Vec<LinkHit>, rect: egui::Rect, url: &std::sync::Arc<str>) {
+/// link still works, only the right-click link rows and the hover destination
+/// chip are missing. This bounds the per-frame URL copies the hit list
+/// retains.
+pub(crate) fn push_link_hit(
+    links: &mut Vec<LinkHit>,
+    rect: egui::Rect,
+    url: &std::sync::Arc<str>,
+    hovered: bool,
+) {
     if links.len() < crate::config::MAX_LINK_HITS {
         links.push(LinkHit {
             rect,
             url: std::sync::Arc::clone(url),
+            hovered,
         });
     }
 }
@@ -262,6 +274,7 @@ pub fn show_content(
                 }
             });
         tab.doc_rect = new_rect;
+        overlays::show_link_status(root, tab);
         overlays::show_toast(root, tab);
         if let Some(dest) = pending_link {
             tab.navigate_to_text(&dest, true);
@@ -457,6 +470,7 @@ pub fn show_content(
                 }
             });
         tab.doc_rect = new_rect;
+        overlays::show_link_status(root, tab);
         overlays::show_toast(root, tab);
         if let Some(id) = pending_anchor_click {
             // Applied on the next frame (this one is already rendered).

@@ -431,9 +431,10 @@ fn wire_link(
     let Some(dest) = link else {
         return;
     };
-    // In-document anchors are jump targets, never new tabs.
+    // In-document anchors are jump targets, not pages: never a hitbox for
+    // the menu or the hover destination chip.
     if !dest.starts_with('#') {
-        push_link_hit(links, resp.rect, dest);
+        push_link_hit(links, resp.rect, dest, resp.hovered());
     }
     if resp.clicked() {
         on_link(dest);

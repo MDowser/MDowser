@@ -101,7 +101,7 @@ pub(crate) fn render_code_span(
                 }
             }
             if !dest.starts_with('#') {
-                push_link_hit(links, resp.rect, dest);
+                push_link_hit(links, resp.rect, dest, resp.hovered());
             }
             if resp.clicked() {
                 on_link(dest);
@@ -216,10 +216,10 @@ pub(crate) fn render_code_span(
     // widget inside the reserved content rect without consuming more space.
     if let Some(dest) = link {
         let resp = ui.put(content, egui::Link::new(galley));
-        // In-document anchors are jump targets, not pages: never offer
-        // "Open link in new tab" for them.
+        // In-document anchors are jump targets, not pages: never a hitbox
+        // for the menu or the hover destination chip.
         if !dest.starts_with('#') {
-            push_link_hit(links, outer, dest);
+            push_link_hit(links, outer, dest, resp.hovered());
         }
         if resp.clicked() {
             on_link(dest);

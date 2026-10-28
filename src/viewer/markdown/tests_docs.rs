@@ -352,9 +352,10 @@ fn hostile_nesting_renders_flattened_without_overflow() {
     );
 }
 
-/// Link hitboxes feed the right-click menu ("Open link in new tab"):
-/// interactive links report their screen rect and absolute URL; inert
-/// (backdrop) links must not, or the menu would offer a dead action.
+/// Link hitboxes feed the right-click menu ("Open link in new tab", "Copy
+/// link address") and the hover destination chip: interactive links report
+/// their screen rect, absolute URL and hover state; inert (backdrop) links
+/// must not, or the menu would offer a dead action.
 #[test]
 fn collects_link_hitboxes_for_the_context_menu() {
     let ctx = egui::Context::default();
@@ -406,6 +407,47 @@ fn collects_link_hitboxes_for_the_context_menu() {
         interactive_hits[0].rect.width() > 0.0 && interactive_hits[0].rect.height() > 0.0,
         "hitbox must be a real rect: {:?}",
         interactive_hits[0].rect
+    );
+
+    // Second frame with the pointer on the link: its response reports the
+    // hover, which the destination chip reads from the hitbox.
+    let hover_at = interactive_hits[0].rect.center();
+    let hovered_input = egui::RawInput {
+        screen_rect: input.screen_rect,
+        events: vec![egui::Event::PointerMoved(hover_at)],
+        ..Default::default()
+    };
+    let mut hovered_hits = Vec::new();
+    let mut out = ctx.run_ui(hovered_input, |root| {
+        egui::CentralPanel::default().show(root, |ui| {
+            let mut on_link = |_: &str| {};
+            show_markdown(
+                ui,
+                &events,
+                &crate::markdown::anchors::AnchorIndex::default(),
+                &crate::protocol::rewrite::DestCache::build(
+                    &base,
+                    &crate::markdown::anchors::AnchorIndex::default(),
+                    &events,
+                ),
+                &mut None,
+                doc_id_salt(&base),
+                false,
+                true,
+                1100.0,
+                1.0,
+                &mut images,
+                &mut emoji,
+                &mut on_link,
+                &mut hovered_hits,
+            );
+        });
+    });
+    out.textures_delta.clear();
+    assert_eq!(hovered_hits.len(), 1);
+    assert!(
+        hovered_hits[0].hovered,
+        "pointer on the link must mark its hitbox hovered"
     );
 
     let mut inert_hits = Vec::new();

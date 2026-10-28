@@ -370,22 +370,30 @@ sheet, not a raw log:
 
 Minimal: Copy (the drag selection when one exists, else the whole page), Select
 all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`) and Save page
-(`Ctrl/Cmd+S`), below a separator; over a link it adds Open link in new tab at
-the top. `Cmd/Ctrl+click` on a link opens it in a background tab directly (an
-in-page `#anchor` becomes its absolute URL plus the fragment). Prose, headings,
-lists, quotes and table cells are natively selectable (drag + `Cmd/Ctrl+C`)
-with readable selection colors. A highlighted code block is virtualized and
-painted row by row, so it has no per-line drag selection; its Copy button (or
-menu Copy with no selection) copies the whole block verbatim and briefly
-confirms with `Copied`. Right-clicking preserves an existing selection (its
-press is intercepted before egui), so menu Copy copies exactly the selected
-text.
+(`Ctrl/Cmd+S`), below a separator; over a link it adds Open link in new tab and
+Copy link address at the top. `Cmd/Ctrl+click` on a link opens it in a
+background tab directly (an in-page `#anchor` becomes its absolute URL plus the
+fragment). Prose, headings, lists, quotes and table cells are natively
+selectable (drag + `Cmd/Ctrl+C`) with readable selection colors. A highlighted
+code block is virtualized and painted row by row, so it has no per-line drag
+selection; its Copy button (or menu Copy with no selection) copies the whole
+block verbatim and briefly confirms with `Copied`. Right-clicking preserves an
+existing selection (its press is intercepted before egui), so menu Copy copies
+exactly the selected text.
 
 Opening the menu with the pointer leaves NO row highlighted (only the keyboard
 lights one). A primary press outside it — including the start of a drag
 selection — closes it. The menu is keyboard-navigable: `Down`/`Up` move focus
 into the rows (the first press lands on the first), `Enter` activates the
 focused one, `Esc` closes.
+
+## Link destination preview
+
+Hovering a live link shows its resolved destination in a compact chip at the
+document's bottom-left, origin first and long tails elided, so a link whose
+text hides its target can be checked before the click. The chip is painted,
+not interactive, and hidden while the context menu is open or a pointer gesture
+is in progress.
 
 ## Keyboard shortcuts
 

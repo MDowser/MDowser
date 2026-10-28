@@ -6,7 +6,7 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
-use super::{content_menu, link_at};
+use super::{content_menu, hovered_link, link_at, show_link_status};
 use crate::browser::tab::{Tab, TabState};
 use crate::protocol::client::Fetched;
 use crate::viewer::LinkHit;
@@ -73,10 +73,12 @@ fn link_at_finds_the_hitbox_containing_the_pointer() {
         LinkHit {
             rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(60.0, 30.0)),
             url: std::sync::Arc::from("https://ex.com/a"),
+            hovered: false,
         },
         LinkHit {
             rect: egui::Rect::from_min_max(egui::pos2(70.0, 10.0), egui::pos2(120.0, 30.0)),
             url: std::sync::Arc::from("https://ex.com/b"),
+            hovered: false,
         },
     ];
     assert_eq!(
@@ -141,8 +143,19 @@ fn menu_rows_keep_their_geometry_on_hover() {
     }
     assert!(baseline.len() >= 3, "menu painted its rows: {baseline:?}");
 
-    let anchor = |label: &str| baseline.iter().find(|(t, _)| t.contains(label)).unwrap().1;
-    for label in ["Open link", "Copy", "Select all"] {
+    let anchor = |label: &str| {
+        baseline
+            .iter()
+            .find(|(t, _)| t == label)
+            .unwrap_or_else(|| panic!("row {label:?} painted"))
+            .1
+    };
+    for label in [
+        "Open link in new tab",
+        "Copy link address",
+        "Copy",
+        "Select all",
+    ] {
         let pos = anchor(label);
         let hovered = render_menu_positions(&ctx, &mut tab, vec![egui::Event::PointerMoved(pos)]);
         assert_eq!(hovered, baseline, "hovering {label:?} moved the menu");
@@ -171,10 +184,12 @@ fn link_at_prefers_the_last_hit_on_overlap() {
         LinkHit {
             rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 50.0)),
             url: std::sync::Arc::from("https://ex.com/first"),
+            hovered: false,
         },
         LinkHit {
             rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(40.0, 40.0)),
             url: std::sync::Arc::from("https://ex.com/last"),
+            hovered: false,
         },
     ];
     assert_eq!(
@@ -182,6 +197,135 @@ fn link_at_prefers_the_last_hit_on_overlap() {
         Some("https://ex.com/last"),
         "later (more specific) hits win"
     );
+}
+
+#[test]
+fn hovered_link_ignores_idle_fragments_and_prefers_the_last() {
+    let hits = vec![
+        LinkHit {
+            rect: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(50.0, 50.0)),
+            url: std::sync::Arc::from("https://ex.com/idle"),
+            hovered: false,
+        },
+        LinkHit {
+            rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(40.0, 40.0)),
+            url: std::sync::Arc::from("https://ex.com/hovered"),
+            hovered: true,
+        },
+    ];
+    assert_eq!(hovered_link(&hits), Some("https://ex.com/hovered"));
+    assert_eq!(hovered_link(&hits[..1]), None, "no fragment hovered");
+}
+
+/// Text runs painted by one `show_link_status` call. Two passes: the first
+/// `Area` frame is an invisible sizing pass, exactly like the menu/toast.
+fn status_texts(ctx: &egui::Context, tab: &Tab, events: Vec<egui::Event>) -> Vec<String> {
+    let input = egui::RawInput {
+        screen_rect: Some(screen()),
+        events,
+        ..Default::default()
+    };
+    let mut first = ctx.run_ui(input.clone(), |root| show_link_status(root, tab));
+    first.textures_delta.clear();
+    let mut out = ctx.run_ui(input, |root| show_link_status(root, tab));
+    let texts = out
+        .shapes
+        .iter()
+        .filter_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) => Some(t.galley.text().to_string()),
+            _ => None,
+        })
+        .collect();
+    out.textures_delta.clear();
+    texts
+}
+
+fn tab_with_hovered_link(url: &str) -> Tab {
+    let mut tab = Tab::new(1);
+    tab.doc_rect = Some(screen());
+    tab.link_hits.push(LinkHit {
+        rect: egui::Rect::from_min_max(egui::pos2(10.0, 10.0), egui::pos2(60.0, 30.0)),
+        url: std::sync::Arc::from(url),
+        hovered: true,
+    });
+    tab
+}
+
+/// Hovering a link surfaces its resolved destination before the click, so a
+/// link whose text hides its target can be checked first.
+#[test]
+fn hovering_a_link_shows_its_destination() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let tab = tab_with_hovered_link("https://ex.com/real/target?q=1");
+    let texts = status_texts(&ctx, &tab, Vec::new());
+    assert!(
+        texts.iter().any(|t| t == "https://ex.com/real/target?q=1"),
+        "destination chip missing: {texts:?}"
+    );
+}
+
+/// The chip belongs to a clean reading surface: an open context menu or a
+/// pressed pointer gesture (starting a drag selection) hides it.
+#[test]
+fn link_status_yields_to_the_context_menu_and_pointer_gestures() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = tab_with_hovered_link("https://ex.com/real/target");
+    tab.context_open = true;
+    assert!(
+        status_texts(&ctx, &tab, Vec::new()).is_empty(),
+        "an open context menu owns the overlay"
+    );
+    tab.context_open = false;
+    let press = egui::Event::PointerButton {
+        pos: egui::pos2(20.0, 20.0),
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: egui::Modifiers::NONE,
+    };
+    assert!(
+        status_texts(&ctx, &tab, vec![press]).is_empty(),
+        "a pressed pointer is a selection gesture, not a hover"
+    );
+}
+
+/// Right-clicking a link offers its address; the row copies exactly the
+/// resolved URL and confirms with a toast, without navigating.
+#[test]
+fn copy_link_address_copies_the_destination() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let url = "https://ex.com/other/?a=1";
+    let mut tab = loaded_tab(Some(url));
+    settle_menu(&ctx, &mut tab);
+    let pos = row_position(&ctx, &mut tab, "Copy link address");
+    let mut out = ctx.run_ui(
+        egui::RawInput {
+            screen_rect: Some(screen()),
+            events: vec![
+                egui::Event::PointerMoved(pos),
+                press(pos, egui::PointerButton::Primary, true),
+                press(pos, egui::PointerButton::Primary, false),
+            ],
+            ..Default::default()
+        },
+        |root| {
+            let _ = content_menu(root, &mut tab);
+        },
+    );
+    out.textures_delta.clear();
+    let copied = out
+        .platform_output
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            egui::OutputCommand::CopyText(text) => Some(text.as_str()),
+            _ => None,
+        });
+    assert_eq!(copied, Some(url), "the resolved address copied verbatim");
+    assert!(!tab.context_open, "the action closes the menu");
+    assert_eq!(tab.toast_text.as_deref(), Some("Link address copied"));
 }
 
 /// One frame of `content_menu` with the given pointer events.
@@ -546,6 +690,7 @@ fn menu_renders_the_minimal_actions() {
     let joined = texts.join("|");
     for item in [
         "Open link in new tab",
+        "Copy link address",
         "Copy",
         "Select all",
         "Find in page",
@@ -601,6 +746,7 @@ fn menu_hides_the_link_row_off_links() {
     let mut tab = loaded_tab(None);
     let joined = render_menu_texts(&ctx, &mut tab).join("|");
     assert!(!joined.contains("Open link in new tab"), "{joined}");
+    assert!(!joined.contains("Copy link address"), "{joined}");
     assert!(
         joined.contains("Copy") && joined.contains("Select all"),
         "{joined}"

@@ -491,7 +491,7 @@ pub(crate) fn range_row_rects(
 ///   small marker linked to its definition.
 /// - Links use `ui.link` but navigate INTERNALLY (never open a browser).
 /// - Real links push their screen rect into `links`, so the right-click
-///   menu can offer "Open link in new tab" for the link under the cursor.
+///   menu and the hover destination chip can use the link under the cursor.
 /// - Inert (`interactive=false`, loading backdrop): links render as plain text.
 /// - When `selected` (select-all highlight), the foreground is forced to
 ///   `on_surface`: keeping link-blue / code-token colors on the pale
@@ -692,10 +692,10 @@ pub(crate) fn render_frag(
         if find_hl == Some(true) && find_scroll {
             scroll_to(find, ui, resp.rect);
         }
-        // In-document anchors are jump targets, not pages: never offer
-        // "Open link in new tab" for them.
+        // In-document anchors are jump targets, not pages: never a hitbox
+        // for the menu or the hover destination chip.
         if !dest.starts_with('#') {
-            push_link_hit(links, resp.rect, dest);
+            push_link_hit(links, resp.rect, dest, resp.hovered());
         }
         if resp.clicked() {
             on_link(dest);

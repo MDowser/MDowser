@@ -7,7 +7,7 @@
 //!
 //! - `content_menu`: minimal right-click menu over the page: `Copy`,
 //!   `Select all`, `Find in page` and `Save page`, plus
-//!   `Open link in new tab` when the click landed on a
+//!   `Open link in new tab` / `Copy link address` when the click landed on a
 //!   link. Uses a global secondary-click detector + a foreground `Area`, so
 //!   right-click works on text too without ever eating link clicks.
 //!   A gesture whose press was intercepted before egui (a text selection
@@ -15,6 +15,7 @@
 //!   `Tab::pending_context_click` instead of `secondary_clicked`.
 //! - `find`: floating in-page find bar (`Ctrl/Cmd+F`), docked left of the
 //!   permanent outline sidebar when the document has one.
+//! - `show_link_status`: the destination chip under a hovering link.
 //! - `show_toast`: transient confirmation (copy, save), auto-dismissed.
 //!
 //! ORDER MATTERS: the document calls `content_menu` BEFORE rendering the
@@ -46,6 +47,8 @@ const ROW_PAD: f32 = 10.0;
 enum MenuAction {
     /// Copy the native text selection, else the whole page text.
     Copy,
+    /// Copy the destination URL of the link under the cursor.
+    CopyLink,
     /// Highlight the whole document (drops any native selection).
     SelectAll,
     /// Open the in-page find bar (same as `Ctrl/Cmd+F`).
@@ -61,7 +64,8 @@ enum MenuAction {
 /// owns the tab list; the viewer never creates tabs by itself).
 ///
 /// Intentionally minimal:
-/// - `Open link in new tab` (only when the right-click landed on a link).
+/// - `Open link in new tab` and `Copy link address` (only when the
+///   right-click landed on a link).
 /// - `Copy`: the drag selection when there is one, else the whole page text.
 /// - `Select all`: whole-page highlight; `Ctrl/Cmd+C` then copies it.
 /// - `Find in page`: opens the find bar (same as `Ctrl/Cmd+F`).
@@ -195,8 +199,9 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
     // every open, which read as a pre-selected entry. The rows are real
     // widgets with explicit ids, so the keys still reach them.
     let has_link = tab.context_link.is_some();
-    // Row order: [link], Copy, Select all, Find in page, Save page.
-    let row_count = if has_link { 5 } else { 4 };
+    // Row order: [Open link in new tab, Copy link address], Copy, Select all,
+    // [Find in page, Save page].
+    let row_count = if has_link { 6 } else { 4 };
     let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab.id, index));
     let (menu_up, menu_down, menu_enter) = ctx.input(|i| {
         (
@@ -248,6 +253,10 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
                     let resp = row(ui, "Open link in new tab", None, true);
                     if resp.clicked() || (menu_enter && resp.has_focus()) {
                         open_new = Some(url.to_string());
+                    }
+                    let resp = row(ui, "Copy link address", None, true);
+                    if resp.clicked() || (menu_enter && resp.has_focus()) {
+                        action = Some(MenuAction::CopyLink);
                     }
                     menu_separator(ui);
                 }
@@ -318,6 +327,14 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
             }
             None
         }
+        Some(MenuAction::CopyLink) => {
+            tab.context_open = false;
+            if let Some(url) = tab.context_link.clone() {
+                ctx.copy_text(url);
+                tab.set_toast("Link address copied");
+            }
+            None
+        }
         Some(MenuAction::SelectAll) => {
             tab.context_open = false;
             super::select_all(&ctx, tab);
@@ -345,13 +362,13 @@ pub(crate) fn content_menu(root: &mut egui::Ui, tab: &mut Tab) -> Option<String>
 
 /// Drops any menu-row keyboard focus left in egui memory when the menu is
 /// closed, so a rebuilt row cannot ring itself on the next open.
-/// Max 5 rows (`Open link in new tab` + `Copy` + `Select all` +
-/// `Find in page` + `Save page`).
+/// Max 6 rows (`Open link in new tab` + `Copy link address` + `Copy` +
+/// `Select all` + `Find in page` + `Save page`).
 fn surrender_menu_focus(ctx: &egui::Context, tab_id: usize) {
     let row_id = |index: usize| egui::Id::unique(("doc-menu-row", tab_id, index));
     if let Some(id) = ctx
         .memory(|m| m.focused())
-        .filter(|id| (0..5).any(|index| row_id(index) == *id))
+        .filter(|id| (0..6).any(|index| row_id(index) == *id))
     {
         ctx.memory_mut(|m| m.surrender_focus(id));
     }
@@ -449,6 +466,74 @@ pub(crate) fn show_toast(root: &mut egui::Ui, tab: &mut Tab) {
             });
         });
     ctx.request_repaint_after(std::time::Duration::from_millis(300));
+}
+
+/// URL of the link fragment under the pointer. Last hit wins, matching
+/// [`link_at`]: a link split into several inline fragments pushes one
+/// hitbox per fragment, and they never overlap.
+fn hovered_link(hits: &[LinkHit]) -> Option<&str> {
+    hits.iter()
+        .rev()
+        .find(|h| h.hovered)
+        .map(|h| h.url.as_ref())
+}
+
+/// Destination chip for the link under the pointer, at the bottom-left of
+/// the document (the browser status-bar convention). Link text can hide its
+/// real target, so the resolved destination is shown before a click; the
+/// chip truncates at the end, keeping the origin readable, and is
+/// non-interactable so it can never steal the hover (or the click) from the
+/// link it describes.
+///
+/// Hidden while the context menu is open and during any pressed pointer
+/// gesture (starting a drag selection must not leave the chip in the way).
+pub(crate) fn show_link_status(root: &mut egui::Ui, tab: &Tab) {
+    if tab.context_open {
+        return;
+    }
+    let Some(doc) = tab.doc_rect else {
+        return;
+    };
+    let Some(url) = hovered_link(&tab.link_hits) else {
+        return;
+    };
+    let ctx = root.ctx().clone();
+    if ctx.input(|i| i.pointer.any_down()) {
+        return;
+    }
+    // The chip is part of the reading surface: cap its width so a long URL
+    // never spans the sheet (the origin stays visible, the tail elides).
+    let text_w = (doc.width() * 0.5).clamp(160.0, 520.0);
+    egui::Area::new(egui::Id::unique(("link-status", tab.id)))
+        .fixed_pos(egui::pos2(doc.left() + 12.0, doc.bottom() - 12.0))
+        .pivot(egui::Align2::LEFT_BOTTOM)
+        .order(egui::Order::Foreground)
+        .interactable(false)
+        .show(&ctx, |ui| {
+            let s = theme::scheme_ref(ui);
+            egui::Frame::new()
+                .fill(s.container_low)
+                .corner_radius(egui::CornerRadius::same(theme::radius::CARD))
+                .stroke(egui::Stroke::new(
+                    theme::stroke::HAIRLINE,
+                    s.outline_variant,
+                ))
+                .inner_margin(egui::Margin::symmetric(10, 5))
+                .show(ui, |ui| {
+                    ui.set_max_width(text_w);
+                    let text = egui::RichText::new(url)
+                        .text_style(egui::TextStyle::Small)
+                        .color(s.on_surface);
+                    let resp = ui.add(egui::Label::new(text).truncate());
+                    resp.widget_info(|| {
+                        egui::WidgetInfo::labeled(
+                            egui::Role::Label,
+                            true,
+                            format!("Link destination: {url}"),
+                        )
+                    });
+                });
+        });
 }
 
 #[cfg(test)]

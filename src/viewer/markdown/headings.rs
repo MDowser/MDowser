@@ -323,9 +323,10 @@ pub(super) fn render_heading_frag(
         if find_hl == Some(true) && find_scroll {
             scroll_to(ui, resp.rect);
         }
-        // In-document anchors are jump targets, never new tabs.
+        // In-document anchors are jump targets, not pages: never a hitbox
+        // for the menu or the hover destination chip.
         if !dest.starts_with('#') {
-            push_link_hit(ctx.links, resp.rect, dest);
+            push_link_hit(ctx.links, resp.rect, dest, resp.hovered());
         }
         if resp.clicked() {
             (ctx.on_link)(dest);

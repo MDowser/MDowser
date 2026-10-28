@@ -249,6 +249,7 @@ fn clear_overlay_resets_everything() {
     t.link_hits.push(crate::viewer::LinkHit {
         rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(4.0, 4.0)),
         url: std::sync::Arc::from("https://ex.com/x"),
+        hovered: false,
     });
     t.site_info = Some("address-bar");
     t.clear_overlay();

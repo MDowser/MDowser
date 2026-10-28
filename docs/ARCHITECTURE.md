@@ -1020,8 +1020,11 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 ## Right-click menu
 
 - `viewer/overlays`: minimal Copy / Select all / Find in page / Save page,
-  plus "Open link in new tab" when the click hit a link (link hitboxes are
-  collected by the renderer each frame). `Cmd/Ctrl+click` on a link is the
+  plus "Open link in new tab" and "Copy link address" when the click hit a
+  link (link hitboxes are collected by the renderer each frame). The same
+  hitboxes carry a per-frame `hovered` flag; `show_link_status` turns it into a
+  non-interactive destination chip at the document's bottom-left, so a link's
+  real target is visible before a click. `Cmd/Ctrl+click` on a link is the
   direct route: the renderer's `on_link` callback hands the viewer a
   background-tab request instead of a same-tab navigation (an in-page
   `#anchor` becomes its absolute URL plus fragment). The rows that need `App`

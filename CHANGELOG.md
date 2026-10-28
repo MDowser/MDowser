@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Hovering a rendered link shows its resolved destination in a compact chip at
+  the document's bottom-left, so the real target of misleading link text can be
+  checked before clicking; the right-click menu over a link also gains Copy
+  link address. (`src/viewer/mod.rs`, `src/viewer/overlays/`,
+  `docs/INTERFACE.md`.)
 - Callout titles lead with their own vector glyph in the alert accent (info
   for Note, a bulb for Tip, a report bubble for Important, the alert triangle
   for Warning, a stop octagon for Caution), so the kind reads before the word
