@@ -45,7 +45,7 @@ pub(crate) fn render_code_span(
     selected: bool,
     color: egui::Color32,
     link: Option<&Arc<str>>,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     links: &mut Vec<LinkHit>,
     find: &mut Option<crate::viewer::find::FindRender>,
     find_hl: Option<bool>,
@@ -103,8 +103,8 @@ pub(crate) fn render_code_span(
             if !dest.starts_with('#') {
                 push_link_hit(links, resp.rect, dest, resp.hovered());
             }
-            if resp.clicked() {
-                on_link(dest);
+            if let Some(activation) = link_activation(&resp) {
+                on_link(dest, activation);
             }
         } else {
             let resp = body_text(ui, rt);
@@ -221,8 +221,8 @@ pub(crate) fn render_code_span(
         if !dest.starts_with('#') {
             push_link_hit(links, outer, dest, resp.hovered());
         }
-        if resp.clicked() {
-            on_link(dest);
+        if let Some(activation) = link_activation(&resp) {
+            on_link(dest, activation);
         }
     } else {
         ui.put(content, egui::Label::new(galley).selectable(true));

@@ -11,8 +11,7 @@
 //! - `visual_lines` splits on hard breaks.
 //! - `body_text` is the selectable label used for every document string.
 
-use super::push_link_hit;
-use super::LinkHit;
+use super::{link_activation, push_link_hit, LinkActivation, LinkHit};
 use crate::media::cache::ImageCache;
 use crate::ui::theme;
 use eframe::egui;
@@ -490,6 +489,7 @@ pub(crate) fn range_row_rects(
 /// - A footnote reference goes through [`render_superscript_ref`]: a raised
 ///   small marker linked to its definition.
 /// - Links use `ui.link` but navigate INTERNALLY (never open a browser).
+///   A middle click (or Cmd/Ctrl+click) asks for a background tab instead.
 /// - Real links push their screen rect into `links`, so the right-click
 ///   menu and the hover destination chip can use the link under the cursor.
 /// - Inert (`interactive=false`, loading backdrop): links render as plain text.
@@ -502,7 +502,7 @@ pub(crate) fn render_frag(
     f: &Frag<'_>,
     selected: bool,
     interactive: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -697,8 +697,8 @@ pub(crate) fn render_frag(
         if !dest.starts_with('#') {
             push_link_hit(links, resp.rect, dest, resp.hovered());
         }
-        if resp.clicked() {
-            on_link(dest);
+        if let Some(activation) = link_activation(&resp) {
+            on_link(dest, activation);
         }
         return;
     }
@@ -830,7 +830,7 @@ pub(crate) fn render_superscript_ref(
     size: f32,
     selected: bool,
     interactive: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
 ) {
     let s = theme::scheme_ref(ui);
     let dest = f.link.as_deref().unwrap_or("");
@@ -905,8 +905,8 @@ pub(crate) fn render_superscript_ref(
             let remembered = egui::Id::unique(("mdowser-fnref", dest));
             ui.data_mut(|d| d.insert_temp(remembered, (fnref_generation(), rect)));
         }
-        if resp.clicked() {
-            on_link(dest);
+        if let Some(activation) = link_activation(&resp) {
+            on_link(dest, activation);
         }
     }
 }

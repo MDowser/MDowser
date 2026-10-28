@@ -356,7 +356,7 @@ fn render_shapes_opts(
             // `Ui`'s own rect fills the window, so the column's `min_rect`
             // is what reports the content's laid-out bottom.
             ui.vertical(|ui| {
-                let mut on_link = |_: &str| {};
+                let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut links = Vec::new();
                 // `interactive = false`: links are inert and no image fetch
                 // starts (the cache would otherwise hit the network).

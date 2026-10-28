@@ -36,8 +36,7 @@
 //! - An image inside a link stays clickable and navigates internally.
 
 use super::inline::ImageFrag;
-use super::push_link_hit;
-use super::LinkHit;
+use super::{link_activation, push_link_hit, LinkActivation, LinkHit};
 use crate::media::cache::{ImageCache, Status};
 use crate::ui::icons;
 use crate::ui::theme;
@@ -162,7 +161,7 @@ fn finish_placeholder(
     clickable: bool,
     a11y: &str,
     link: Option<&Arc<str>>,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     links: &mut Vec<LinkHit>,
 ) -> egui::Response {
     let resp = if clickable {
@@ -187,7 +186,7 @@ fn finish_placeholder(
 pub(crate) struct ImgCtx<'a> {
     pub(crate) selected: bool,
     pub(crate) interactive: bool,
-    pub(crate) on_link: &'a mut dyn FnMut(&str),
+    pub(crate) on_link: &'a mut dyn FnMut(&str, LinkActivation),
     pub(crate) images: &'a mut ImageCache,
     pub(crate) links: &'a mut Vec<LinkHit>,
 }
@@ -422,7 +421,7 @@ fn wire_link(
     resp: &egui::Response,
     link: Option<&Arc<str>>,
     clickable: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     links: &mut Vec<LinkHit>,
 ) {
     if !clickable {
@@ -436,8 +435,8 @@ fn wire_link(
     if !dest.starts_with('#') {
         push_link_hit(links, resp.rect, dest, resp.hovered());
     }
-    if resp.clicked() {
-        on_link(dest);
+    if let Some(activation) = link_activation(resp) {
+        on_link(dest, activation);
     }
 }
 

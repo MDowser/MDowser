@@ -472,11 +472,11 @@ Key contracts per area (the module map above names the main module areas):
   a settled Home grid builds no `String`/`LayoutJob` per tile per frame. The
   floating scrollbar stays hidden until the rows exceed
   `config::BOOKMARK_GRID_MAX_VISIBLE_ROWS`.
-- Clicking a tile — icon or name — opens it in that tab; Cmd/Ctrl+click asks
-  `App` for a new tab; dragging reorders the grid (live, mirrored between
-  display and store order); `Alt+Left`/`Alt+Right` on the FOCUSED tile move it
-  one display slot (`move_indices` mirrors display slots onto store indices, so
-  a keyboard user can arrange the grid like a drag).
+- Clicking a tile — icon or name — opens it in that tab; Cmd/Ctrl+click or a
+  middle click asks `App` for a new tab; dragging reorders the grid (live,
+  mirrored between display and store order); `Alt+Left`/`Alt+Right` on the
+  FOCUSED tile move it one display slot (`move_indices` mirrors display slots
+  onto store indices, so a keyboard user can arrange the grid like a drag).
 - The tile editor is INLINE (egui memory keeps the open field; no dialog): the
   hover pencil opens the rename field whose same spot becomes a check that
   saves. Enter or a click elsewhere commits (sanitized by the store, saved
@@ -1024,12 +1024,13 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   link (link hitboxes are collected by the renderer each frame). The same
   hitboxes carry a per-frame `hovered` flag; `show_link_status` turns it into a
   non-interactive destination chip at the document's bottom-left, so a link's
-  real target is visible before a click. `Cmd/Ctrl+click` on a link is the
-  direct route: the renderer's `on_link` callback hands the viewer a
-  background-tab request instead of a same-tab navigation (an in-page
-  `#anchor` becomes its absolute URL plus fragment). The rows that need `App`
-  (Save page) or the viewer's own state flag what they want (`Tab::save_asked`)
-  instead of reaching outside their layer.
+  real target is visible before a click. `Cmd/Ctrl+click` or a middle click on
+  a link is the direct route: `link_activation` classifies the gesture and the
+  renderer's `on_link` callback hands the viewer a background-tab request
+  instead of a same-tab navigation (an in-page `#anchor` becomes its absolute
+  URL plus fragment). The rows that need `App` (Save page) or the viewer's own
+  state flag what they want (`Tab::save_asked`) instead of reaching outside
+  their layer.
 - The rows carry explicit widget ids and are keyboard-navigable: opening with
   the pointer leaves NO row focused, `Up`/`Down` move focus into the rows (the
   first press lands on the first one, egui's arrow traversal cancelled so it

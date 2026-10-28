@@ -96,7 +96,9 @@ fn loaded_tab(md: &str) -> Tab {
     let base = url::Url::parse("https://ex.com/a/").unwrap();
     let normalized = crate::markdown::document::normalize_body(md);
     let events = crate::markdown::document::parse_events(&normalized).expect("parse");
-    let anchors = crate::markdown::anchors::AnchorIndex::default();
+    // Build the real anchor index: a test document's `#heading` links must
+    // resolve exactly as they do after a fetch.
+    let anchors = crate::markdown::anchors::build(&events);
     let dests = crate::protocol::rewrite::DestCache::build(&base, &anchors, &events);
     let mut tab = Tab::new(1);
     tab.state = TabState::Loaded {
@@ -114,6 +116,133 @@ fn loaded_tab(md: &str) -> Tab {
         },
     };
     tab
+}
+
+/// Middle-clicking a document link asks the app for a background tab (the
+/// returned URL) without touching the current tab, while a primary click on
+/// an in-document anchor jumps in place. Both gestures share the same
+/// `ui.link` widget; only the classified activation differs.
+#[test]
+fn middle_click_on_a_link_returns_a_background_tab_request() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 700.0));
+    let md = "[the target](https://ex.com/target)\n\n[jump](#section)\n\n# Section\n";
+    let mut tab = loaded_tab(md);
+    let mut store = HistoryStore::in_memory();
+    let mut bookmarks = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    let press =
+        |pos: egui::Pos2, button: egui::PointerButton, pressed: bool| egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+    // `tab` is passed per call (not captured): the assertions between frames
+    // inspect its state, which a closure holding `&mut tab` would block.
+    let mut run = |tab: &mut Tab, events: Vec<egui::Event>| {
+        let input = egui::RawInput {
+            screen_rect: Some(screen),
+            events,
+            ..Default::default()
+        };
+        let mut new_tab = None;
+        let mut out = ctx.run_ui(input, |root| {
+            new_tab = show_content(root, tab, &mut store, &mut bookmarks, &mut favicons);
+        });
+        out.textures_delta.clear();
+        (new_tab, out.shapes)
+    };
+
+    // Settle layout, then locate both links from their painted text.
+    for _ in 0..3 {
+        run(&mut tab, Vec::new());
+    }
+    let (_, shapes) = run(&mut tab, Vec::new());
+    let link_pos = |label: &str| {
+        shapes
+            .iter()
+            .find_map(|c| match &c.shape {
+                egui::epaint::Shape::Text(t) if t.galley.text() == label => {
+                    Some(t.pos + t.galley.rect.size() / 2.0)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{label:?} is painted"))
+    };
+    let target = link_pos("the target");
+    let jump = link_pos("jump");
+
+    let (new_tab, _) = run(
+        &mut tab,
+        vec![
+            egui::Event::PointerMoved(target),
+            press(target, egui::PointerButton::Middle, true),
+            press(target, egui::PointerButton::Middle, false),
+        ],
+    );
+    assert_eq!(
+        new_tab.as_deref(),
+        Some("https://ex.com/target"),
+        "a middle click asks App for a background tab"
+    );
+    assert!(
+        matches!(tab.state, TabState::Loaded { .. }),
+        "the current tab must not navigate on a middle click"
+    );
+
+    let command_press = |pressed| egui::Event::PointerButton {
+        pos: target,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::COMMAND,
+    };
+    let (new_tab, _) = run(
+        &mut tab,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::COMMAND),
+            egui::Event::PointerMoved(target),
+            command_press(true),
+            command_press(false),
+        ],
+    );
+    assert_eq!(
+        new_tab.as_deref(),
+        Some("https://ex.com/target"),
+        "Cmd/Ctrl+click keeps asking for a background tab"
+    );
+
+    let (new_tab, _) = run(
+        &mut tab,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::PointerMoved(jump),
+            press(jump, egui::PointerButton::Middle, true),
+            press(jump, egui::PointerButton::Middle, false),
+        ],
+    );
+    assert_eq!(
+        new_tab.as_deref(),
+        Some("https://ex.com/a/#section"),
+        "a middle-clicked anchor becomes its absolute URL plus fragment"
+    );
+
+    let (new_tab, _) = run(
+        &mut tab,
+        vec![
+            egui::Event::ModifiersChanged(egui::Modifiers::NONE),
+            egui::Event::PointerMoved(jump),
+            press(jump, egui::PointerButton::Primary, true),
+            press(jump, egui::PointerButton::Primary, false),
+        ],
+    );
+    assert!(new_tab.is_none(), "a primary click stays in this tab");
+    assert_eq!(
+        tab.pending_anchor.as_deref(),
+        Some("section"),
+        "the primary click routes an anchor jump to the current tab"
+    );
 }
 
 /// Regression: a code block's horizontal bar must sit BELOW its lines.

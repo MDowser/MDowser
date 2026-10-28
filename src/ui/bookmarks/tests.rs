@@ -499,6 +499,65 @@ fn command_click_returns_a_new_tab_request() {
     );
 }
 
+/// Middle-click asks for a NEW tab too: the same background-tab request as
+/// Cmd/Ctrl+click, without a modifier.
+#[test]
+fn middle_click_returns_a_new_tab_request() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut tab = Tab::new(1);
+    let mut store = BookmarkStore::in_memory();
+    let mut favicons = FaviconCache::new();
+    store.toggle("file:///tmp/middle-other.md", Some("Other Page"));
+    store.toggle("file:///tmp/middle-target.md", Some("Middle Page"));
+
+    // Newest first: "Middle Page" is the first tile.
+    let _ = render(&ctx, base_input(), &mut tab, &mut store, &mut favicons);
+    let shapes = render(&ctx, base_input(), &mut tab, &mut store, &mut favicons);
+    let pos = text_pos(&shapes, "Middle Page").expect("tile title painted");
+    let click_pos = egui::pos2(pos.x + 4.0, pos.y + 6.0);
+    let button = |pressed| egui::Event::PointerButton {
+        pos: click_pos,
+        button: egui::PointerButton::Middle,
+        pressed,
+        modifiers: egui::Modifiers::NONE,
+    };
+    for events in [
+        vec![egui::Event::PointerMoved(click_pos)],
+        vec![button(true)],
+    ] {
+        let input = egui::RawInput {
+            events,
+            ..base_input()
+        };
+        let _ = render(&ctx, input, &mut tab, &mut store, &mut favicons);
+    }
+    // The release frame is the one that RETURNS the new-tab request.
+    let released = egui::RawInput {
+        events: vec![button(false)],
+        ..base_input()
+    };
+    let mut requested = None;
+    let mut out = ctx.run_ui(released, |root| {
+        egui::CentralPanel::default().show(root, |ui| {
+            ui.vertical_centered(|ui| {
+                requested = show_bookmarks(ui, &mut tab, &mut store, &mut favicons, SECTION_W);
+            });
+        });
+    });
+    out.textures_delta.clear();
+
+    assert_eq!(
+        requested.as_deref(),
+        Some("file:///tmp/middle-target.md"),
+        "a middle click asks App for a new tab"
+    );
+    assert!(
+        !matches!(tab.state, TabState::Loading { .. }),
+        "the Home tab itself must not navigate"
+    );
+}
+
 /// The hover X removes the bookmark (and only it), without navigating.
 #[test]
 fn remove_button_deletes_the_bookmark() {

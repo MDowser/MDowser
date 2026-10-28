@@ -81,13 +81,13 @@ catalogs.
 Each tile shows a stored custom glyph (letter or emoji), else the site favicon
 when it resolves (at toolbar/rail size), else the title's first letter on a
 stable color. A tile click (icon or name) opens the page here;
-`Cmd/Ctrl+click` opens a new tab; dragging reorders the grid, as does
-`Alt+Left`/`Alt+Right` on a focused tile. Editing is ON the tile, no window:
-the hover pencil opens an inline rename field whose spot becomes a saving
-check; Enter saves, Esc drops the draft, the hover X removes. With keyboard
-focus, `Tab` reaches the pencil and X (tile, pencil, X: one focus chain per
-cell). The toolbar bookmark ribbon (or `Ctrl/Cmd+D`) adds or removes the page
-you are reading.
+`Cmd/Ctrl+click` or a middle click opens a new tab; dragging reorders the
+grid, as does `Alt+Left`/`Alt+Right` on a focused tile. Editing is ON the
+tile, no window: the hover pencil opens an inline rename field whose spot
+becomes a saving check; Enter saves, Esc drops the draft, the hover X removes.
+With keyboard focus, `Tab` reaches the pencil and X (tile, pencil, X: one
+focus chain per cell). The toolbar bookmark ribbon (or `Ctrl/Cmd+D`) adds or
+removes the page you are reading.
 
 ## Menu bar
 
@@ -371,15 +371,15 @@ sheet, not a raw log:
 Minimal: Copy (the drag selection when one exists, else the whole page), Select
 all, Find in page (opens the find bar, same as `Ctrl/Cmd+F`) and Save page
 (`Ctrl/Cmd+S`), below a separator; over a link it adds Open link in new tab and
-Copy link address at the top. `Cmd/Ctrl+click` on a link opens it in a
-background tab directly (an in-page `#anchor` becomes its absolute URL plus the
-fragment). Prose, headings, lists, quotes and table cells are natively
-selectable (drag + `Cmd/Ctrl+C`) with readable selection colors. A highlighted
-code block is virtualized and painted row by row, so it has no per-line drag
-selection; its Copy button (or menu Copy with no selection) copies the whole
-block verbatim and briefly confirms with `Copied`. Right-clicking preserves an
-existing selection (its press is intercepted before egui), so menu Copy copies
-exactly the selected text.
+Copy link address at the top. `Cmd/Ctrl+click` or a middle click on a link
+opens it in a background tab directly (an in-page `#anchor` becomes its
+absolute URL plus the fragment). Prose, headings, lists, quotes and table
+cells are natively selectable (drag + `Cmd/Ctrl+C`) with readable selection
+colors. A highlighted code block is virtualized and painted row by row, so it
+has no per-line drag selection; its Copy button (or menu Copy with no
+selection) copies the whole block verbatim and briefly confirms with `Copied`.
+Right-clicking preserves an existing selection (its press is intercepted
+before egui), so menu Copy copies exactly the selected text.
 
 Opening the menu with the pointer leaves NO row highlighted (only the keyboard
 lights one). A primary press outside it — including the start of a drag

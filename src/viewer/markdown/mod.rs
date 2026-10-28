@@ -59,9 +59,8 @@ use super::inline::{
     body_text, inline_flow, line_is_rtl, render_emoji_text, render_frag, visual_lines, Frag,
     ImageFrag,
 };
-use super::push_link_hit;
 use super::table::{flush_table_with_find, TableCtx};
-use super::LinkHit;
+use super::{link_activation, push_link_hit, LinkActivation, LinkHit};
 use crate::markdown::anchors::AnchorIndex;
 use crate::markdown::document::{is_html_break, is_html_comment};
 use crate::media::cache::{ImageCache, Status};
@@ -159,7 +158,7 @@ struct RenderCtx<'a> {
     dark: bool,
     viewport_w: f32,
     type_scale: f32,
-    on_link: &'a mut dyn FnMut(&str),
+    on_link: &'a mut dyn FnMut(&str, LinkActivation),
     /// Per-document image cache: `ensure()` registers live-document images.
     images: &'a mut ImageCache,
     /// Per-tab color-emoji texture cache (bounded, process-budgeted).
@@ -265,8 +264,9 @@ impl<'a> RenderCtx<'a> {
 /// - `viewport_w`: CentralPanel width BEFORE the reading column (responsive).
 /// - `type_scale`: precomputed from `viewport_w` (headings).
 /// - `images`: per-document image cache (`ensure()` starts background loads).
-/// - `on_link`: callback with the ABSOLUTE destination when a link is clicked
-///   (or the `#anchor` form for an in-document jump).
+/// - `on_link`: callback with the ABSOLUTE destination and the activation
+///   gesture when a link is clicked (or the `#anchor` form for an in-document
+///   jump).
 /// - `links`: screen-space hitboxes of every rendered link (cleared by the
 ///   caller; the right-click menu hit-tests them; anchors are excluded).
 /// - `find`: in-page find state (query/current/scroll in, total/capped out).
@@ -289,7 +289,7 @@ pub(crate) fn show_markdown_with_find(
     type_scale: f32,
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     links: &mut Vec<LinkHit>,
     find: &mut crate::viewer::find::FindState,
     doc_generation: u64,
@@ -457,7 +457,7 @@ pub(crate) fn show_markdown(
     type_scale: f32,
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     links: &mut Vec<LinkHit>,
 ) {
     let mut find = crate::viewer::find::FindState::default();

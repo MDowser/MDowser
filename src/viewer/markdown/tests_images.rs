@@ -102,7 +102,7 @@ fn rendered_image_bounds(md: &str, url: &str, image_size: [usize; 2], vector: bo
     }
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -203,7 +203,7 @@ fn consecutive_large_images_render_as_a_centered_gallery_row() {
     images.insert_ready(b_url, tex_b);
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -306,7 +306,7 @@ fn inline_image_has_horizontal_breathing_room() {
     images.insert_ready(url, tex);
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -432,7 +432,7 @@ fn consecutive_inline_vectors_share_one_strip_height() {
     let events = crate::markdown::document::parse_events(&md).expect("parse");
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -518,7 +518,7 @@ fn render_vector_set(md: &str, texs: &[(&str, [usize; 2])]) -> Vec<egui::Rect> {
     let events = crate::markdown::document::parse_events(&normalized).expect("parse");
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,

@@ -29,7 +29,7 @@
 //!   bounded.
 
 use super::inline::{render_frag, visual_lines, Frag};
-use super::LinkHit;
+use super::{LinkActivation, LinkHit};
 use crate::media::cache::ImageCache;
 use crate::ui::theme;
 use eframe::egui;

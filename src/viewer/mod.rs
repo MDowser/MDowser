@@ -96,6 +96,37 @@ pub(crate) fn push_link_hit(
     }
 }
 
+/// How the reader activated a rendered link. The gesture decides where the
+/// destination opens: a primary click (or Enter on a focused link) navigates
+/// the current tab, while a middle click opens a background tab, like a
+/// browser. Cmd/Ctrl with the primary gesture (or Enter) asks for the same
+/// background tab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LinkActivation {
+    CurrentTab,
+    BackgroundTab,
+}
+
+/// Returns how `resp` activated its link this frame, if it did.
+///
+/// The one place that maps pointer gestures to link intent: every rendered
+/// link (text, code, heading, footnote marker, image) calls this instead of
+/// `Response::clicked`, so middle-click behaves the same everywhere and the
+/// `on_link` callbacks only route the already-classified request.
+pub(crate) fn link_activation(resp: &egui::Response) -> Option<LinkActivation> {
+    if resp.middle_clicked() {
+        Some(LinkActivation::BackgroundTab)
+    } else if resp.clicked() {
+        if resp.ctx.input(|i| i.modifiers.command) {
+            Some(LinkActivation::BackgroundTab)
+        } else {
+            Some(LinkActivation::CurrentTab)
+        }
+    } else {
+        None
+    }
+}
+
 /// Is there a native (drag) label text selection in this viewport?
 pub(crate) fn has_label_selection(ctx: &egui::Context) -> bool {
     ctx.with_plugin::<egui::text_selection::LabelSelectionState, _>(|p| p.has_selection())
@@ -191,9 +222,9 @@ pub fn show_content(
         overlays::find::show_find_bar(root, tab);
         let gutter = theme::content_gutter(root);
         let mut pending_link: Option<String> = None;
-        // Cmd/Ctrl+click target this frame: opened in a background tab by
-        // the caller, like the context menu's "Open link in new tab" and
-        // the bookmark tiles.
+        // Background-tab target this frame (middle click or Cmd/Ctrl+click):
+        // opened by the caller, like the context menu's "Open link in new
+        // tab" and the bookmark tiles.
         let mut pending_new_tab: Option<String> = None;
         let mut new_rect: Option<egui::Rect> = None;
         let selected = tab.selected_all;
@@ -204,13 +235,11 @@ pub fn show_content(
                 let Some(doc) = doc else {
                     return;
                 };
-                let ctx = ui.ctx().clone();
-                let mut on_link = |dest: &str| {
+                let mut on_link = |dest: &str, activation: LinkActivation| {
                     // The notices carry no `#` targets: every live
                     // destination is a navigation, never an anchor jump.
                     if !dest.is_empty() && !dest.starts_with('#') {
-                        // Cmd/Ctrl+click opens in a background tab.
-                        if ctx.input(|i| i.modifiers.command) {
+                        if activation == LinkActivation::BackgroundTab {
                             pending_new_tab = Some(dest.to_string());
                         } else {
                             pending_link = Some(dest.to_string());
@@ -315,7 +344,7 @@ pub fn show_content(
                     ..
                 } = &tab.state
                 {
-                    let mut noop = |_: &str| {};
+                    let mut noop = |_: &str, _: crate::viewer::LinkActivation| {};
                     // Backdrop is static until resolve: skip the fade
                     // overlay (16 extra rects per throttled repaint). Its
                     // anchors are inert (throwaway `pending_anchor`).
@@ -368,9 +397,9 @@ pub fn show_content(
         // Render the document (no background `interact` behind: it either
         // ate link clicks or never saw secondary clicks on text).
         let mut pending_link: Option<String> = None;
-        // Cmd/Ctrl+click target this frame: opened in a background tab by
-        // the caller (`app::run`), like the context menu's entry and the
-        // bookmark tiles.
+        // Background-tab target this frame (middle click or Cmd/Ctrl+click):
+        // opened by the caller (`app::run`), like the context menu's entry
+        // and the bookmark tiles.
         let mut pending_new_tab: Option<String> = None;
         // In-document anchor clicked this frame: scroll next frame.
         let mut pending_anchor_click: Option<String> = None;
@@ -385,30 +414,31 @@ pub fn show_content(
             .frame(theme::content_frame(root))
             .show(root, |ui| {
                 if let TabState::Loaded { fetched } = &tab.state {
-                    let ctx = ui.ctx().clone();
-                    let mut on_link = |dest: &str| {
+                    let mut on_link = |dest: &str, activation: LinkActivation| {
                         if dest.is_empty() {
                             return;
                         }
-                        // `#anchor` is an in-document jump, not a navigation.
+                        if activation == LinkActivation::BackgroundTab {
+                            // Middle click or Cmd/Ctrl+click: a background
+                            // tab. An in-document anchor becomes its own
+                            // absolute URL plus fragment.
+                            if let Some(id) = dest.strip_prefix('#').filter(|id| !id.is_empty()) {
+                                let mut url = fetched.display_url.clone();
+                                url.set_fragment(Some(id));
+                                pending_new_tab = Some(url.to_string());
+                            } else {
+                                pending_new_tab = Some(dest.to_string());
+                            }
+                            return;
+                        }
+                        // Primary click: an in-document anchor jumps, every
+                        // other destination navigates this tab.
                         match dest.strip_prefix('#') {
                             Some(id) if !id.is_empty() => {
-                                if ctx.input(|i| i.modifiers.command) {
-                                    // Cmd/Ctrl+click: the anchor as its own
-                                    // absolute URL in a background tab.
-                                    let mut url = fetched.display_url.clone();
-                                    url.set_fragment(Some(id));
-                                    pending_new_tab = Some(url.to_string());
-                                } else {
-                                    pending_anchor_click = Some(id.to_string());
-                                }
+                                pending_anchor_click = Some(id.to_string());
                             }
                             _ => {
-                                if ctx.input(|i| i.modifiers.command) {
-                                    pending_new_tab = Some(dest.to_string());
-                                } else {
-                                    pending_link = Some(dest.to_string());
-                                }
+                                pending_link = Some(dest.to_string());
                             }
                         }
                     };
@@ -711,7 +741,7 @@ fn render_doc(
     links: &mut Vec<LinkHit>,
     find: &mut crate::viewer::find::FindState,
     outline: &mut crate::viewer::outline::OutlineState,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
 ) -> DocViewport {
     // Link hitboxes are rebuilt from scratch every frame: stale rects from
     // the previous document (or a scroll) would offer the wrong link.

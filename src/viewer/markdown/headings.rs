@@ -328,8 +328,8 @@ pub(super) fn render_heading_frag(
         if !dest.starts_with('#') {
             push_link_hit(ctx.links, resp.rect, dest, resp.hovered());
         }
-        if resp.clicked() {
-            (ctx.on_link)(dest);
+        if let Some(activation) = link_activation(&resp) {
+            (ctx.on_link)(dest, activation);
         }
         return;
     }

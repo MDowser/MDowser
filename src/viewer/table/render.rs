@@ -41,7 +41,7 @@ pub(crate) fn flush_table_with_find(
     selected: bool,
     interactive: bool,
     viewport_w: f32,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -244,7 +244,7 @@ pub(crate) fn flush_table(
     selected: bool,
     interactive: bool,
     viewport_w: f32,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -480,7 +480,7 @@ fn render_table_row(
     cols: &[f32],
     selected: bool,
     interactive: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -537,7 +537,7 @@ fn render_table_cell(
     line_widths: Option<&[f32]>,
     selected: bool,
     interactive: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -617,7 +617,7 @@ fn render_table_line(
     line_w: f32,
     selected: bool,
     interactive: bool,
-    on_link: &mut dyn FnMut(&str),
+    on_link: &mut dyn FnMut(&str, LinkActivation),
     images: &mut ImageCache,
     emoji: &mut crate::media::emoji::EmojiCache,
     links: &mut Vec<LinkHit>,
@@ -679,7 +679,7 @@ fn measure_line_width(
     // Probe-only sinks: the invisible pass must not register link hitboxes
     // (they would double the right-click menu) nor navigate anywhere.
     let mut ignored_links: Vec<LinkHit> = Vec::new();
-    let mut ignored_nav = |_: &str| {};
+    let mut ignored_nav = |_: &str, _: crate::viewer::LinkActivation| {};
     let inner = probe.allocate_ui_with_layout(
         egui::vec2(avail.max(1.0), ui.spacing().interact_size.y),
         egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),

@@ -458,7 +458,7 @@ pub(super) fn bookmark_tile(
             return TileAction::Move { delta };
         }
     }
-    if response.clicked() {
+    if response.clicked() || response.middle_clicked() {
         // Defensive: if an action hit test lost to the tile (overlapping
         // widgets), a click on the pencil/X must never open the page.
         if response.interact_pointer_pos().is_some_and(|pos| {
@@ -468,7 +468,9 @@ pub(super) fn bookmark_tile(
             return TileAction::None;
         }
         return TileAction::Open {
-            new_tab: ui.input(|i| i.modifiers.command),
+            // Middle click opens a background tab, like a link; Cmd/Ctrl is
+            // the keyboard-first form of the same request.
+            new_tab: response.middle_clicked() || ui.input(|i| i.modifiers.command),
         };
     }
     // Full name + URL on hover: the two-row name elides, and sighted hover

@@ -64,7 +64,7 @@ fn render_leaderboard_like() -> (f32, Vec<(String, f32, f32)>) {
     for frame in 0..3 {
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut no_link = |_: &str| {};
+                let mut no_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut images = ImageCache::new();
                 let mut emoji = crate::media::emoji::EmojiCache::new();
                 let mut links = Vec::new();
@@ -192,7 +192,7 @@ fn right_column_keeps_run_order() {
     for _ in 0..3 {
         let mut o = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut no_link = |_: &str| {};
+                let mut no_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut images = ImageCache::new();
                 let mut emoji = crate::media::emoji::EmojiCache::new();
                 let mut links = Vec::new();
@@ -269,7 +269,7 @@ fn interior_grid_lines_are_painted_between_cells() {
     for _ in 0..3 {
         let mut o = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut no_link = |_: &str| {};
+                let mut no_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut images = ImageCache::new();
                 let mut emoji = crate::media::emoji::EmojiCache::new();
                 let mut links = Vec::new();
@@ -446,7 +446,7 @@ fn narrow_cards_shrink_instead_of_scrolling() {
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
                 avail = ui.available_width();
-                let mut no_link = |_: &str| {};
+                let mut no_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut images = ImageCache::new();
                 let mut emoji = crate::media::emoji::EmojiCache::new();
                 let mut links = Vec::new();
@@ -514,7 +514,7 @@ fn scrolling_tables_keep_readable_columns() {
     for _ in 0..3 {
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut no_link = |_: &str| {};
+                let mut no_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut images = ImageCache::new();
                 let mut emoji = crate::media::emoji::EmojiCache::new();
                 let mut links = Vec::new();

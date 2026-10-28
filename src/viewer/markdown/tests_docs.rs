@@ -198,7 +198,7 @@ fn renders_tricky_documents_without_panicking() {
         let mut emoji = crate::media::emoji::EmojiCache::new();
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut on_link = |_: &str| {};
+                let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut links = Vec::new();
                 // Inert: no network from tests (see `render_probe`).
                 show_markdown(
@@ -265,7 +265,7 @@ fn switching_tabs_shows_that_tabs_content() {
         }
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut on_link = |_: &str| {};
+                let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut links = Vec::new();
                 show_markdown(
                     ui,
@@ -376,7 +376,7 @@ fn collects_link_hitboxes_for_the_context_menu() {
     let mut interactive_hits = Vec::new();
     let mut out = ctx.run_ui(input.clone(), |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             show_markdown(
                 ui,
                 &events,
@@ -420,7 +420,7 @@ fn collects_link_hitboxes_for_the_context_menu() {
     let mut hovered_hits = Vec::new();
     let mut out = ctx.run_ui(hovered_input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             show_markdown(
                 ui,
                 &events,
@@ -453,7 +453,7 @@ fn collects_link_hitboxes_for_the_context_menu() {
     let mut inert_hits = Vec::new();
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             show_markdown(
                 ui,
                 &events,
@@ -508,7 +508,8 @@ fn bare_url_renders_as_a_clickable_link() {
     let mut hits = Vec::new();
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |url: &str| clicks.push(url.to_string());
+            let mut on_link =
+                |url: &str, _: crate::viewer::LinkActivation| clicks.push(url.to_string());
             show_markdown(
                 ui,
                 &events,
@@ -903,7 +904,7 @@ fn long_rtl_paragraph_wraps_and_right_aligns_lines() {
     let mut emoji = crate::media::emoji::EmojiCache::new();
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -976,7 +977,7 @@ fn paragraph_emoji_renders_as_image() {
     let mut emoji = crate::media::emoji::EmojiCache::new();
     let mut out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             show_markdown(
                 ui,
@@ -1206,7 +1207,7 @@ fn same_titled_accordions_toggle_independently() {
         });
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut on_link = |_: &str| {};
+                let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut links = Vec::new();
                 show_markdown(
                     ui,
@@ -1279,7 +1280,7 @@ fn known_anchor_opens_the_tab_that_holds_it() {
     let mut frame = |pending: &mut Option<String>| {
         let mut out = ctx.run_ui(input.clone(), |root| {
             egui::CentralPanel::default().show(root, |ui| {
-                let mut on_link = |_: &str| {};
+                let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                 let mut links = Vec::new();
                 show_markdown(
                     ui,
@@ -1431,7 +1432,7 @@ fn clicking_a_tab_switches_the_panel() {
     let mut images = crate::media::cache::ImageCache::new();
     let mut emoji = crate::media::emoji::EmojiCache::new();
     let mut links = Vec::new();
-    let mut on_link = |_: &str| {};
+    let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
 
     let mut run = |events_in: Vec<egui::Event>| -> Vec<egui::epaint::Shape> {
         let input = egui::RawInput {
@@ -1509,7 +1510,7 @@ fn identical_tabs_sets_keep_independent_selections() {
     let mut images = crate::media::cache::ImageCache::new();
     let mut emoji = crate::media::emoji::EmojiCache::new();
     let mut links = Vec::new();
-    let mut on_link = |_: &str| {};
+    let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
 
     let mut run = |events_in: Vec<egui::Event>| -> Vec<egui::epaint::Shape> {
         let input = egui::RawInput {

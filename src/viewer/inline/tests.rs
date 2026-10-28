@@ -101,7 +101,7 @@ fn run_flow_selected(
         ..Default::default()
     };
     let mut links = Vec::new();
-    let mut on_link = |_: &str| {};
+    let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
     let out = ctx.run_ui(input, |root| {
         egui::CentralPanel::default().show(root, |ui| {
             let mut images = ImageCache::new();
@@ -470,7 +470,7 @@ fn code_pill_hugs_the_glyphs_and_keeps_the_body_baseline() {
             let mut code = plain("Accept: text/markdown");
             code.code = true;
             let frags = vec![plain("serves Markdown for "), code, plain(", sets Vary.")];
-            let mut on_link = |_: &str| {};
+            let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
             let mut links = Vec::new();
             let mut images = ImageCache::new();
             let mut emoji = crate::media::emoji::EmojiCache::new();

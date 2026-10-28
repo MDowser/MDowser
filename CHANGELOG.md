@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   checked before clicking; the right-click menu over a link also gains Copy
   link address. (`src/viewer/mod.rs`, `src/viewer/overlays/`,
   `docs/INTERFACE.md`.)
+- Middle-clicking a rendered link opens its destination in a background tab,
+  like a browser, and a middle click on a Home bookmark tile does the same;
+  Cmd/Ctrl+click keeps working. (`src/viewer/`, `src/ui/bookmarks/tile.rs`,
+  `docs/INTERFACE.md`, `docs/ARCHITECTURE.md`.)
 - Callout titles lead with their own vector glyph in the alert accent (info
   for Note, a bulb for Tip, a report bubble for Important, the alert triangle
   for Warning, a stop octagon for Caution), so the kind reads before the word

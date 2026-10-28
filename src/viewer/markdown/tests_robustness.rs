@@ -213,7 +213,7 @@ fn renderer_never_panics_on_generated_markup() {
             let mut emoji = crate::media::emoji::EmojiCache::new();
             let mut out = ctx.run_ui(input, |root| {
                 egui::CentralPanel::default().show(root, |ui| {
-                    let mut on_link = |_: &str| {};
+                    let mut on_link = |_: &str, _: crate::viewer::LinkActivation| {};
                     let mut links = Vec::new();
                     // Inert: no network from tests (see `render_probe`).
                     show_markdown(
