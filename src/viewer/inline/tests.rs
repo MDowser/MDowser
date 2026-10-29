@@ -176,7 +176,7 @@ fn painted_pill(ctx: &egui::Context, out: &egui::FullOutput) -> Option<egui::Rec
 #[test]
 fn splits_on_hard_breaks() {
     let frags = vec![plain("a"), plain("\n"), plain("b")];
-    let lines = visual_lines(&frags);
+    let lines: Vec<_> = visual_lines(&frags).collect();
     assert_eq!(lines.len(), 2);
     assert_eq!(lines[0].len(), 1);
     assert_eq!(lines[1].len(), 1);
@@ -185,7 +185,7 @@ fn splits_on_hard_breaks() {
 #[test]
 fn no_break_is_one_line() {
     let frags = vec![plain("a"), plain("b")];
-    assert_eq!(visual_lines(&frags).len(), 1);
+    assert_eq!(visual_lines(&frags).count(), 1);
 }
 
 /// The pill's padding is real layout air: words glued to the code span

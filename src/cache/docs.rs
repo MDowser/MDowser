@@ -21,13 +21,15 @@
 //!   only inserts, reads and removes.
 
 use super::format::{
-    is_stem, now_secs, read_string, read_u64, read_u8, shard_for, stem_for, write_string, write_u64,
+    is_stem, now_secs, read_bytes, read_string, read_u64, read_u8, shard_for, stem_for,
+    write_string, write_u64,
 };
 use super::policy::{doc_host_key, CapturedHeaders};
 use crate::config;
 use crate::store::crypto::{decrypt, encrypt};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use url::Url;
 
@@ -62,8 +64,10 @@ pub(crate) struct DocRecord {
     /// Validators for conditional requests (empty = absent).
     pub etag: String,
     pub last_modified: String,
-    /// Markdown source (already UTF-8 validated at fetch time).
-    pub body: String,
+    /// Markdown source (already UTF-8 validated at fetch time), shared as an
+    /// `Arc<String>` so moving an existing body into the cache never copies
+    /// its bytes (`Arc<str>` would reallocate and copy on conversion).
+    pub body: Arc<String>,
 }
 
 /// Index entry: everything needed for expiry/eviction/revalidation WITHOUT
@@ -588,8 +592,13 @@ impl DocsStore {
     }
 
     fn read_host_entry(&self, stem: &str, key: &str) -> Option<DocRecord> {
-        let entries = self.read_host_file(stem)?;
-        entries.into_iter().find(|r| r.key == key)
+        let key_bytes = self.key?;
+        let path = self.host_path(stem);
+        let max =
+            config::MAX_CACHE_DOMAIN_BYTES as u64 + crate::store::crypto::OVERHEAD_BYTES as u64;
+        let blob = crate::settings::read_regular_file(&path, max)?;
+        let plain = decrypt(&key_bytes, DOCS_MAGIC, DOCS_VERSION, &blob)?;
+        parse_host_entry(&plain, stem, key)
     }
 
     fn ram_insert(&mut self, record: DocRecord) {
@@ -849,10 +858,91 @@ fn parse_host_file(plain: &[u8], stem: &str) -> Option<Vec<DocRecord>> {
             fresh_until,
             etag,
             last_modified,
-            body,
+            body: Arc::new(body),
         });
     }
     Some(entries)
+}
+
+/// Reads ONE record from a host file without allocating the bodies of the
+/// records it skips.
+///
+/// The lookup path used to parse the whole file (every body string) only to
+/// find one canonical key. Fields stay borrowed until the key matches; the
+/// host/URL checks then run exactly like [`parse_host_file`], so a swapped or
+/// colliding file still cannot serve another host's page.
+fn parse_host_entry(plain: &[u8], stem: &str, key: &str) -> Option<DocRecord> {
+    let mut data = plain;
+    if read_u8(&mut data)? != RECORD_FORMAT {
+        return None;
+    }
+    if data.len() < 4 {
+        return None;
+    }
+    let count = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
+    data = &data[4..];
+    if count > MAX_ENTRIES_PER_HOST_FILE {
+        return None;
+    }
+    for _ in 0..count {
+        let key_bytes = read_bytes(&mut data, config::MAX_URL_BYTES)?;
+        let fetched_url = read_bytes(&mut data, config::MAX_URL_BYTES)?;
+        let final_url = read_bytes(&mut data, config::MAX_URL_BYTES)?;
+        let content_type = read_bytes(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
+        let stored_at = read_u64(&mut data)?;
+        let fresh_until = read_u64(&mut data)?;
+        let etag = read_bytes(&mut data, 1024)?;
+        let last_modified = read_bytes(&mut data, config::MAX_CACHE_RECORD_HEADER_CHARS)?;
+        let body = read_bytes(&mut data, config::MAX_BODY_BYTES)?;
+        if key_bytes != key.as_bytes() {
+            continue;
+        }
+        // The match is the only record this call materializes.
+        let Ok(key) = std::str::from_utf8(key_bytes) else {
+            continue;
+        };
+        let Ok(fetched_url) = std::str::from_utf8(fetched_url) else {
+            continue;
+        };
+        let Ok(final_url) = std::str::from_utf8(final_url) else {
+            continue;
+        };
+        let Ok(content_type) = std::str::from_utf8(content_type) else {
+            continue;
+        };
+        let Ok(etag) = std::str::from_utf8(etag) else {
+            continue;
+        };
+        let Ok(last_modified) = std::str::from_utf8(last_modified) else {
+            continue;
+        };
+        let Ok(body) = std::str::from_utf8(body) else {
+            continue;
+        };
+        let expected = fetched_url
+            .parse::<Url>()
+            .ok()
+            .and_then(|u| doc_host_key(&u))
+            .map(|h| stem_for(&h));
+        if expected.as_deref() != Some(stem) {
+            continue;
+        }
+        if final_url.parse::<Url>().is_err() {
+            continue;
+        }
+        return Some(DocRecord {
+            key: key.to_string(),
+            fetched_url: fetched_url.to_string(),
+            final_url: final_url.to_string(),
+            content_type: content_type.to_string(),
+            stored_at,
+            fresh_until,
+            etag: etag.to_string(),
+            last_modified: last_modified.to_string(),
+            body: Arc::new(body.to_string()),
+        });
+    }
+    None
 }
 
 #[cfg(test)]
@@ -869,7 +959,7 @@ mod tests {
             fresh_until: 1_700_000_000 + 300,
             etag: String::new(),
             last_modified: String::new(),
-            body: "# Love\n".to_string(),
+            body: Arc::new("# Love\n".to_string()),
         }
     }
 
@@ -880,7 +970,7 @@ mod tests {
         let stem = stem_for("ex.com");
         let parsed = parse_host_file(&blob, &stem).unwrap();
         assert_eq!(parsed.len(), 1);
-        assert_eq!(parsed[0].body, "# Love\n");
+        assert_eq!(parsed[0].body.as_str(), "# Love\n");
         // A record smuggled into another host's file is skipped.
         let parsed = parse_host_file(&blob, &stem_for("evil.com")).unwrap();
         assert!(parsed.is_empty());
@@ -888,6 +978,23 @@ mod tests {
         let mut bad = blob;
         bad[0] = 99;
         assert!(parse_host_file(&bad, &stem).is_none());
+    }
+
+    /// The lookup path reads only the requested record; it must still apply
+    /// the same key/host/final-URL checks as the full parser and never hand
+    /// back a record from another host's file.
+    #[test]
+    fn targeted_lookup_matches_the_full_parse() {
+        let mut other = record("https://ex.com/other", "ex.com");
+        other.body = Arc::new("# Other\n".to_string());
+        let entries = vec![record("https://ex.com/love", "ex.com"), other];
+        let blob = serialize_host_file(&entries);
+        let stem = stem_for("ex.com");
+        let found = parse_host_entry(&blob, &stem, "https://ex.com/other").expect("found");
+        assert_eq!(found.key, "https://ex.com/other");
+        assert_eq!(found.body.as_str(), "# Other\n");
+        assert!(parse_host_entry(&blob, &stem, "https://ex.com/missing").is_none());
+        assert!(parse_host_entry(&blob, &stem_for("evil.com"), "https://ex.com/love").is_none());
     }
 
     /// The writer and the reader must agree on persisted header caps: a

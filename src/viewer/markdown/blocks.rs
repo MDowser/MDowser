@@ -164,13 +164,12 @@ pub(super) fn render_inline_line(
 /// every wrapped row (and every later fragment that moves to its own row)
 /// keeps the same hanging indent.
 pub(super) fn render_wrapped_lines(ui: &mut egui::Ui, frags: &[Frag<'_>], ctx: &mut RenderCtx) {
-    let lines = visual_lines(frags);
-    let multi = lines.len() > 1;
+    let multi = frags.iter().any(|f| f.text.as_ref() == "\n");
     // Common icon height for the WHOLE block, not just one line: a card list
     // renders each card in its own row, so a per-line run never sees that all
     // its logos should match (see `block_vector_target`).
     let target = block_vector_target(ui, frags, ctx);
-    for line in lines.iter() {
+    for line in visual_lines(frags) {
         if line.is_empty() {
             if multi {
                 ui.add_space(theme::spacing::XS);

@@ -951,7 +951,7 @@ mod tests {
             fresh_until: now_secs() + 300,
             etag: String::new(),
             last_modified: String::new(),
-            body: "x".repeat(body_len),
+            body: "x".repeat(body_len).into(),
         }
     }
 

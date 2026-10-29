@@ -36,7 +36,7 @@ fn loaded_tab(md: &str) -> Tab {
             meta: crate::markdown::frontmatter::Meta::default(),
             h1_title: crate::markdown::document::first_h1_title(&events),
             plain_text: String::new(),
-            source: md.to_string(),
+            source: md.to_string().into(),
             events,
             anchors,
             outline,

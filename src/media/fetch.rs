@@ -66,6 +66,18 @@ pub(crate) enum BinaryOutcome {
     },
 }
 
+/// Cache write deferred until the freshly fetched image decodes.
+///
+/// The body cannot be both moved into the cache and decoded from the same
+/// call, and copying it just for the store wasted a full image-sized buffer.
+/// The caller keeps these small fields, decodes by reference, then hands the
+/// SAME body to [`store_image_in_cache`].
+struct PendingImage {
+    key: String,
+    fetched_url: String,
+    headers: CapturedHeaders,
+}
+
 pub(crate) async fn fetch_binary(
     url: &Url,
     accept: &str,
@@ -170,13 +182,20 @@ fn fetch_image_blocking_inner(url: &str, cancel: Arc<AtomicBool>) -> Result<Deco
         }
     }
     let job_cancel = cancel.clone();
-    let bytes = client::run_network(async move {
+    let (bytes, pending) = client::run_network(async move {
         fetch_image_bytes(&parsed, key.as_deref(), &job_cancel).await
     })??;
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".to_string());
     }
-    decode::decode(&bytes)
+    let decoded = decode::decode(&bytes)?;
+    // Store only a body that actually decodes, and MOVE it: the network
+    // bytes are dead after the decode, so caching used to copy the whole
+    // image once more for nothing.
+    if let Some(pending) = pending {
+        store_image_in_cache(pending.key, &pending.fetched_url, bytes, &pending.headers);
+    }
+    Ok(decoded)
 }
 
 /// Network half of [`fetch_image_blocking_inner`]: fresh fetch, or a
@@ -188,7 +207,7 @@ async fn fetch_image_bytes(
     parsed: &Url,
     key: Option<&str>,
     cancel: &Arc<AtomicBool>,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, Option<PendingImage>), String> {
     // The stale record, kept for the failure fallback below.
     let mut stale: Option<ImageRecord> = None;
     // Stale record with validators: try one conditional request first.
@@ -227,11 +246,11 @@ async fn fetch_image_bytes(
                                 c.image_refresh(k, fresh_until, &headers);
                             }
                         }
-                        return Ok(record.body);
+                        return Ok((record.body, None));
                     }
                     Ok(BinaryOutcome::Fresh { bytes, headers }) => {
-                        store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
-                        return Ok(bytes);
+                        let pending = pending_image(k, parsed.as_str(), &headers);
+                        return Ok((bytes, pending));
                     }
                     // Revalidation failed: keep the record and fall through
                     // to a full fetch (a fresh copy may still succeed).
@@ -255,10 +274,8 @@ async fn fetch_image_bytes(
     .await
     {
         Ok(BinaryOutcome::Fresh { bytes, headers }) => {
-            if let Some(k) = key {
-                store_image_in_cache(k, parsed.as_str(), &bytes, &headers);
-            }
-            Ok(bytes)
+            let pending = key.and_then(|k| pending_image(k, parsed.as_str(), &headers));
+            Ok((bytes, pending))
         }
         // No validators were sent: a 304 answers nothing we asked.
         Ok(BinaryOutcome::NotModified { .. }) => {
@@ -277,27 +294,45 @@ fn stale_or_error(
     cancel: &AtomicBool,
     stale: Option<ImageRecord>,
     error: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, Option<PendingImage>), String> {
     if cancel.load(Ordering::Relaxed) {
         return Err(error);
     }
     match stale {
-        Some(record) => Ok(record.body),
+        Some(record) => Ok((record.body, None)),
         None => Err(error),
     }
 }
 
-/// Stores freshly fetched image bytes (`no-store` / uncachable `Vary`
-/// evicts any older record; oversized bodies refused by the store itself).
-fn store_image_in_cache(key: &str, fetched_url: &str, bytes: &[u8], headers: &CapturedHeaders) {
-    let Some(cache) = global() else { return };
+/// Cache decision for a freshly fetched image: `Some` defers the body write
+/// until the caller has decoded it, while a `no-store` answer evicts any
+/// older record immediately (the same policy point the old store call used).
+fn pending_image(key: &str, fetched_url: &str, headers: &CapturedHeaders) -> Option<PendingImage> {
+    let cache = global()?;
     if !cache.enabled() {
-        return;
+        return None;
     }
     if must_not_store(headers, headers.pragma_no_cache) {
         // A previously cacheable image turned non-storable: drop it so the
         // old body cannot outlive the origin's new policy.
         cache.clear_images_for_key(key);
+        return None;
+    }
+    Some(PendingImage {
+        key: key.to_string(),
+        fetched_url: fetched_url.to_string(),
+        headers: headers.clone(),
+    })
+}
+
+/// Stores freshly fetched image bytes (`no-store` / uncachable `Vary`
+/// evicts any older record; oversized bodies refused by the store itself).
+///
+/// Takes the body BY VALUE: the caller has finished decoding it, so the
+/// record owns the same allocation instead of a full second copy.
+fn store_image_in_cache(key: String, fetched_url: &str, bytes: Vec<u8>, headers: &CapturedHeaders) {
+    let Some(cache) = global() else { return };
+    if !cache.enabled() {
         return;
     }
     let now = now_secs();
@@ -305,14 +340,14 @@ fn store_image_in_cache(key: &str, fetched_url: &str, bytes: &[u8], headers: &Ca
     // The landed URL is where the bytes came from; the key stays the asked
     // spelling (redirects on images are rare and the key space is exact).
     cache.image_store(ImageRecord {
-        key: key.to_string(),
+        key,
         fetched_url: fetched_url.to_string(),
         content_type: headers.content_type.clone().unwrap_or_default(),
         stored_at: now,
         fresh_until: fresh.fresh_until,
         etag: headers.etag.clone().unwrap_or_default(),
         last_modified: headers.last_modified.clone().unwrap_or_default(),
-        body: bytes.to_vec(),
+        body: bytes,
     });
 }
 

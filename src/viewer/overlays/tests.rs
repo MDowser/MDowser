@@ -22,7 +22,7 @@ fn fetched_for(url: &str) -> Fetched {
         meta: crate::markdown::frontmatter::Meta::default(),
         h1_title: None,
         plain_text: "# Hi\n\nbody text\n".to_string(),
-        source: "# Hi\n\nbody text\n".to_string(),
+        source: "# Hi\n\nbody text\n".to_string().into(),
         events: Vec::new(),
         anchors: crate::markdown::anchors::AnchorIndex::default(),
         outline: crate::markdown::outline::Outline::default(),

@@ -54,7 +54,7 @@ pub(super) fn menu_items<'a>(frags: &[Frag<'a>]) -> Option<Menu<'a>> {
     }) {
         return None;
     }
-    if visual_lines(frags).len() != 1 {
+    if visual_lines(frags).count() != 1 {
         return None;
     }
     // Bound the join itself: `joined.chars().count()` below rejects menus

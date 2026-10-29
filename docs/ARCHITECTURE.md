@@ -157,7 +157,9 @@ Key contracts per area (the module map above names the main module areas):
   navigation or starves other tabs and favicon probes.
 - Single-flight per tab: `cancel_inflight()` plus an `AtomicBool` checked per
   candidate and per chunk, during connect (`futures_util::select` race), with a
-  15s per-chunk stall timeout (`CHUNK_TIMEOUT_SECS`).
+  15s per-chunk stall timeout (`CHUNK_TIMEOUT_SECS`). ONE cancellation watcher
+  is pinned per GET and reused for the connect and every chunk wait, so a
+  download never allocates and re-arms a timer future per chunk.
 - Transparent `gzip`/`brotli`/`deflate` decompression on the shared client;
   caps apply to decompressed bytes.
 - Cancellation: every fetch checks the flag per candidate and races each body
@@ -231,6 +233,12 @@ Key contracts per area (the module map above names the main module areas):
   bounded RAM fast path. Body writes run synchronously on the fetching job
   thread; index/favicon writes use a debounced background flusher (exit drains
   it, bounded).
+- Document bodies are one shared `Arc<String>`: `Fetched::source`, the RAM
+  fast path and every URL-alias record point at the same allocation, and
+  moving an already fetched buffer into that `Arc` copies no bytes (an
+  `Arc<str>` conversion would). A lookup parses only the requested record;
+  the bodies of the other records in the host file stay borrowed slices, so a
+  cache hit does not materialize (or copy) every document for that host.
 - "Forget on exit" disables the cache and wipes leftovers.
 
 ## Page transitions
@@ -262,6 +270,9 @@ Key contracts per area (the module map above names the main module areas):
   process-wide budget across tabs AND favicons, 512 images/document, 3
   concurrent jobs per document with 6 process-wide, a 60s total timeout per
   image (documents stay at 20s; the stall cutoff stays 15s for both).
+- A freshly fetched image is decoded BEFORE its cache record is written, and
+  the same buffer is then moved into the record: storing a cacheable image
+  never copies it. A body that fails to decode is not stored.
 - Layout caps: inline SVG icons clamp to 32px tall (`DecodedImage.vector`); an
   image sharing a line with text taller than `config::MAX_INLINE_IMAGE_H` (2
   body lines) or wider than most of the column becomes a centered block.
@@ -1286,11 +1297,18 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 - One background thread per navigation polls a shared long-lived multi-thread
   `tokio` runtime (`NETWORK_WORKER_THREADS`, 4 workers), keeping the HTTP pool's
   executor and the UI unblocked. Early `Content-Length` cutoff plus capped
-  chunked reads with a 15s per-chunk stall timeout.
+  chunked reads with a 15s per-chunk stall timeout. One cancellation watcher
+  is pinned per GET and reused across the connect and every chunk wait, and a
+  conditional validator already within the cap is sent borrowed (no copy).
 - Images download and decode on background threads under
   `MAX_CONCURRENT_IMAGES` (separate from document fetches) and upload once as
   textures; local reads use `MAX_CONCURRENT_LOCAL_READS`, so neither queue waits
-  behind the other.
+  behind the other. Fresh image bytes are decoded first and then moved into the
+  cache record, so storage adds no image-sized copy.
+- A document cache hit shares one `Arc<String>` body with the tab, the RAM
+  fast path and every alias (a fetched `String` moves into the `Arc` without a
+  copy); the target host record is parsed on its own, without materializing
+  the other bodies in that host file.
 - No continuous repaint: only while loading (60ms omnibox progress ticks,
   100/300ms fetch poll), while images/favicons are pending, during the 500ms
   cooldown ticks, or on interaction. Parsing to owned events happens once per
@@ -1308,7 +1326,9 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   the marker-length prefix of each run (not an up-to-512-KiB uppercase pass per
   quoted paragraph per frame); image-alt and flattened-subtree collectors stop
   at the per-block char cap; `cap_block_text` counts only up to the cap; each
-  cached code block stores its line total once.
+  cached code block stores its line total once. Inline fragments coalesce in
+  place (no second `Vec` per run), and `visual_lines` returns a borrowing
+  iterator, so a block with hard breaks allocates no line vector per repaint.
 - The tab rail reads the per-tab display memo (`Tab::display`) instead of
   allocating a title and parsing the asked URL per tab per frame, and requests
   favicons from that borrowed memo (no `Vec` of cloned origins). Bookmark tiles

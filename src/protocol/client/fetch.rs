@@ -177,12 +177,14 @@ async fn fetch_one_attempt(
 /// line (the loaded URL may differ after a redirect).
 ///
 /// `text` is TAKEN ownership of: the raw body becomes `Fetched::source`
-/// ("Save page"), so callers move the buffer instead of copying it once more.
+/// ("Save page"), shared with the cache record. Moving it into `Arc<String>`
+/// keeps the same buffer, so a fetch and a cache hit never copy the body.
 pub(crate) fn finish_document(
-    text: String,
+    text: impl Into<Arc<String>>,
     landed: Url,
     error_url: &Url,
 ) -> Result<Fetched, String> {
+    let text: Arc<String> = text.into();
     let (meta, body) = markdown::frontmatter::split(&text).map_err(|e| {
         // `serde_norway` details can echo input snippets: callers bound the
         // line like every other document-influenced log entry.
@@ -225,6 +227,7 @@ pub(crate) fn finish_document(
         meta,
         h1_title,
         plain_text,
+        // The one shared body: aliases and the tab point at the same bytes.
         source: text,
         events,
         anchors,
@@ -412,7 +415,7 @@ fn store_doc_in_cache(
     start: &Url,
     landed: &Url,
     fetched: &Url,
-    text: &str,
+    text: &Arc<String>,
     headers: &CapturedHeaders,
 ) {
     let Some(cache) = global() else { return };
@@ -444,7 +447,7 @@ fn store_doc_in_cache(
         fresh_until: fresh.fresh_until,
         etag: headers.etag.clone().unwrap_or_default(),
         last_modified: headers.last_modified.clone().unwrap_or_default(),
-        body: text.to_string(),
+        body: Arc::clone(text),
     };
     if let Some(key) = start_key.as_deref() {
         // Revalidate the exact candidate that produced this body.
@@ -772,7 +775,7 @@ mod tests {
             fresh_until: 1_700_003_600,
             etag: String::new(),
             last_modified: String::new(),
-            body: body.to_string(),
+            body: Arc::new(body.to_string()),
         }
     }
 
@@ -787,7 +790,7 @@ mod tests {
         assert_eq!(offline.stale_copy, Some(StaleCopy::Offline));
         assert_eq!(offline.display_url.as_str(), "https://ex.com/page/");
         assert_eq!(offline.page_title(), Some("Hello"));
-        assert_eq!(offline.source, body);
+        assert_eq!(offline.source.as_str(), body);
 
         let saved = mark_stale_copy(record(body), &start, StaleCopy::Saved).expect("rebuild");
         assert_eq!(saved.stale_copy, Some(StaleCopy::Saved));

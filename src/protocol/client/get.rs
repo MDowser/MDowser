@@ -171,27 +171,29 @@ pub(crate) async fn get_bytes(
         request = request.header(reqwest::header::CACHE_CONTROL, "no-cache");
     }
     if let Some(cond) = options.conditional {
+        // `truncate_chars` borrows when the value is already within the cap;
+        // only an over-long server token needs the bounded copy.
         if !cond.etag.is_empty() {
-            request = request.header(
-                reqwest::header::IF_NONE_MATCH,
-                truncate_chars(&cond.etag, config::MAX_CACHE_HEADER_CHARS).into_owned(),
-            );
+            let etag = truncate_chars(&cond.etag, config::MAX_CACHE_HEADER_CHARS);
+            request = request.header(reqwest::header::IF_NONE_MATCH, etag.as_ref());
         }
         if !cond.last_modified.is_empty() {
-            request = request.header(
-                reqwest::header::IF_MODIFIED_SINCE,
-                truncate_chars(&cond.last_modified, config::MAX_CACHE_HEADER_CHARS).into_owned(),
-            );
+            let last_modified = truncate_chars(&cond.last_modified, config::MAX_CACHE_HEADER_CHARS);
+            request = request.header(reqwest::header::IF_MODIFIED_SINCE, last_modified.as_ref());
         }
     }
-    let send_fut = request.send();
+    // One cancellation watcher for the whole request: pinned once and raced
+    // against every wait, so each send/chunk reuses its sleeping poll instead
+    // of allocating and re-arming a fresh future per chunk.
     let cancel_fut = async {
         while !cancel.load(Ordering::Relaxed) {
             tokio::time::sleep(std::time::Duration::from_millis(config::FETCH_SLOT_POLL_MS)).await;
         }
     };
-    futures_util::pin_mut!(send_fut, cancel_fut);
-    let resp = match select(send_fut, cancel_fut).await {
+    futures_util::pin_mut!(cancel_fut);
+    let send_fut = request.send();
+    futures_util::pin_mut!(send_fut);
+    let resp = match select(send_fut, cancel_fut.as_mut()).await {
         Either::Left((r, _)) => {
             r.map_err(|e| GetError::network(format!("access to {url} network error: {e}")))?
         }
@@ -338,14 +340,8 @@ pub(crate) async fn get_bytes(
             std::time::Duration::from_secs(config::CHUNK_TIMEOUT_SECS),
             stream.next(),
         );
-        let cancel_fut = async {
-            while !cancel.load(Ordering::Relaxed) {
-                tokio::time::sleep(std::time::Duration::from_millis(config::FETCH_SLOT_POLL_MS))
-                    .await;
-            }
-        };
-        futures_util::pin_mut!(chunk_fut, cancel_fut);
-        match select(chunk_fut, cancel_fut).await {
+        futures_util::pin_mut!(chunk_fut);
+        match select(chunk_fut, cancel_fut.as_mut()).await {
             // Superseded while waiting for data: drop promptly.
             Either::Right((_, _)) => {
                 return Err(GetError::answered(format!("access to {url} cancelled")))

@@ -84,17 +84,14 @@ pub(crate) enum Badge {
 
 /// Splits frags on hard-break (`"\n"`) frags into visual lines.
 /// Each `"\n"` frag starts a new line; other frags keep their style.
-pub(crate) fn visual_lines<'a, 'b>(frags: &'b [Frag<'a>]) -> Vec<&'b [Frag<'a>]> {
-    let mut lines: Vec<&'b [Frag<'a>]> = Vec::new();
-    let mut start = 0usize;
-    for (i, f) in frags.iter().enumerate() {
-        if f.text.as_ref() == "\n" {
-            lines.push(&frags[start..i]);
-            start = i + 1;
-        }
-    }
-    lines.push(&frags[start..]);
-    lines
+///
+/// Returns a borrowing iterator instead of a `Vec` of slices: the renderer
+/// runs every frame, so a paragraph with many hard breaks must not allocate
+/// a line vector on each repaint.
+pub(crate) fn visual_lines<'a, 'b>(
+    frags: &'b [Frag<'a>],
+) -> impl Iterator<Item = &'b [Frag<'a>]> + 'b {
+    frags.split(|f| f.text.as_ref() == "\n")
 }
 
 /// Baseline position (points) of the body font in a body-height row.

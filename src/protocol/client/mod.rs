@@ -75,10 +75,11 @@ pub struct Fetched {
     /// thread): Ctrl/Cmd+C must not re-parse up to 10 MiB on the UI thread.
     pub plain_text: String,
     /// Raw markdown source as fetched (frontmatter included), kept for
-    /// "Save page" (the Markdown that reaches disk). Owned from the fetch
-    /// (moved, never copied again per cache hit); one extra body-sized string
-    /// per loaded tab, on top of `plain_text` and the parsed events.
-    pub source: String,
+    /// "Save page" (the Markdown that reaches disk). Shared with the encrypted
+    /// cache record (`Arc<String>`): a cache hit, a save and an alias store all
+    /// share the same body allocation instead of copying it per surface, and
+    /// moving the fetched `String` into the `Arc` itself copies no bytes.
+    pub source: Arc<String>,
     /// Body parsed ONCE at fetch time into owned events (`'static`).
     /// The viewer renders from this list, so per-frame repaints (scrolling,
     /// selection) never re-run `pulldown-cmark` on up to 10 MiB.

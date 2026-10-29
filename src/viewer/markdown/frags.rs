@@ -295,37 +295,36 @@ fn collect_badge<'e>(
 /// (`[`, `!NOTE`, `]`); callout detection, marker stripping and the
 /// skip-link label all need the whole run. Hard-break fragments (`"\n"`)
 /// are never merged, so `visual_lines` still splits correctly.
-pub(super) fn coalesce_text(frags: Vec<Frag<'_>>) -> Vec<Frag<'_>> {
-    let mut out: Vec<Frag<'_>> = Vec::with_capacity(frags.len());
-    for f in frags {
-        // A superscript footnote marker is its own widget even when the
-        // neighbours share its style/link: never merge it into a text run.
-        // A badge is its own pill for the same reason.
-        let mergeable = f.image.is_none() && !f.sup && f.badge.is_none() && !f.text.contains('\n');
-        if mergeable {
-            if let Some(last) = out.last_mut() {
-                let same = last.image.is_none()
-                    && !last.sup
-                    && last.badge.is_none()
-                    && !last.text.contains('\n')
-                    && last.strong == f.strong
-                    && last.em == f.em
-                    && last.strike == f.strike
-                    && last.code == f.code
-                    && last.link == f.link;
-                if same {
-                    // Append in place: the old `format!` reallocated and
-                    // copied the whole accumulated run on every merge, O(n²)
-                    // for a paragraph of hundreds of thousands of same-style
-                    // fragments (one label per frame).
-                    last.text.to_mut().push_str(f.text.as_ref());
-                    continue;
-                }
-            }
+pub(super) fn coalesce_text(mut frags: Vec<Frag<'_>>) -> Vec<Frag<'_>> {
+    // In-place compaction: `dedup_by` passes `(later, earlier)` (opposite
+    // slice order), so appending into `earlier` and returning `true` merges
+    // without building a second `Vec` per inline run.
+    frags.dedup_by(|later, earlier| {
+        if !mergeable_text(later) || !mergeable_text(earlier) {
+            return false;
         }
-        out.push(f);
-    }
-    out
+        if earlier.strong != later.strong
+            || earlier.em != later.em
+            || earlier.strike != later.strike
+            || earlier.code != later.code
+            || earlier.link != later.link
+        {
+            return false;
+        }
+        // Append in place: `to_mut` keeps borrowing when possible; a run of
+        // borrowed `Text` events becomes one owned string only on the first
+        // real merge.
+        earlier.text.to_mut().push_str(later.text.as_ref());
+        true
+    });
+    frags
+}
+
+/// `true` when a fragment can join (or receive) a coalesced text run:
+/// plain text with shared style/link only. Images, superscript footnote
+/// markers, badges and hard breaks stay their own fragments.
+fn mergeable_text(f: &Frag<'_>) -> bool {
+    f.image.is_none() && !f.sup && f.badge.is_none() && !f.text.contains('\n')
 }
 
 /// Counts the chars of `text`, stopping once more than `limit` are seen.
@@ -656,5 +655,32 @@ pub(super) fn is_svg_url(url: &str) -> bool {
             .get(start..)
             .is_some_and(|end| end.eq_ignore_ascii_case(".svg")),
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// In-place coalescing must append the LATER fragment into the run that
+    /// stays, preserving text order and style, and still keep hard breaks
+    /// separate. (`dedup_by` passes its arguments in reverse slice order;
+    /// this guards that contract.)
+    #[test]
+    fn coalesce_text_merges_in_place_and_in_order() {
+        let frags = vec![
+            make_frag("a", false, false, false, false, None),
+            make_frag("b", true, false, false, false, None),
+            make_frag("c", true, false, false, false, None),
+            make_frag("\n", false, false, false, false, None),
+            make_frag("d", false, false, false, false, None),
+        ];
+        let out = coalesce_text(frags);
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0].text.as_ref(), "a");
+        assert_eq!(out[1].text.as_ref(), "bc");
+        assert!(out[1].strong);
+        assert_eq!(out[2].text.as_ref(), "\n");
+        assert_eq!(out[3].text.as_ref(), "d");
     }
 }

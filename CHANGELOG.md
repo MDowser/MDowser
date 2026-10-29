@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Performance: a document's Markdown body is shared (`Arc<String>`) by the
+  tab, the RAM fast path and every URL alias, so a fetched buffer moves into
+  the cache without a copy, and a cache lookup parses only the requested
+  record instead of materializing every body in the host file. Back/Forward
+  and alias navigation therefore stop copying the page per hit.
+  (`src/cache/docs.rs`, `src/protocol/client/mod.rs`,
+  `src/protocol/client/fetch.rs`.)
+- Performance: one cancellation watcher is pinned per network request and
+  reused across the connect and every body chunk, and conditional revalidation
+  headers are sent borrowed when they fit the cap, so a download no longer
+  allocates and re-arms a timer future per chunk. (`src/protocol/client/get.rs`.)
+- Performance: a freshly fetched image is decoded before it is stored and its
+  buffer is moved into the cache record, removing a full image-sized copy per
+  fetch; a body that does not decode is no longer written. Inline fragments
+  now coalesce in place and visual lines are a borrowing iterator, removing a
+  per-run and per-block `Vec` from the repaint path. (`src/media/fetch.rs`,
+  `src/viewer/markdown/frags.rs`, `src/viewer/inline/mod.rs`.)
+
 ## [0.7.2] - 2026-10-29
 
 Link destination previews, middle-click background tabs, callout and brand

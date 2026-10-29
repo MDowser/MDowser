@@ -268,7 +268,7 @@ fn finish_document_derives_the_first_h1_title() {
     assert_eq!(fetched.page_title(), Some("Carla"));
     assert!(fetched.meta.title.is_none());
     // The raw body is kept as the Markdown source, byte for byte.
-    assert_eq!(fetched.source, "Intro.\n\n# Carla\n\nBody.");
+    assert_eq!(fetched.source.as_str(), "Intro.\n\n# Carla\n\nBody.");
 
     // A frontmatter title wins; the heading still arrives as the fallback.
     let fetched = super::finish_document(

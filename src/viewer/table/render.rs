@@ -575,7 +575,7 @@ fn render_table_cell(
                     .max_rect(content)
                     .layout(egui::Layout::top_down(align)),
                 |ui| {
-                    for (line_idx, line) in visual_lines(cell).into_iter().enumerate() {
+                    for (line_idx, line) in visual_lines(cell).enumerate() {
                         if line.is_empty() {
                             continue;
                         }
