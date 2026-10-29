@@ -2,11 +2,12 @@
 .\" This Source Code Form is subject to the terms of the Mozilla Public
 .\" License, v. 2.0. If a copy of the MPL was not distributed with this
 .\" file, You can obtain one at https://mozilla.org/MPL/2.0/.
-.TH MDOWSER 1 "2026" "MDowser" "User Commands"
+.TH MDOWSER 1 "October 2026" "MDowser" "User Commands"
 .SH NAME
 mdowser \- browse text/markdown over HTTPS and local files
 .SH SYNOPSIS
 .B mdowser
+.RB [ \-\- ]
 .RI [ file | url ]...
 .SH DESCRIPTION
 .B mdowser
@@ -31,7 +32,9 @@ rendered with a desktop-browser-style interface. There is no webview, no
 JavaScript, no cookies and no proxy. Repeat visits use a bounded, encrypted
 on-disk HTTP cache, which the app clears or disables from its preferences.
 Being a GUI application it has only the two options listed under OPTIONS
-below; every other argument is an open target.
+below, plus
+.B \-\-
+to end option parsing; every other argument is an open target.
 .PP
 When the application is already running, a new launch opens its targets in a
 new instance; MDowser does not use a single-instance guard.
@@ -43,12 +46,19 @@ window.
 .TP
 .B \-V, \-\-version
 Print the version on standard output and exit without opening a window.
+.TP
+.B \-\-
+End option parsing: every following argument is an open target, even one
+that begins with a hyphen
+.RB ( "mdowser \-\- \-notes.md" ).
 .PP
-Every other argument is an open target; words that begin with a hyphen are
+Every other argument is an open target. A word that begins with a hyphen is
 ignored, so a macOS Finder launch's
 .B \-psn_
-argument is never treated as a document. On Windows the windowed subsystem
-has no console: the flags are no-ops there and the
+argument is never treated as a document, unless it follows
+.B \-\-
+on the command line. On Windows the windowed subsystem has no console: the
+flags are no-ops there and the
 .IR .exe
 properties carry the version.
 .SH ENVIRONMENT

@@ -10,7 +10,7 @@
 #   ./scripts/deps.sh              # everything this host can use   (= make deps)
 #   ./scripts/deps.sh toolchain    # Rust/cargo, nasm, python3
 #   ./scripts/deps.sh cross        # macOS: zig, cargo-zigbuild, mingw-w64, rustup targets
-#   ./scripts/deps.sh packaging    # desktop-file-utils, appstream(-glib), rpm, flatpak-builder, lintian, PyYAML
+#   ./scripts/deps.sh packaging    # desktop-file-utils, appstream(-glib), mandoc, rpm, flatpak-builder, lintian, PyYAML
 #   SKIP_SETUP=1 ./scripts/deps.sh # dry run: report only, install nothing
 #
 # Notes:
@@ -262,6 +262,7 @@ group_packaging() {
     ensure_pkg desktop-file-validate desktop-file-utils desktop-file-utils desktop-file-utils desktop-file-utils 'desktop entry check (`make validate`)'
     ensure_pkg appstreamcli appstream appstream appstream appstream 'AppStream metadata check (`make validate`)'
     ensure_pkg appstream-util appstream-glib appstream-util libappstream-glib appstream-glib 'AppStream check (legacy fallback for `make validate`)'
+    ensure_pkg mandoc mandoc mandoc mandoc mandoc 'man page check (`make validate`)'
     ensure_pkg rpmspec rpm rpm rpm-build "" 'RPM spec check (`make validate`, `make dist-rpm`)'
     # Flatpak (Linux only): the tool; the freedesktop runtimes are installed
     # best-effort by `scripts/build-flatpak.sh` at build time.

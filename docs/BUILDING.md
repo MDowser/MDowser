@@ -65,8 +65,8 @@ their tools there, best-effort:
 installer only with `ALLOW_RUSTUP=1`, never silently), `nasm`, `python3`, the
 macOS cross tools (`zig`, `cargo-zigbuild`, `mingw-w64`, the rustup targets)
 and the packaging tools (`desktop-file-utils`, `appstream`, `appstream-glib`,
-`rpm`, `lintian`, PyYAML). It uses Homebrew on macOS and `apt-get`/`dnf`/
-`pacman` on Linux (via `sudo`).
+`mandoc`, `rpm`, `lintian`, PyYAML). It uses Homebrew on macOS and
+`apt-get`/`dnf`/`pacman` on Linux (via `sudo`).
 
 ```sh
 make deps                    # everything this host can use
@@ -362,9 +362,10 @@ tool (a SKIP names the install command): version consistency between
 released `CHANGELOG.md` section and the supported line in `SECURITY.md`
 (`make check-version` runs the same gate on its own); XML well-formedness of
 the AppStream metadata and of the version-rendered copy the packages install,
-`appstreamcli` or `appstream-util`, `desktop-file-validate`, `rpmspec -P` and
-`rpmlint` when present, a YAML parse of the Flatpak manifest, and the `dist/`
-privacy gate when a build is present.
+`appstreamcli` or `appstream-util`, `desktop-file-validate`, a man-page lint
+(`mandoc -T lint -W error`) when available, `rpmspec -P` and `rpmlint` when
+present, a YAML parse of the Flatpak manifest, and the `dist/` privacy gate
+when a build is present.
 
 On macOS everything except a real `.deb`/`.rpm` build and `flatpak-builder` is
 installable with Homebrew:

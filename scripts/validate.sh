@@ -19,6 +19,7 @@
 #     AND of the version-rendered copy the packages install (catches a broken
 #     render), then appstreamcli (or appstream-util) validation.
 #   - mdowser.desktop: desktop-file-validate.
+#   - mdowser.1: `mandoc -T lint -W error` when installed.
 #   - mdowser.spec: `rpmspec -P` (macro expansion = syntax check; a real RPM
 #     needs a Linux/rpmbuild host) and rpmlint when installed.
 #   - dev.mdowser.app.yaml: YAML parse when python3 has PyYAML.
@@ -45,6 +46,7 @@ fi
 RPM_VER="$(version_rpm "$VER")"
 METAINFO="packaging/linux/dev.mdowser.app.metainfo.xml"
 DESKTOP="packaging/linux/mdowser.desktop"
+MANPAGE="packaging/linux/mdowser.1"
 SPEC="packaging/rpm/mdowser.spec"
 FLATPAK="packaging/flatpak/dev.mdowser.app.yaml"
 
@@ -172,6 +174,21 @@ if have desktop-file-validate; then
     fi
 else
     skip "desktop entry" "install desktop-file-validate (brew install desktop-file-utils)"
+fi
+
+# --- Man page ----------------------------------------------------------------
+step "man page"
+if have mandoc; then
+    # `-W error` promotes warnings (a malformed date, a bad macro argument) to
+    # a failure, so the installed page cannot regress quietly. mandoc ships
+    # with macOS; Linux distros package it separately.
+    if mandoc -T lint -W error "$MANPAGE"; then
+        ok "mandoc -T lint"
+    else
+        bad "mandoc -T lint $MANPAGE"
+    fi
+else
+    skip "man page" "install mandoc (macOS ships it; Linux: mandoc package)"
 fi
 
 # --- RPM spec ----------------------------------------------------------------

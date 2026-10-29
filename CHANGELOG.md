@@ -73,6 +73,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dependencies: `Cargo.lock` refreshed to the latest compatible patch
   releases (accesskit, brotli, icu, rustix, uuid, …); no manifest or API
   changes.
+- Dependencies: `aws-lc-rs` 1.19.0 / `aws-lc-sys` 0.47.0 (rustls crypto and
+  history-store AEAD) and `unicode-width` 0.2.3; no manifest or API changes.
+  (`Cargo.lock`.)
+- `make validate` now lints the installed man page with
+  `mandoc -T lint -W error` when mandoc is available, so a malformed date or
+  macro fails packaging validation; `make deps` installs it with the other
+  packaging tools. (`scripts/validate.sh`, `scripts/deps.sh`,
+  `docs/BUILDING.md`.)
 
 ### Fixed
 
@@ -118,6 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the README qualifies `--help`/`--version` on Windows and `make dist` by
   host capability, and the architecture map no longer claims to name every
   module. (`README.md`, `docs/BUILDING.md`, `docs/ARCHITECTURE.md`.)
+- The Linux man page documents `--` as the end of option parsing and lists
+  it in the synopsis, instead of claiming every hyphen-prefixed word is
+  always ignored; its date is now parseable by man tooling.
+  (`packaging/linux/mdowser.1`.)
 
 ## [0.7.1] - 2026-10-26
 
