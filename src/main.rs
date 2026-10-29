@@ -75,10 +75,13 @@ enum CliAction {
 /// its window, which made `mdowser --version` silently launch the GUI. The
 /// scan stops at the first match, so the order matches what a shell user
 /// types first; every other argument is left to
-/// [`collect_initial_targets`].
+/// [`collect_initial_targets`]. A `--` ends option parsing, so
+/// `mdowser -- --help` opens the file named `--help` instead of printing
+/// usage.
 fn cli_action(args: &[String]) -> CliAction {
     for arg in args {
         match arg.as_str() {
+            "--" => break,
             "--help" | "-h" => return CliAction::Help,
             "--version" | "-V" => return CliAction::Version,
             _ => {}
@@ -91,14 +94,27 @@ fn cli_action(args: &[String]) -> CliAction {
 ///
 /// Skips flags (`-psn_...` on a macOS Finder launch, and any future
 /// option) and empty strings, so nothing machine-generated is opened as a
-/// document. Capped at [`crate::config::MAX_TABS`]: the hand-off is
-/// OS-controlled and must never allocate an unbounded tab list; per-target
-/// length is enforced later by `parse_navigable` (oversized input becomes
-/// that tab's local error, never a truncated navigation).
+/// document. A `--` stops option parsing: every following non-empty argument
+/// is a target even when it starts with `-`, which is the only way to open a
+/// file literally named `-notes.md` from a shell. Capped at
+/// [`crate::config::MAX_TABS`]: the hand-off is OS-controlled and must never
+/// allocate an unbounded tab list; per-target length is enforced later by
+/// `parse_navigable` (oversized input becomes that tab's local error, never a
+/// truncated navigation).
 fn collect_initial_targets(args: impl Iterator<Item = String>) -> Vec<String> {
-    args.filter(|arg| !arg.is_empty() && !arg.starts_with('-'))
-        .take(crate::config::MAX_TABS)
-        .collect()
+    let mut end_of_options = false;
+    args.filter(|arg| {
+        if end_of_options {
+            return !arg.is_empty();
+        }
+        if arg == "--" {
+            end_of_options = true;
+            return false;
+        }
+        !arg.is_empty() && !arg.starts_with('-')
+    })
+    .take(crate::config::MAX_TABS)
+    .collect()
 }
 
 /// Resolves bare relative command-line targets that exist on disk.
@@ -124,7 +140,6 @@ fn resolve_cli_targets(targets: Vec<String>, cwd: Option<&Path>) -> Vec<String> 
 /// One target's [`resolve_cli_targets`] rewrite.
 fn resolve_cli_target(target: String, cwd: &Path) -> String {
     if target.is_empty()
-        || target.starts_with('-')
         || target.contains("://")
         || crate::util::starts_with_ignore_ascii_case(&target, "file:")
         || target == "~"
@@ -173,16 +188,18 @@ fn print_help() {
 MDowser {} - browser for text/markdown over HTTPS and local files
 
 Usage:
-  mdowser [TARGET]...
+  mdowser [OPTION]... [--] [TARGET]...
 
 Open each TARGET as a document: an https:// URL (the scheme is optional),
 a file:// URL, an absolute, ~ or relative path, or a Markdown file. A
 relative TARGET that exists on disk is opened as a file, not as a host.
-Without a TARGET the app opens on its new-tab page.
+Without a TARGET the app opens on its new-tab page. `--` ends option
+parsing, so a TARGET that starts with `-` can still be opened.
 
 Options:
   -h, --help     Print this help and exit
   -V, --version  Print the version and exit
+  --             Treat every following argument as a TARGET
 
 Full documentation: https://github.com/MDowser/MDowser/tree/main/docs",
         env!("CARGO_PKG_VERSION")
@@ -283,6 +300,21 @@ mod tests {
         assert_eq!(out, vec!["notes.md".to_string()]);
     }
 
+    /// `--` ends option parsing: a following argument is a target even when
+    /// it starts with `-`, and flags after it are not classified as options.
+    #[test]
+    fn double_dash_opens_dash_prefixed_targets() {
+        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let out = collect_initial_targets(
+            ["--", "-notes.md", "", "--help"]
+                .map(str::to_string)
+                .into_iter(),
+        );
+        assert_eq!(out, vec!["-notes.md".to_string(), "--help".to_string()]);
+        assert_eq!(cli_action(&args(&["--", "--help"])), CliAction::Open);
+        assert_eq!(cli_action(&args(&["--", "-V"])), CliAction::Open);
+    }
+
     #[test]
     fn caps_os_targets_at_max_tabs() {
         let out = collect_initial_targets(
@@ -301,11 +333,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
         std::fs::write(dir.join("notes.md"), "# Notes\n").expect("note");
+        std::fs::write(dir.join("-notes.md"), "# Dash\n").expect("dash note");
         std::fs::create_dir(dir.join("docs")).expect("dir target");
 
         let notes = dir.join("notes.md").to_string_lossy().into_owned();
+        let dash = dir.join("-notes.md").to_string_lossy().into_owned();
         let docs = dir.join("docs").to_string_lossy().into_owned();
         assert_eq!(resolve_cli_target("notes.md".into(), &dir), notes);
+        assert_eq!(
+            resolve_cli_target("-notes.md".into(), &dir),
+            dash,
+            "a --escaped dash-prefixed file still resolves on disk"
+        );
         assert_eq!(
             resolve_cli_target("notes".into(), &dir),
             notes,

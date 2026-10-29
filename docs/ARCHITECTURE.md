@@ -190,8 +190,10 @@ Key contracts per area (the module map above names the main module areas):
   and wins over session restore. `main::cli_action` answers `--help`/`-h` and
   `--version`/`-V` on stdout (`print_help`/`print_version`, the app's only
   stdout writes) and exits before any window; the remaining list is capped at
-  `MAX_TABS` (`main::collect_initial_targets` skips flags/empties), so an
-  OS-controlled argument list can never allocate an unbounded tab vector.
+  `MAX_TABS` (`main::collect_initial_targets` skips flags/empties until a
+  `--`, which ends option parsing so dash-prefixed file names stay targets),
+  so an OS-controlled argument list can never allocate an unbounded tab
+  vector.
   `main::resolve_cli_targets` rewrites a bare relative target to its absolute
   path only when it exists under the working directory (or a stem's `.md`
   sibling), so a terminal's `mdowser notes.md` is a file while
@@ -1094,7 +1096,8 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
   (`Frame::winit_window`, inherent methods only: no direct `winit` dependency).
   A stored position that no longer overlaps any attached monitor (unplugged
   screen) falls back to centering, and the size is clamped to the monitor it
-  opens on.
+  opens on (the one its stored rectangle overlaps most, not necessarily the
+  primary monitor that created the window).
 - Later moves/resizes are persisted (encrypted `settings.bin` key `window`,
   debounced by `WINDOW_GEOMETRY_SAVE_DEBOUNCE_SECS` and flushed on exit), so the
   next launch reopens where the user left it; while maximized only the flag is

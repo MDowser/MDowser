@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The command line accepts `--` as the end of options, so
+  `mdowser -- -notes.md` opens a file whose name starts with `-`; arguments
+  after `--` are targets, never flags. (`src/main.rs`,
+  `docs/NAVIGATION.md`, `docs/ARCHITECTURE.md`.)
 - Hovering a rendered link shows its resolved destination in a compact chip at
   the document's bottom-left, so the real target of misleading link text can be
   checked before clicking; the right-click menu over a link also gains Copy
@@ -72,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A window remembered on a secondary monitor is clamped to that monitor's
+  bounds, not to the primary monitor the native window was created on, and a
+  window straddling two displays belongs to the one it mostly occupies. A
+  window saved on a larger display used to reopen shrunk to the primary
+  monitor. (`src/app/window.rs`, `docs/ARCHITECTURE.md`.)
 - A heading link with an ignored destination (`# [Title]()`) keeps the
   heading's color: it used to fall back to the surrounding text tone, so the
   run turned muted inside a quote and lost the muted tone in an H6.

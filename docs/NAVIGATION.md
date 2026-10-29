@@ -105,6 +105,7 @@ mdowser ~/notes.md                  # from a terminal
 mdowser notes.md                    # existing relative file, not the .md host
 mdowser notes                       # finds notes.md (local route extension)
 mdowser file:///tmp/a.md            # file URL
+mdowser -- -notes.md                # a file whose name starts with '-'
 mdowser --help                      # usage (also -h); --version prints the build (-V)
 open -a MDowser --args ~/notes.md   # macOS, while the app is not running
 ```
@@ -122,7 +123,9 @@ HTTPS host, so `mdowser example.com` is still a web page.
 
 `--help`/`-h` and `--version`/`-V` are answered on stdout without opening a
 window. Every other flag is skipped, so a launcher's own arguments (macOS
-Finder's `-psn_...`) never open a document.
+Finder's `-psn_...`) never open a document. A bare `--` ends option parsing:
+every following argument is a target, including a file name that starts with
+`-` (`mdowser -- -notes.md`).
 
 Platform integration:
 

@@ -219,9 +219,15 @@ impl MdowserApp {
     }
 }
 
-/// Target geometry for a stored one: the size is clamped to the monitor it
-/// will open on, and a position that no longer overlaps ANY attached monitor
-/// (the screen it was on is gone) falls back to centering on the current one.
+/// Target geometry for a stored one: the size is clamped to the monitor the
+/// window will open on, and a position that no longer overlaps ANY attached
+/// monitor (the screen it was on is gone) falls back to centering on the
+/// current one.
+///
+/// The monitor that owns the stored rectangle is the one with the largest
+/// overlap, not the monitor the window happened to be CREATED on: a window
+/// remembered on a larger secondary display must keep that display's bounds
+/// instead of being shrunk to the primary monitor.
 ///
 /// `monitors`/`current` are physical rects; `scale` is the native scale of
 /// the monitor the window was CREATED on (the one the commands will use).
@@ -237,9 +243,14 @@ pub(super) fn stored_target(
         // geometry, exactly like the OS would.
         return Some(stored);
     }
-    let monitor = current.or_else(|| monitors.first().copied());
+    let inner = egui::Rect::from_min_size(stored.pos, stored.size);
+    let owner = monitor_with_largest_overlap(inner, monitors);
+    // A stored position that still touches a monitor keeps that monitor;
+    // an off-screen one centers on the creation monitor (or the first one
+    // when the backend cannot name the current monitor).
+    let target_monitor = owner.or(current).or_else(|| monitors.first().copied());
     let mut size = stored.size;
-    if let Some(monitor) = monitor {
+    if let Some(monitor) = target_monitor {
         // Never smaller than the OS minimum (in physical pixels) nor larger
         // than the monitor it opens on: an oversized window crashes some
         // Linux setups and is useless anywhere.
@@ -248,11 +259,10 @@ pub(super) fn stored_target(
         size.y = size.y.clamp(min.y, monitor.height().max(min.y));
     }
     let mut pos = stored.pos;
-    let inner = egui::Rect::from_min_size(pos, size);
-    if !monitors.iter().any(|monitor| monitor.intersects(inner)) {
+    if owner.is_none() {
         // Off every screen (the monitor was unplugged): center on the one
         // the window was created on.
-        let monitor = monitor?;
+        let monitor = target_monitor?;
         pos = centered_pos(monitor, size, decorations);
     }
     Some(WindowGeometry {
@@ -260,6 +270,25 @@ pub(super) fn stored_target(
         size,
         maximized: stored.maximized,
     })
+}
+
+/// The attached monitor a stored window rectangle overlaps most, if any.
+///
+/// Comparing overlap (rather than "contains the top-left corner") keeps a
+/// window that straddles two displays on the one it mostly occupies; a
+/// rectangle that merely touches an edge still counts, so a window whose
+/// title bar is just off-screen is not recentered.
+fn monitor_with_largest_overlap(window: egui::Rect, monitors: &[egui::Rect]) -> Option<egui::Rect> {
+    let mut best: Option<(f32, egui::Rect)> = None;
+    for monitor in monitors {
+        let width = (window.max.x.min(monitor.max.x) - window.min.x.max(monitor.min.x)).max(0.0);
+        let height = (window.max.y.min(monitor.max.y) - window.min.y.max(monitor.min.y)).max(0.0);
+        let area = width * height;
+        if area > 0.0 && best.is_none_or(|(best_area, _)| area > best_area) {
+            best = Some((area, *monitor));
+        }
+    }
+    best.map(|(_, monitor)| monitor)
 }
 
 /// Target geometry on a first run (no stored value): the

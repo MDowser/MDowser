@@ -793,6 +793,54 @@ fn stored_window_geometry_is_restored_and_clamped() {
     assert!(target.maximized, "the maximized flag survives the clamp");
 }
 
+/// A stored window on a secondary monitor is clamped to THAT monitor, not to
+/// the primary one the native window was created on. This used to shrink a
+/// window remembered on a larger display to the primary monitor's bounds.
+#[test]
+fn stored_window_geometry_clamps_to_the_monitor_it_overlaps() {
+    use eframe::egui;
+    let primary = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1920.0, 1080.0));
+    let secondary = egui::Rect::from_min_size(egui::pos2(1920.0, 0.0), egui::vec2(2560.0, 1440.0));
+    let stored = WindowGeometry {
+        pos: egui::pos2(2000.0, 100.0),
+        size: egui::vec2(2400.0, 1300.0),
+        maximized: false,
+    };
+    let target = stored_target(
+        stored,
+        &[primary, secondary],
+        Some(primary),
+        egui::Vec2::ZERO,
+        1.0,
+    )
+    .unwrap();
+    assert_eq!(
+        target, stored,
+        "a window on the larger secondary monitor keeps its size"
+    );
+
+    // A rectangle straddling both displays belongs to the one it mostly
+    // occupies; the old code always used the creation (primary) monitor.
+    let straddling = WindowGeometry {
+        pos: egui::pos2(1800.0, 100.0),
+        size: egui::vec2(2500.0, 1000.0),
+        maximized: false,
+    };
+    let target = stored_target(
+        straddling,
+        &[primary, secondary],
+        Some(primary),
+        egui::Vec2::ZERO,
+        1.0,
+    )
+    .unwrap();
+    assert_eq!(
+        target.size,
+        egui::vec2(2500.0, 1000.0),
+        "the secondary monitor has room for the full window"
+    );
+}
+
 /// The monitor a stored window was on can be gone: the geometry then falls
 /// back to centering on the current monitor instead of opening off-screen.
 #[test]
