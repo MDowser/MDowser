@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-29
+
+Link destination previews, middle-click background tabs, callout and brand
+icons, monitor-aware window restore, and reader, cache and markup hardening.
+
 ### Added
 
 - The command line accepts `--` as the end of options, so
