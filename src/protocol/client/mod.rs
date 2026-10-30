@@ -654,7 +654,7 @@ pub use fetch::fetch_blocking_with_mode;
 #[cfg(test)]
 use fetch::fetch_one;
 pub(crate) use fetch::{finish_document, FetchMode};
-pub(crate) use get::{get_bytes, Conditional, GetOptions, GetOutcome};
+pub(crate) use get::{get_bytes, Conditional, GetError, GetOptions, GetOutcome};
 
 #[cfg(test)]
 mod tests;

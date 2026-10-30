@@ -7,9 +7,11 @@
 //! module stays reviewable).
 
 use super::{
-    accept_marker_content_type, current_version, is_due, parse_marker, release_url, UpdateState,
+    accept_marker_content_type, current_version, is_due, parse_marker, release_url, CheckFailure,
+    UpdateState,
 };
 use crate::config;
+use crate::protocol::client::GetError;
 use crate::settings::Prefs;
 use semver::Version;
 
@@ -109,12 +111,15 @@ fn view_priority_and_newer_than_current_filter() {
     view.checking = true;
     assert_eq!(view.status_text(), "Checking for updates…");
     view.checking = false;
-    view.failed = true;
+    view.failure = Some(CheckFailure::Unusable);
     // A known release stays visible even if a later check failed.
     assert_eq!(view.status_text(), format!("Version {after} is available."));
     view.available = None;
-    assert_eq!(view.status_text(), "Couldn't check for updates.");
-    view.failed = false;
+    assert_eq!(
+        view.status_text(),
+        "Couldn't read the update information. Try again later."
+    );
+    view.failure = None;
     view.enabled = false;
     assert_eq!(view.status_text(), "Automatic checks are off.");
     view.enabled = true;
@@ -126,6 +131,60 @@ fn view_priority_and_newer_than_current_filter() {
     // raises the dot (e.g. after the user installed the release by hand).
     prefs.record_update_check(43, Some(current_version()));
     assert!(UpdateState::new().view(&prefs).available.is_none());
+}
+
+#[test]
+fn check_failures_classify_and_stay_friendly() {
+    let answered = |status| GetError {
+        message: "raw protocol text".to_string(),
+        transport: false,
+        status: Some(status),
+    };
+    assert_eq!(
+        CheckFailure::from_get_error(&answered(404)),
+        CheckFailure::NoMarker,
+        "a missing release marker is its own state"
+    );
+    assert_eq!(
+        CheckFailure::from_get_error(&answered(500)),
+        CheckFailure::Unusable,
+        "another answered error is an unusable check"
+    );
+    assert_eq!(
+        CheckFailure::from_get_error(&GetError {
+            message: "raw protocol text".to_string(),
+            transport: true,
+            status: None,
+        }),
+        CheckFailure::Offline,
+        "no HTTP answer is offline"
+    );
+
+    let mut view = UpdateState::new().view(&Prefs::default());
+    view.failure = Some(CheckFailure::NoMarker);
+    assert_eq!(
+        view.status_text(),
+        "The latest release doesn't publish update information yet."
+    );
+    assert!(
+        !CheckFailure::NoMarker.is_error(),
+        "a missing marker is informational, not an error"
+    );
+    view.failure = Some(CheckFailure::Offline);
+    assert_eq!(
+        view.status_text(),
+        "Couldn't reach GitHub. Check your connection."
+    );
+    assert!(CheckFailure::Offline.is_error());
+    view.failure = Some(CheckFailure::Unusable);
+    assert_eq!(
+        view.status_text(),
+        "Couldn't read the update information. Try again later."
+    );
+    assert!(
+        !view.status_text().contains("raw"),
+        "raw protocol text never reaches the card"
+    );
 }
 
 #[test]

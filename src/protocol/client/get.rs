@@ -76,6 +76,10 @@ pub(crate) struct GetError {
     pub message: String,
     /// `true` when no HTTP response was received.
     pub transport: bool,
+    /// HTTP status when an answered response failed (for example `Some(404)`);
+    /// `None` for transport failures, client-side refusals and rejections
+    /// after a successful response (gate, size or body).
+    pub status: Option<u16>,
 }
 
 impl GetError {
@@ -84,6 +88,16 @@ impl GetError {
         Self {
             message,
             transport: false,
+            status: None,
+        }
+    }
+
+    /// An answered non-success response, with its HTTP status.
+    fn answered_status(message: String, status: u16) -> Self {
+        Self {
+            message,
+            transport: false,
+            status: Some(status),
         }
     }
 
@@ -92,6 +106,7 @@ impl GetError {
         Self {
             message,
             transport: true,
+            status: None,
         }
     }
 }
@@ -248,13 +263,15 @@ pub(crate) async fn get_bytes(
         let code = status.as_u16();
         // 404 gets its own message ("does not exist") for the line-by-line log.
         if code == 404 {
-            return Err(GetError::answered(format!(
-                "access to {url} does not exist (404)"
-            )));
+            return Err(GetError::answered_status(
+                format!("access to {url} does not exist (404)"),
+                code,
+            ));
         }
-        return Err(GetError::answered(format!(
-            "access to {url} returned HTTP {code}"
-        )));
+        return Err(GetError::answered_status(
+            format!("access to {url} returned HTTP {code}"),
+            code,
+        ));
     }
 
     // All Content-Type values (case-insensitive, whitespace-tolerant).

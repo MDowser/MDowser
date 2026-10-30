@@ -376,7 +376,7 @@ fn licenses_link_requests_the_internal_page() {
 /// "Check now" for a manual check.
 #[test]
 fn updates_card_reports_status_and_requests_actions() {
-    use crate::update::UpdateView;
+    use crate::update::{CheckFailure, UpdateView};
 
     let ctx = egui::Context::default();
     crate::ui::theme::apply(&ctx);
@@ -388,7 +388,7 @@ fn updates_card_reports_status_and_requests_actions() {
     let update = UpdateView {
         enabled: true,
         checking: false,
-        failed: false,
+        failure: None,
         available: Some(semver::Version::new(999, 0, 0)),
         checked_at: Some(1),
     };
@@ -490,6 +490,28 @@ fn updates_card_reports_status_and_requests_actions() {
         out.textures_delta.clear();
     }
     assert!(requested, "Check now must ask App to start a check");
+
+    // A failed check shows a friendly reason (never the raw protocol text)
+    // and renames the action to "Try again".
+    let update = UpdateView {
+        failure: Some(CheckFailure::NoMarker),
+        ..update
+    };
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+        seen = texts(&out.shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+    }
+    let expected = "The latest release doesn't publish update information yet.";
+    assert!(seen.iter().any(|text| text == expected));
+    assert!(seen.iter().any(|text| text == "Try again"));
+    assert!(!seen.iter().any(|text| text == "Check now"));
 }
 
 /// The Updates card's switch is the opt-out: clicking it writes
@@ -508,7 +530,7 @@ fn updates_switch_turns_automatic_checks_off() {
     let update = UpdateView {
         enabled: true,
         checking: false,
-        failed: false,
+        failure: None,
         available: None,
         checked_at: None,
     };

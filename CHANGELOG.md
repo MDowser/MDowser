@@ -45,6 +45,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-run and per-block `Vec` from the repaint path. (`src/media/fetch.rs`,
   `src/viewer/markdown/frags.rs`, `src/viewer/inline/mod.rs`.)
 
+### Fixed
+
+- The Updates card now treats a newest release without a `latest.txt` marker
+  (HTTP 404) as an informational "The latest release doesn't publish update
+  information yet." state instead of a generic red failure. Other failed checks
+  get specific, friendly copy for an unreachable network or an unreadable
+  answer, the action becomes "Try again", and raw protocol errors never reach
+  the UI. (`src/update/`, `src/protocol/client/get.rs`,
+  `src/ui/preferences/`, `docs/INTERFACE.md`, `docs/SECURITY.md`.)
+
 ## [0.7.2] - 2026-10-29
 
 Link destination previews, middle-click background tabs, callout and brand

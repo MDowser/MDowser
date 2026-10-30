@@ -156,6 +156,9 @@ Key contracts per area (the module map above names the main module areas):
   `get_bytes`/`run_network`, but with a fixed GitHub endpoint, a 1 KiB body
   cap, a 15s budget, a `text/plain`/`application/octet-stream` gate and no
   disk-cache entry; it never touches a tab's history or cancellation.
+  `GetError` exposes the answered HTTP status alongside `transport`, so a
+  caller can tell a missing resource (404) from a network failure without
+  parsing error text.
 - The `Content-Type` gate runs BEFORE the body streams, on EVERY declared value
   in full: a bounded copy could hide a `charset=` beyond the cut. A non-accepted
   type is rejected without download or decompression.
@@ -539,11 +542,12 @@ Key contracts per area (the module map above names the main module areas):
   `latest.txt` GET while running, starts the automatic check when
   `update_checked` is missing or 24h old, and writes `update_checked` +
   `update_available` only after a successful parse. A failure stays
-  session-only (`UpdateState.failed`), keeps any previously known newer version
-  visible, and sets a 24h in-process retry gate; `Check now` bypasses the due
-  time and the opt-out. The app polls the `Promise` each frame and schedules a
-  repaint only while checking, at the due time, or at the retry gate (capped at
-  one hour). The Preferences card and the gear dot read the same `UpdateView`.
+  session-only (`UpdateState.failure`, classified as missing marker, offline or
+  unusable), keeps any previously known newer version visible, and sets a 24h
+  in-process retry gate; `Check now` bypasses the due time and the opt-out.
+  The app polls the `Promise` each frame and schedules a repaint only while
+  checking, at the due time, or at the retry gate (capped at one hour). The
+  Preferences card and the gear dot read the same `UpdateView`.
 - The read-modify-write uses a per-directory plaintext CACHE: a read body serves
   every later read AND write (four keys decrypt once; startup validation seeds
   it, so a valid `settings.bin` is decrypted once per launch). The shared

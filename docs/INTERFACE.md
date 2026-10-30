@@ -208,12 +208,17 @@ selected tab and each tab's scroll position persist while the dialog stays open
   The Updates card is notification-only: while a check runs it says "Checking
   for updates…"; with a known newer version it names it (`Version X.Y.Z is
   available.`); otherwise it reports "MDowser is up to date.", "Automatic checks
-  are off.", "Couldn't check for updates." or "Not checked yet.". "Open release
-  page" (only with a known newer version) opens
+  are off.", or "Not checked yet.". A failed check gets a specific, friendly
+  line instead of raw protocol text: "The latest release doesn't publish
+  update information yet." (a missing marker, shown as information rather than
+  an error), "Couldn't reach GitHub. Check your connection." (no HTTP answer),
+  or "Couldn't read the update information. Try again later." (an unusable
+  answer). "Open release page" (only with a known newer version) opens
   `https://github.com/MDowser/MDowser/releases/tag/vX.Y.Z` in the system
-  browser; "Check now" runs a manual check even when automatic checks are off;
-  the "Check automatically" switch (ON by default) controls the daily check.
-  Nothing is ever downloaded, unpacked or installed by the app.
+  browser; "Check now" runs a manual check even when automatic checks are off,
+  and becomes "Try again" after a failed check; the "Check automatically"
+  switch (ON by default) controls the daily check. Nothing is ever downloaded,
+  unpacked or installed by the app.
 - **Data** holds the history card — the retention dropdown ("Forget on exit",
   "Keep 1 month", "Keep 3 months (default)", "Keep 6 months", "Keep 1 year",
   "Keep forever"), the destructive "Delete history" action (two-click

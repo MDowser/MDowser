@@ -36,7 +36,7 @@ use crate::config;
 use crate::history::{HistoryStore, Retention};
 use crate::settings::{Prefs, ThemePref};
 use crate::ui::{icons, theme};
-use crate::update::UpdateView;
+use crate::update::{CheckFailure, UpdateView};
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -508,7 +508,7 @@ impl PreferencesState {
             section_title(ui, s, "UPDATES");
             let status_color = if update.available.is_some() {
                 s.primary
-            } else if update.failed {
+            } else if update.failure.is_some_and(CheckFailure::is_error) {
                 s.error
             } else {
                 s.on_surface
@@ -528,10 +528,15 @@ impl PreferencesState {
             ui.horizontal(|ui| {
                 if update.checking {
                     ui.label(theme::weak(ui, "Checking…"));
-                } else if text_link(ui, s, "Check now", "Ask GitHub for a newer release now")
-                    .clicked()
-                {
-                    *check_now = true;
+                } else {
+                    let (label, tooltip) = if update.failure.is_some() {
+                        ("Try again", "Ask GitHub again now")
+                    } else {
+                        ("Check now", "Ask GitHub for a newer release now")
+                    };
+                    if text_link(ui, s, label, tooltip).clicked() {
+                        *check_now = true;
+                    }
                 }
                 if update.available.is_some() {
                     ui.label(theme::weak(ui, "·"));

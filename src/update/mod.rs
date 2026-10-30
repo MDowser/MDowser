@@ -17,16 +17,17 @@
 //!   and [`config::UPDATE_REQUEST_TIMEOUT_SECS`] bound the response.
 //! - Cache: none. The marker is tiny and must never be served stale, so the
 //!   request sends `Cache-Control: no-cache` and the answer is not stored.
-//! - Failure: shown as "Couldn't check for updates." in Preferences, with no
-//!   retry loop; the session waits out a 24h backoff, a restart follows the
-//!   normal due time (a failure writes no timestamp), and `Check now` stays
-//!   available.
+//! - Failure: classified into a missing marker (HTTP 404, informational), no
+//!   network answer, or an unusable answer. Preferences shows a friendly line
+//!   for each; raw protocol text never reaches the UI. There is no retry loop:
+//!   the session waits out a 24h backoff, a restart follows the normal due
+//!   time (a failure writes no timestamp), and `Check now` stays available.
 //! - The marker only names a version; it never carries a URL, a signature or
 //!   an instruction. The release page URL is built locally from the parsed
 //!   semver and the fixed GitHub repository.
 
 use crate::config;
-use crate::protocol::client::{self, GetOptions, GetOutcome};
+use crate::protocol::client::{self, GetError, GetOptions, GetOutcome};
 use crate::settings::Prefs;
 use poll_promise::Promise;
 use semver::Version;
@@ -42,6 +43,50 @@ fn current_version() -> &'static Version {
     })
 }
 
+/// Why the last check failed, in the small set the Updates card distinguishes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckFailure {
+    /// The latest release has no `latest.txt` marker yet (HTTP 404). This is
+    /// informational, not an error: a release made before update checks
+    /// existed does not publish the asset.
+    NoMarker,
+    /// No HTTP answer arrived (offline, DNS, TLS, timeout, stall, body IO).
+    Offline,
+    /// GitHub answered, but the result was not a usable marker (another
+    /// HTTP error, a rejected content type or a malformed body).
+    Unusable,
+}
+
+impl CheckFailure {
+    /// Classifies one shared-client failure. A 404 is checked before
+    /// `transport`: `transport` is false for every answered response anyway,
+    /// but this keeps the most specific state first.
+    fn from_get_error(error: &GetError) -> Self {
+        if error.status == Some(404) {
+            Self::NoMarker
+        } else if error.transport {
+            Self::Offline
+        } else {
+            Self::Unusable
+        }
+    }
+
+    /// Friendly one-line status; raw protocol text stays out of the UI.
+    fn status_text(self) -> &'static str {
+        match self {
+            Self::NoMarker => "The latest release doesn't publish update information yet.",
+            Self::Offline => "Couldn't reach GitHub. Check your connection.",
+            Self::Unusable => "Couldn't read the update information. Try again later.",
+        }
+    }
+
+    /// Whether the status should use the error color. A missing marker is a
+    /// normal transitional state, not a failure to alarm the user about.
+    pub(crate) fn is_error(self) -> bool {
+        !matches!(self, Self::NoMarker)
+    }
+}
+
 /// UI-facing snapshot of the updater: persisted prefs plus live check state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateView {
@@ -49,8 +94,8 @@ pub struct UpdateView {
     pub enabled: bool,
     /// A check is running right now.
     pub checking: bool,
-    /// The last automatic/manual attempt in this session failed.
-    pub failed: bool,
+    /// Why the last automatic/manual attempt in this session failed.
+    pub failure: Option<CheckFailure>,
     /// A strictly newer stable version, when one is known.
     pub available: Option<Version>,
     /// Unix seconds of the last successful check, when there is one.
@@ -68,21 +113,21 @@ impl UpdateView {
         Self {
             enabled: prefs.check_updates(),
             checking: false,
-            failed: false,
+            failure: None,
             available,
             checked_at: prefs.update_checked(),
         }
     }
 
     /// One-line status shown at the top of the Updates card. Priority:
-    /// checking > available > failed > automatic-off > up-to-date > never.
+    /// checking > available > failure > automatic-off > up-to-date > never.
     pub fn status_text(&self) -> String {
         if self.checking {
             "Checking for updates…".to_string()
         } else if let Some(version) = &self.available {
             format!("Version {version} is available.")
-        } else if self.failed {
-            "Couldn't check for updates.".to_string()
+        } else if let Some(failure) = self.failure {
+            failure.status_text().to_string()
         } else if !self.enabled {
             "Automatic checks are off.".to_string()
         } else if self.checked_at.is_some() {
@@ -97,9 +142,9 @@ impl UpdateView {
 #[derive(Default)]
 pub(crate) struct UpdateState {
     /// Background fetch, polled once per frame.
-    check: Option<Promise<Result<Version, String>>>,
-    /// The last attempt failed (shown until the next successful check).
-    failed: bool,
+    check: Option<Promise<Result<Version, CheckFailure>>>,
+    /// Why the last attempt failed (shown until the next successful check).
+    failure: Option<CheckFailure>,
     /// Do not retry an automatic check before this monotonic instant.
     retry_at: Option<Instant>,
 }
@@ -108,7 +153,7 @@ impl std::fmt::Debug for UpdateState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("UpdateState")
             .field("checking", &self.check.is_some())
-            .field("failed", &self.failed)
+            .field("failure", &self.failure)
             .field("retry_at", &self.retry_at)
             .finish()
     }
@@ -124,7 +169,7 @@ impl UpdateState {
     pub(crate) fn view(&self, prefs: &Prefs) -> UpdateView {
         let mut view = UpdateView::from_prefs(prefs);
         view.checking = self.check.is_some();
-        view.failed = self.failed;
+        view.failure = self.failure;
         view
     }
 
@@ -203,13 +248,13 @@ impl UpdateState {
                 let checked_at = now_epoch();
                 let newer = (latest > *current_version()).then_some(&latest);
                 prefs.record_update_check(checked_at, newer);
-                self.failed = false;
+                self.failure = None;
                 self.retry_at = None;
             }
-            Err(_) => {
+            Err(failure) => {
                 // Keep any previously known newer release visible; only the
                 // check status changes. No persistence on failure.
-                self.failed = true;
+                self.failure = Some(failure);
                 self.retry_at = Some(config::deadline_after(config::UPDATE_CHECK_INTERVAL_SECS));
             }
         }
@@ -217,17 +262,20 @@ impl UpdateState {
 
     /// Spawns the capped network fetch on a worker thread.
     fn start(&mut self) {
-        self.failed = false;
+        self.failure = None;
         self.check = Some(Promise::spawn_thread("update-check", fetch_latest));
     }
 }
 
 /// Fetches and parses the live release marker. Blocking (runs on a worker).
-pub(crate) fn fetch_latest() -> Result<Version, String> {
+///
+/// Network and body failures collapse to [`CheckFailure`] so the UI never
+/// shows a raw protocol string; only a successfully parsed stable version is
+/// returned.
+pub(crate) fn fetch_latest() -> Result<Version, CheckFailure> {
     let bytes = client::run_network(async {
-        let url = Url::parse(config::UPDATE_ENDPOINT)
-            .map_err(|e| format!("invalid update endpoint: {e}"))?;
-        let http = client::global_client().map_err(|e| e.to_string())?;
+        let url = Url::parse(config::UPDATE_ENDPOINT).map_err(|_| CheckFailure::Unusable)?;
+        let http = client::global_client().map_err(|_| CheckFailure::Unusable)?;
         // The app-level slot/cancel machinery is for navigations and
         // subresources; this one-shot request has its own hard timeout and
         // never needs cancelling.
@@ -241,14 +289,13 @@ pub(crate) fn fetch_latest() -> Result<Version, String> {
             reload: true,
         };
         match client::get_bytes(http, &url, &options, &cancel).await {
-            Ok(GetOutcome::Fresh(raw)) => Ok::<Vec<u8>, String>(raw.bytes),
-            Ok(GetOutcome::NotModified { .. }) => {
-                Err("update marker answered 304 Not Modified".to_string())
-            }
-            Err(error) => Err(error.message),
+            Ok(GetOutcome::Fresh(raw)) => Ok::<Vec<u8>, CheckFailure>(raw.bytes),
+            Ok(GetOutcome::NotModified { .. }) => Err(CheckFailure::Unusable),
+            Err(error) => Err(CheckFailure::from_get_error(&error)),
         }
-    })??;
-    parse_marker(&bytes)
+    })
+    .map_err(|_| CheckFailure::Unusable)??;
+    parse_marker(&bytes).map_err(|_| CheckFailure::Unusable)
 }
 
 /// Parses the `latest.txt` marker: exactly one stable semver, no `v` prefix,
