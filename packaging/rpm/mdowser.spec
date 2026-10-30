@@ -113,6 +113,8 @@ appstreamcli validate --no-net \
 %{_mandir}/man1/%{name}.1*
 
 %changelog
+* Fri Oct 30 2026 MDowser <noreply@mdowser.invalid> - 0.7.3-1
+- Notification-only update checks, friendlier check failures, and cache and renderer performance work (see CHANGELOG.md 0.7.3).
 * Thu Oct 29 2026 MDowser <noreply@mdowser.invalid> - 0.7.2-1
 - Link destination previews, middle-click background tabs, callout and brand icons, and reader, cache and markup hardening (see CHANGELOG.md 0.7.2).
 * Mon Oct 26 2026 MDowser <noreply@mdowser.invalid> - 0.7.1-1

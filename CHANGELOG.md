@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-30
+
+Notification-only update checks, friendlier check failures, and cache and
+renderer performance work.
+
 ### Added
 
 - Notification-only update checks: once a day MDowser fetches a fixed, capped
