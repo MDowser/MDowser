@@ -44,9 +44,13 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │                 MDowser-Sites (`make sync-sites`) into
   │                 `assets/builtin_sites.txt`, embedded and parsed once)
   ├─ settings (encrypted preferences + session: theme, startup zoom,
-  │            session restore, window geometry; settings.bin/session.bin
-  │            + store.key, atomic file helpers; `session`, `file`,
-  │            `platform` submodules)
+  │            session restore, automatic update checks + last check result,
+  │            window geometry; settings.bin/session.bin + store.key, atomic
+  │            file helpers; `session`, `file`, `platform` submodules)
+  ├─ update (notification-only release check: strict latest.txt marker,
+  │          daily due logic, capped fixed-endpoint GET through
+  │          protocol::client, in-flight Promise + session retry gate; never
+  │          downloads or replaces the app)
   ├─ protocol/client (capped GET cascade, global rustls pool;
   │    │              `parse_navigable` = HTTPS or local file)
   │    ├─ get (shared capped streaming GET: documents + subresources)
@@ -129,8 +133,9 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
           omnibox, home (with the
           Home-only encrypted bookmark list), bookmarks (grid + `tile`),
           preferences (tabbed Preferences window: General/Data/Shortcuts,
-          incl. the licenses link; `widgets` kit), history_page (internal about:history
-          page), error_view, drop_overlay (the full-window file-drop target),
+          incl. the Updates card and licenses link; `widgets` kit),
+          history_page (internal about:history page), error_view, drop_overlay
+          (the full-window file-drop target),
           `row` (the shared painted-row recipe behind
           menus/dropdowns/rows), `ui::forget_tab()` (single function registry
           for closed-tab egui-memory keys))
@@ -146,7 +151,11 @@ Key contracts per area (the module map above names the main module areas):
   the UI polls each frame.
 - Documents go through `fetch_with_fallback`; image and favicon subresources
   through `media::fetch`, on the same `get_bytes` (cancellable connect,
-  redirect/https check, per-chunk stall timeout, running byte cap).
+  redirect/https check, per-chunk stall timeout, running byte cap). The
+  notification-only update check (`update::fetch_latest`) also uses
+  `get_bytes`/`run_network`, but with a fixed GitHub endpoint, a 1 KiB body
+  cap, a 15s budget, a `text/plain`/`application/octet-stream` gate and no
+  disk-cache entry; it never touches a tab's history or cancellation.
 - The `Content-Type` gate runs BEFORE the body streams, on EVERY declared value
   in full: a bounded copy could hide a `charset=` beyond the cut. A non-accepted
   type is rejected without download or decompression.
@@ -520,10 +529,21 @@ Key contracts per area (the module map above names the main module areas):
 ## Preferences and session
 
 - Preferences (`settings/`) live encrypted in `settings.bin` (`theme`, `zoom`,
-  `restore_tabs`, magic `MDST`) alongside the history `retention` key, written
-  key-by-key (decrypt + read-modify-write + encrypt + the same atomic rename),
-  so history and the Preferences window never clobber each other. A missing or
-  corrupt value falls back to its default.
+  `restore_tabs`, `check_updates`, `update_checked`, `update_available`, magic
+  `MDST`) alongside the history `retention` key, written key-by-key (decrypt +
+  read-modify-write + encrypt + the same atomic rename), so history and the
+  Preferences window never clobber each other. A missing or corrupt value falls
+  back to its default. `check_updates` follows the same polarity rule as
+  `restore_tabs`: only an explicit false/0 disables automatic checks.
+- The update check (`update/`) is notification-only: it polls one capped
+  `latest.txt` GET while running, starts the automatic check when
+  `update_checked` is missing or 24h old, and writes `update_checked` +
+  `update_available` only after a successful parse. A failure stays
+  session-only (`UpdateState.failed`), keeps any previously known newer version
+  visible, and sets a 24h in-process retry gate; `Check now` bypasses the due
+  time and the opt-out. The app polls the `Promise` each frame and schedules a
+  repaint only while checking, at the due time, or at the retry gate (capped at
+  one hour). The Preferences card and the gear dot read the same `UpdateView`.
 - The read-modify-write uses a per-directory plaintext CACHE: a read body serves
   every later read AND write (four keys decrypt once; startup validation seeds
   it, so a valid `settings.bin` is decrypted once per launch). The shared
@@ -1068,21 +1088,23 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 - `app::menu` (macOS only; Windows and Linux have NO menu — the toolbar is the
   whole chrome). Startup installs a `muda`-built `NSMenu` over winit's bare
   default (About/Services/Hide/Quit only): an Application menu (About MDowser,
-  Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit — the first
-  submenu, which AppKit titles with the app name), File (New Tab, Close Tab,
-  Save Page), Edit (Copy, Paste, Select all — deliberately no more), View
-  (Reload, Zoom In/Out/Actual Size), History (Show History) and Window
-  (Minimize, Zoom, Bring All to Front).
-- The bar owns no logic: each custom item replays the shortcut the keyboard
-  would (`MenuAction::shortcut`: `Event::Copy`, a `Cmd+<key>` `Event::Key`, or a
-  clipboard-built `Event::Paste`), queued by the muda handler (which calls
-  `Context::request_repaint`, a menu activation not being a winit event),
-  drained by `App::poll_menu` (re-scheduling the injecting pass) and injected
-  into the raw input in `App::raw_input_hook`: a command raised while the window
-  is minimized survives in eframe's pending input, and menu and real keys land
-  in the SAME `handle_shortcuts` and focused `TextEdit`. An item whose key
-  equivalent matches is consumed by AppKit, so the real key never reaches
-  egui.
+  Preferences… `Cmd+,`, Check for Updates…, Services, Hide/Hide Others/Show All,
+  Quit — the first submenu, which AppKit titles with the app name), File (New
+  Tab, Close Tab, Save Page), Edit (Copy, Paste, Select all — deliberately no
+  more), View (Reload, Zoom In/Out/Actual Size), History (Show History) and
+  Window (Minimize, Zoom, Bring All to Front).
+- The bar owns no logic: each custom item except Check for Updates replays the
+  shortcut the keyboard would (`MenuAction::shortcut`: `Event::Copy`, a
+  `Cmd+<key>` `Event::Key`, or a clipboard-built `Event::Paste`), queued by the
+  muda handler (which calls `Context::request_repaint`, a menu activation not
+  being a winit event), drained by `App::poll_menu` (re-scheduling the injecting
+  pass) and injected into the raw input in `App::raw_input_hook`: a command
+  raised while the window is minimized survives in eframe's pending input, and
+  menu and real keys land in the SAME `handle_shortcuts` and focused
+  `TextEdit`. Check for Updates is the one direct action: it has no key
+  equivalent, so `poll_menu` opens the Updates card and starts the check
+  itself. An item whose key equivalent matches is consumed by AppKit, so the
+  real key never reaches egui.
 - Two AppKit defaults are switched off/overridden so the bar shows only
   MDowser's commands: startup opts the process out of automatic window tabbing
   (`app::menu::disable_automatic_tabbing`, called by `main` BEFORE any window

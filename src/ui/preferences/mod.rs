@@ -7,11 +7,11 @@
 //!
 //! - `Preferences`: a FIXED-SIZE, card-style dialog (custom header, tab bar,
 //!   section cards, list rows) sized to its disarmed content. Three tabs:
-//!   General (appearance + version/licenses footer), Data (history retention
-//!   with the destructive "Delete history" action, per-class encrypted-cache
-//!   clears, plus the "Delete all data and close" card) and Shortcuts
-//!   (read-only keyboard shortcut reference
-//!   in English). The HISTORY LIST is not here: it is the internal
+//!   General (appearance + Updates card + version/licenses footer), Data
+//!   (history retention with the destructive "Delete history" action,
+//!   per-class encrypted-cache clears, plus the "Delete all data and close"
+//!   card) and Shortcuts (read-only keyboard shortcut reference in English).
+//!   The HISTORY LIST is not here: it is the internal
 //!   `about:history` page (`ui::history_page`), rendered in a tab like a
 //!   document. This module keeps only the Preferences overlay: `App` owns
 //!   its visibility; the third-party licenses page (`about:licenses`) is
@@ -36,6 +36,7 @@ use crate::config;
 use crate::history::{HistoryStore, Retention};
 use crate::settings::{Prefs, ThemePref};
 use crate::ui::{icons, theme};
+use crate::update::UpdateView;
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -89,7 +90,7 @@ pub struct PreferencesState {
 /// One tab of the Preferences dialog.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreferencesTab {
-    /// Appearance + version/licenses footer.
+    /// Appearance + Updates card + version/licenses footer.
     #[default]
     General,
     /// History retention + both destructive actions.
@@ -167,7 +168,7 @@ const SHORTCUT_GROUPS: &[(&str, &[(&str, &str)])] = &[
 ];
 
 /// Side effects of one Preferences frame, performed by `App` (this module
-/// never touches tabs or navigation).
+/// never touches tabs, navigation or the network itself).
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct PrefsActions {
     /// The user changed the startup zoom; `App` applies it to the live view.
@@ -178,6 +179,11 @@ pub struct PrefsActions {
     /// The user confirmed "Delete all data and close": `App` wipes the data
     /// directory and exits immediately without further saves.
     pub wipe_all: bool,
+    /// The user pressed "Check now" on the Updates card.
+    pub check_now: bool,
+    /// The user pressed "Open release page": `App` opens the official GitHub
+    /// release in the system browser (this module never navigates).
+    pub open_release: bool,
 }
 
 impl PreferencesState {
@@ -204,6 +210,13 @@ impl PreferencesState {
         self.prefs_open = !self.prefs_open;
     }
 
+    /// Opens the dialog on its General tab, where the Updates card lives
+    /// (gear dot / macOS "Check for Updates…").
+    pub fn open_updates(&mut self) {
+        self.prefs_open = true;
+        self.selected = PreferencesTab::General;
+    }
+
     /// Closes the dialog (Esc while it owns the keyboard).
     pub fn close_windows(&mut self) {
         self.prefs_open = false;
@@ -216,14 +229,33 @@ impl PreferencesState {
 
     /// Draws the Preferences dialog when open. Returns the side effects `App`
     /// must perform (apply a new zoom, open the licenses page).
+    ///
+    /// Test/headless entry point: the live app uses
+    /// [`Self::show_with_update`] so the in-flight check and its failure are
+    /// visible.
+    #[cfg(test)]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
         store: &mut HistoryStore,
         prefs: &mut Prefs,
     ) -> PrefsActions {
+        let update = UpdateView::from_prefs(prefs);
+        self.show_with_update(ctx, store, prefs, &update)
+    }
+
+    /// The full entry point, with the live updater snapshot (in-flight check
+    /// and a session-only failure). The test-only `show` wrapper derives that
+    /// snapshot from persisted prefs.
+    pub fn show_with_update(
+        &mut self,
+        ctx: &egui::Context,
+        store: &mut HistoryStore,
+        prefs: &mut Prefs,
+        update: &UpdateView,
+    ) -> PrefsActions {
         if self.prefs_open {
-            self.show_prefs(ctx, store, prefs)
+            self.show_prefs(ctx, store, prefs, update)
         } else {
             PrefsActions::default()
         }
@@ -235,6 +267,7 @@ impl PreferencesState {
         ctx: &egui::Context,
         store: &mut HistoryStore,
         prefs: &mut Prefs,
+        update: &UpdateView,
     ) -> PrefsActions {
         let mut open = self.prefs_open;
         let mut selected = self.selected;
@@ -246,6 +279,8 @@ impl PreferencesState {
         let mut applied_zoom = None;
         let mut open_licenses = false;
         let mut wipe_all = false;
+        let mut check_now = false;
+        let mut open_release = false;
         let dark = ctx.theme() == egui::Theme::Dark;
         // Interned palette reference, not a per-frame ~50-field rebuild.
         let s = theme::scheme_ref_ctx(ctx);
@@ -306,9 +341,12 @@ impl PreferencesState {
                                         ui,
                                         store,
                                         prefs,
+                                        update,
                                         &mut applied_zoom,
                                         &mut open,
                                         &mut open_licenses,
+                                        &mut check_now,
+                                        &mut open_release,
                                     );
                                 }
                                 PreferencesTab::Data => {
@@ -348,17 +386,24 @@ impl PreferencesState {
             zoom: applied_zoom,
             open_licenses,
             wipe_all,
+            check_now,
+            open_release,
         }
     }
 
-    /// General tab: appearance card + compact version/licenses footer.
+    /// General tab: appearance + updates cards and the compact
+    /// version/licenses footer.
+    #[allow(clippy::too_many_arguments)]
     fn render_general(
         ui: &mut egui::Ui,
         store: &HistoryStore,
         prefs: &mut Prefs,
+        update: &UpdateView,
         applied_zoom: &mut Option<f32>,
         open: &mut bool,
         open_licenses: &mut bool,
+        check_now: &mut bool,
+        open_release: &mut bool,
     ) {
         let s = theme::scheme_ref(ui);
         card(ui, s, |ui| {
@@ -451,6 +496,64 @@ impl PreferencesState {
                 );
                 crate::ui::hover_tooltip_lazy(resp, || error.to_owned());
             }
+        });
+
+        ui.add_space(theme::spacing::M);
+
+        // ---- Updates (notification only) ------------------------------
+        // The card reports the background check; "Open release page" hands
+        // the official GitHub release to the system browser. Nothing is
+        // downloaded or installed by the app.
+        card(ui, s, |ui| {
+            section_title(ui, s, "UPDATES");
+            let status_color = if update.available.is_some() {
+                s.primary
+            } else if update.failed {
+                s.error
+            } else {
+                s.on_surface
+            };
+            ui.label(
+                egui::RichText::new(update.status_text())
+                    .size(theme::typography::ROW)
+                    .color(status_color),
+            );
+            let caption = if update.enabled {
+                "Checks GitHub once a day. Updates are never downloaded or installed automatically."
+            } else {
+                "Automatic checks are off. Check now still works; updates are never installed automatically."
+            };
+            ui.label(theme::weak(ui, caption));
+            ui.add_space(theme::spacing::S);
+            ui.horizontal(|ui| {
+                if update.checking {
+                    ui.label(theme::weak(ui, "Checking…"));
+                } else if text_link(ui, s, "Check now", "Ask GitHub for a newer release now")
+                    .clicked()
+                {
+                    *check_now = true;
+                }
+                if update.available.is_some() {
+                    ui.label(theme::weak(ui, "·"));
+                    if text_link(
+                        ui,
+                        s,
+                        "Open release page",
+                        "Open the official GitHub release in your browser",
+                    )
+                    .clicked()
+                    {
+                        *open_release = true;
+                    }
+                }
+            });
+            divider(ui, s);
+            setting_row(ui, s, "Check automatically", |ui| {
+                let mut enabled = update.enabled;
+                if switch(ui, s, "Check automatically", &mut enabled).changed() {
+                    prefs.set_check_updates(enabled);
+                }
+            });
         });
 
         ui.add_space(theme::spacing::M);

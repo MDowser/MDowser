@@ -96,7 +96,7 @@ make build        # host release binary only (target/release/mdowser)
 make debug        # host debug (target/debug/mdowser)
 make test         # pipeline: sh syntax + version consistency + fmt --check + clippy -D warnings + test + doc + debug
 make audit        # supply-chain audit (cargo audit + cargo deny, best-effort)
-make dist         # deps + EVERY platform into dist/ (+ SHA256SUMS.txt)
+make dist         # deps + EVERY platform into dist/ (+ SHA256SUMS.txt, latest.txt)
 make dist-host | make dist-mac | make dist-linux | make dist-windows
 make dist-rpm     # RPM from the full source tree (Linux host with rpmbuild)
 make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak/)
@@ -229,7 +229,9 @@ Every Linux `.tar.gz` and Windows `.zip` carries `README.md`,
 `THIRD_PARTY_NOTICES.md` and `LICENSE`; the macOS `.app` bundles the notices
 and license under `Contents/Resources/`, the `.deb` under
 `/usr/share/doc/mdowser/` (notices as `copyright`). A `SHA256SUMS.txt` sits
-next to the artifacts. Before the checksums, `scripts/check-dist.sh --require`
+next to the artifacts. `latest.txt` (bare `<ver>` plus newline) is the
+notification-only update marker; it is release metadata, so the checksums
+deliberately omit it. Before the checksums, `scripts/check-dist.sh --require`
 enforces the privacy rules below.
 
 A pre-release version such as `0.7.0-alpha.1` keeps its full spelling in the
@@ -250,7 +252,8 @@ Bash (the `sh`/`tar`/`sha256sum` runtime packaging needs), Python 3.12 with a
 `python3` shim, and LLVM for `llvm-strip`. It then runs
 `cargo build --locked --release` and calls `scripts/build-dist.sh --host-only`
 through Git Bash for the `.exe` zip (`mdowser-<ver>-windows-<arch>.zip` —
-`x86_64`, or `aarch64` on Windows on ARM) plus `SHA256SUMS.txt`.
+`x86_64`, or `aarch64` on Windows on ARM) plus `SHA256SUMS.txt` and
+`latest.txt`.
 `build-dist.sh` prefers `x86_64-w64-mingw32-strip` and falls back to
 `llvm-strip` (arm64 has no MinGW strip).
 
@@ -408,8 +411,13 @@ Release per tag (`v<version>`, which must match `Cargo.toml`). Each job runs
 on a fresh GitHub-hosted VM with NO Actions cache: releases compile from
 scratch, and only packaged files travel between jobs (Actions artifacts,
 1-day retention). The scripts build, so privacy matches `make dist`: the
-publishing job re-runs `scripts/check-dist.sh` over the merged set and writes
-the single `SHA256SUMS.txt`.
+publishing job re-runs `scripts/check-dist.sh` over the merged build set,
+writes the single `SHA256SUMS.txt` (the marker is metadata and is not listed
+there), and refreshes `latest.txt` (bare `X.Y.Z`, no `v`) for the
+notification-only in-app update check. A new release is created as a DRAFT, every asset is
+uploaded, and only then is it published, so a new marker can never be visible
+before the binaries it names; a re-run of an already published release updates
+its assets in place.
 
 | Job | Runner | Builds |
 | --- | --- | --- |
@@ -420,7 +428,7 @@ the single `SHA256SUMS.txt`.
 | `macos` | macos-15 | universal `.app.zip` (arm64 + Intel, `lipo`) |
 | `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
-| `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, Release |
+| `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, `latest.txt`, draft-then-publish Release |
 
 A tag cannot publish a tree that fails `make test`: the `verify` job runs the
 full pipeline and every build job declares `needs: verify`. It also installs
@@ -442,8 +450,9 @@ jobs run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
 RPM is always Fedora's. The Release is titled with the tag and its
 body is fixed text substituted with the release version (CHANGELOG link,
 per-platform first-run and install notes, assets pointer and the
-use-at-your-own-risk disclaimer); tags carrying
-`-alpha`/`-beta`/`-rc` are published as pre-releases. A manual run
+use-at-your-own-risk disclaimer); any tag containing a `-` (`-alpha`, `-beta`,
+`-rc`, `-preview`, ...) is published as a pre-release and therefore never
+becomes GitHub's `/releases/latest` marker target. A manual run
 (`workflow_dispatch`) with `dry_run: true` compiles everything without
 publishing; a `dry_run: false` run must be dispatched from the matching
 `v<version>` tag, and the `verify` job rejects a branch, a tag without the
@@ -453,7 +462,10 @@ no cache is kept between runs.
 
 Push a `v<version>` tag matching `Cargo.toml`; the workflow attaches the
 files to one GitHub Release. A local `make dist` set can be attached by hand
-(`gh release create v<ver> dist/*`). Release assets are served directly
+(`gh release create v<ver> --draft dist/*`, then
+`gh release edit v<ver> --draft=false`): it already contains the
+`latest.txt` marker for a stable version, so no extra asset is needed.
+Release assets are served directly
 (`…/releases/latest/download/<file>`), so `dist/` stays untracked.
 
 ## Runtime

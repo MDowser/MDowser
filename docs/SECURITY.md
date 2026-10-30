@@ -63,8 +63,9 @@ minimal.
   filter at 512 chars (`MAX_HISTORY_FILTER_CHARS`).
 - Redirects stop at 8 (`MAX_REDIRECTS`). Network concurrency is 6 fetches + 6
   local reads over 4 worker threads, with a 20s request timeout (60s per
-  image, 15s per favicon, 5s image gate) and a 20s slot wait. Color-emoji
-  raster jobs are capped at 4 (`MAX_CONCURRENT_EMOJI`).
+  image, 15s per favicon, 5s image gate) and a 20s slot wait. The update check
+  is one additional small request outside those slots (at most one in flight).
+  Color-emoji raster jobs are capped at 4 (`MAX_CONCURRENT_EMOJI`).
 - Markdown autolinks are capped at 20 000 per document and anchors at 20 000;
   link joins at 8192 joins / depth 2048; route candidates at 5; render nesting
   at depth 48; code highlighting at 4000 lines / 400 000 bytes (≈391 KiB). The
@@ -79,6 +80,36 @@ minimal.
   background thread can abort on `Instant` arithmetic. The OS/CLI open-target
   list is capped at `MAX_TABS` before any tab is built; each target is still
   length-checked by `parse_navigable`.
+
+### Update check (notification only)
+
+- One fixed initial endpoint, HTTPS only:
+  `https://github.com/MDowser/MDowser/releases/latest/download/latest.txt`
+  (`config::UPDATE_ENDPOINT`). The initial URL never comes from a page or the
+  marker; GitHub redirects once to its asset host, and the same HTTPS-only and
+  8-redirect rules as every request apply.
+- The GET has a 15s budget and a 1 KiB body cap
+  (`UPDATE_REQUEST_TIMEOUT_SECS`, `MAX_UPDATE_MARKER_BYTES`), accepts a
+  response whose declared `Content-Type` includes `text/plain` or
+  `application/octet-stream` (checked BEFORE the body), sends
+  `Cache-Control: no-cache`, and is not written to the encrypted disk cache.
+- The body must be exactly one stable `X.Y.Z` semver (a single trailing
+  newline tolerated). `v` prefixes, multiple lines, pre-release/build suffixes
+  and non-UTF-8 are rejected; a failed parse is a failed check, never a
+  navigation.
+- The marker names a version and nothing else: it cannot supply a URL, a
+  command, a signature or an installer. A newer version only paints the gear
+  dot and the Updates card; "Open release page" builds
+  `https://github.com/MDowser/MDowser/releases/tag/vX.Y.Z` locally and hands it
+  to the system browser. MDowser never downloads, unpacks or replaces itself.
+- A failed check does not persist a timestamp and cannot loop: the session
+  waits out a 24h backoff, a restart follows the normal due time (the failure
+  does not push it back), and `Check now` remains an explicit user action.
+  Automatic checks can be turned off in Preferences and send no browsing data
+  (GitHub sees the public endpoint request, the source IP and
+  `MDowser/<version>`).
+- Marker fetches share the process's network stack but not a tab's
+  cancellation, history or cache entry.
 
 ### Local files
 
@@ -293,16 +324,17 @@ card and the bookmark/history stores.
   Preferences and never treated as "restore tabs off". WRITES follow the same
   distinction: a file that exists but cannot be read or decrypted makes the
   read-modify-write REFUSE, because rewriting from an empty body would
-  drop every other stored key (theme, zoom, restore-tabs, retention,
-  window geometry); a change that would push the plaintext past
-  `MAX_SETTINGS_BYTES` is refused too (the reader's caps derive from
-  `crypto::OVERHEAD_BYTES`, so a written file is always readable). Window
-  geometry (position, size, maximized) is one of those encrypted preferences,
-  removed by "Delete all data", never kept in a plaintext window-state file. A
-  failed background write is surfaced in Preferences (each worker's outcome is
-  drained per frame into its own slot, so a session save cannot clear a
-  settings warning and vice versa, and cleared only on confirmed success), and
-  a snapshot that could not be built is not recorded as saved and retries.
+  drop every other stored key (theme, zoom, restore-tabs, check-updates, the
+  last update result, retention, window geometry); a change that would push
+  the plaintext past `MAX_SETTINGS_BYTES` is refused too (the reader's caps
+  derive from `crypto::OVERHEAD_BYTES`, so a written file is always readable).
+  Window geometry (position, size, maximized) is one of those encrypted
+  preferences, removed by "Delete all data", never kept in a plaintext
+  window-state file. A failed background write is surfaced in Preferences
+  (each worker's outcome is drained per frame into its own slot, so a session
+  save cannot clear a settings warning and vice versa, and cleared only on
+  confirmed success), and a snapshot that could not be built is not recorded as
+  saved and retries.
 - **Session restore.** Turning off `restore_tabs` deletes the encrypted
   `session.bin`; a failed delete is surfaced in Preferences and retried at
   every start (and when the toggle is set off again), and the orphaned

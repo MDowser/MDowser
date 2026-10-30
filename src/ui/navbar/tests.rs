@@ -42,6 +42,7 @@ fn toolbar_renders_without_navigating() {
             &mut zoom,
             true,
             &mut prefs,
+            false,
             BookmarkState::Unavailable,
         );
     });
@@ -68,11 +69,58 @@ fn toolbar_renders_without_navigating() {
             &mut zoom,
             false,
             &mut prefs,
+            false,
             BookmarkState::Unavailable,
         );
     });
     out.textures_delta.clear();
     assert!(!out.shapes.is_empty(), "narrow toolbar painted");
+}
+
+/// The update dot appears on the Preferences gear only when a newer release
+/// is known, and it is the small 3px accent circle (not a layout change).
+#[test]
+fn update_dot_appears_only_with_a_known_release() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let draw = |available: bool| {
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 600.0),
+            )),
+            ..Default::default()
+        };
+        let mut tab = Tab::new(1);
+        let mut zoom = 1.0_f32;
+        let mut prefs = false;
+        let (history, bookmarks) = test_stores();
+        let mut out = ctx.run_ui(input, |root| {
+            let _ = show_navbar(
+                root,
+                &mut tab,
+                &history,
+                &bookmarks,
+                &mut zoom,
+                false,
+                &mut prefs,
+                available,
+                BookmarkState::Unavailable,
+            );
+        });
+        out.textures_delta.clear();
+        out.shapes
+            .iter()
+            .filter(|clipped| {
+                matches!(
+                    &clipped.shape,
+                    egui::epaint::Shape::Circle(circle) if circle.radius == 3.0
+                )
+            })
+            .count()
+    };
+    assert_eq!(draw(false), 0, "no dot without a known release");
+    assert_eq!(draw(true), 1, "exactly one dot with a known release");
 }
 
 /// Every glyph anchor the toolbar painted: text positions plus the
@@ -102,6 +150,7 @@ fn toolbar_anchors(ctx: &egui::Context, events: Vec<egui::Event>) -> Vec<(i64, i
             &mut zoom,
             false,
             &mut prefs,
+            false,
             BookmarkState::Unavailable,
         );
     });
@@ -198,7 +247,7 @@ fn toolbar_slots_are_fixed_across_content_states() {
         let (history, bookmarks) = test_stores();
         let mut out = ctx.run_ui(input, |root| {
             let _ = show_navbar(
-                root, tab, &history, &bookmarks, &mut zoom, false, &mut prefs, state,
+                root, tab, &history, &bookmarks, &mut zoom, false, &mut prefs, false, state,
             );
         });
         out.textures_delta.clear();
@@ -333,7 +382,7 @@ fn frame(
     let (history, bookmarks) = test_stores();
     let mut out = ctx.run_ui(input, |root| {
         toggled = show_navbar(
-            root, tab, &history, &bookmarks, &mut zoom, false, &mut prefs, state,
+            root, tab, &history, &bookmarks, &mut zoom, false, &mut prefs, false, state,
         );
     });
     out.textures_delta.clear();

@@ -11,6 +11,7 @@ use super::{
     WindowGeometry, MAX_SETTINGS_BYTES, SETTINGS_FILE,
 };
 use eframe::egui;
+use semver::Version;
 use std::path::PathBuf;
 
 fn tmp_dir(tag: &str) -> PathBuf {
@@ -120,6 +121,68 @@ fn prefs_roundtrip_and_clamp_zoom() {
     assert_eq!(reloaded.theme(), ThemePref::Dark);
     assert_eq!(reloaded.default_zoom(), crate::config::ZOOM_MAX);
     assert!(reloaded.restore_tabs());
+    cleanup(&dir);
+}
+
+/// Automatic update checks round-trip: ON by default, an explicit off
+/// persists, and the successful-check timestamp/version travel together.
+/// A failed check never writes these keys (callers only record success).
+#[test]
+fn update_settings_roundtrip_and_default_on() {
+    let dir = tmp_dir("update-prefs");
+    let mut prefs = Prefs::load_from(dir.clone());
+    assert!(prefs.check_updates(), "automatic checks are ON by default");
+    assert_eq!(prefs.update_checked(), None);
+    assert_eq!(prefs.update_available(), None);
+
+    prefs.set_check_updates(false);
+    let version = Version::new(0, 8, 0);
+    prefs.record_update_check(1_780_000_000, Some(&version));
+    super::flush_settings_writes();
+    let reloaded = Prefs::load_from(dir.clone());
+    assert!(!reloaded.check_updates(), "explicit off is honored");
+    assert_eq!(reloaded.update_checked(), Some(1_780_000_000));
+    assert_eq!(reloaded.update_available(), Some(&version));
+
+    // A later successful check with nothing newer clears the version but
+    // keeps the timestamp.
+    let mut prefs = reloaded;
+    prefs.record_update_check(1_780_100_000, None);
+    super::flush_settings_writes();
+    let reloaded = Prefs::load_from(dir.clone());
+    assert_eq!(reloaded.update_checked(), Some(1_780_100_000));
+    assert_eq!(reloaded.update_available(), None);
+    cleanup(&dir);
+}
+
+/// A corrupt `check_updates` value keeps the default (ON), exactly like
+/// `restore_tabs`: garbage must not silently disable the notification.
+#[test]
+fn corrupt_check_updates_keeps_the_default_on() {
+    let dir = tmp_dir("corrupt-check-updates");
+    write_setting(&dir, "check_updates", "maybe").unwrap();
+    super::flush_settings_writes();
+    assert!(Prefs::load_from(dir.clone()).check_updates());
+    cleanup(&dir);
+}
+
+/// A stored "available" version must obey the same stable-marker rule as the
+/// network parser: a tampered pre-release/build value never raises the dot.
+#[test]
+fn stored_update_version_must_be_stable() {
+    let dir = tmp_dir("stored-update-version");
+    for value in ["0.8.0-rc.1", "0.8.0+build", "not-a-version"] {
+        write_setting(&dir, "update_available", value).unwrap();
+        super::flush_settings_writes();
+        assert_eq!(
+            Prefs::load_from(dir.clone()).update_available(),
+            None,
+            "{value:?} must be ignored"
+        );
+    }
+    write_setting(&dir, "update_checked", "not-a-number").unwrap();
+    super::flush_settings_writes();
+    assert_eq!(Prefs::load_from(dir.clone()).update_checked(), None);
     cleanup(&dir);
 }
 

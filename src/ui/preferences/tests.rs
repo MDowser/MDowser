@@ -49,6 +49,17 @@ fn ink_rect(t: &egui::epaint::TextShape) -> egui::Rect {
     t.galley.rect.translate(t.pos.to_vec2())
 }
 
+/// Opening from the update dot/menu lands on General, where the Updates card
+/// lives, even when another tab was selected before the dialog was closed.
+#[test]
+fn open_updates_selects_general() {
+    let mut windows = PreferencesState::new();
+    windows.selected = PreferencesTab::Shortcuts;
+    windows.open_updates();
+    assert!(windows.prefs_open);
+    assert_eq!(windows.selected, PreferencesTab::General);
+}
+
 /// The Preferences dialog renders and its controls keep their exact
 /// positions when the pointer hovers the retention dropdown: the old
 /// `selectable_label` grew a frame on hover and shifted the list.
@@ -357,6 +368,206 @@ fn licenses_link_requests_the_internal_page() {
     assert!(
         requested,
         "clicking the link must ask App to open the licenses page"
+    );
+}
+
+/// The Updates card reports the live status and turns its links into the
+/// actions `App` performs: "Open release page" for a known newer version and
+/// "Check now" for a manual check.
+#[test]
+fn updates_card_reports_status_and_requests_actions() {
+    use crate::update::UpdateView;
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::General;
+    let update = UpdateView {
+        enabled: true,
+        checking: false,
+        failed: false,
+        available: Some(semver::Version::new(999, 0, 0)),
+        checked_at: Some(1),
+    };
+
+    // Settle, then locate the release link and the card's status/actions.
+    let mut anchor = None;
+    let mut seen = Vec::new();
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+        seen = texts(&out.shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        anchor = texts(&out.shapes)
+            .iter()
+            .find(|(text, _)| text == "Open release page")
+            .map(|(_, pos)| *pos);
+    }
+    for want in [
+        "UPDATES",
+        "Version 999.0.0 is available.",
+        "Check now",
+        "Open release page",
+        "Check automatically",
+    ] {
+        assert!(seen.iter().any(|text| text == want), "{want:?} missing");
+    }
+    let anchor = anchor.expect("release link visible") + egui::vec2(1.0, 1.0);
+    let click = |pressed| egui::Event::PointerButton {
+        pos: anchor,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    let mut requested = false;
+    for frame in 0..3 {
+        let mut input = input_at(Some(anchor));
+        if frame == 0 {
+            input.events.push(click(true));
+            input.events.push(click(false));
+        }
+        let mut out = ctx.run_ui(input, |root| {
+            requested |= windows
+                .show_with_update(root.ctx(), &mut store, &mut prefs, &update)
+                .open_release;
+        });
+        out.textures_delta.clear();
+    }
+    assert!(requested, "release link must ask App to open the page");
+
+    // No known release: the release link disappears and Check now remains.
+    let update = UpdateView {
+        available: None,
+        checked_at: None,
+        ..update
+    };
+    let mut seen = Vec::new();
+    let mut check_anchor = None;
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+        seen = texts(&out.shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect();
+        check_anchor = texts(&out.shapes)
+            .iter()
+            .find(|(text, _)| text == "Check now")
+            .map(|(_, pos)| *pos);
+    }
+    assert!(seen.iter().any(|text| text == "Not checked yet."));
+    assert!(seen.iter().any(|text| text == "Check now"));
+    assert!(!seen.iter().any(|text| text == "Open release page"));
+
+    let check_anchor = check_anchor.expect("check link visible") + egui::vec2(1.0, 1.0);
+    let click = |pressed| egui::Event::PointerButton {
+        pos: check_anchor,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    let mut requested = false;
+    for frame in 0..3 {
+        let mut input = input_at(Some(check_anchor));
+        if frame == 0 {
+            input.events.push(click(true));
+            input.events.push(click(false));
+        }
+        let mut out = ctx.run_ui(input, |root| {
+            requested |= windows
+                .show_with_update(root.ctx(), &mut store, &mut prefs, &update)
+                .check_now;
+        });
+        out.textures_delta.clear();
+    }
+    assert!(requested, "Check now must ask App to start a check");
+}
+
+/// The Updates card's switch is the opt-out: clicking it writes
+/// `check_updates = false` through `Prefs` (the next frame re-reads it).
+#[test]
+fn updates_switch_turns_automatic_checks_off() {
+    use crate::update::UpdateView;
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::General;
+    let update = UpdateView {
+        enabled: true,
+        checking: false,
+        failed: false,
+        available: None,
+        checked_at: None,
+    };
+
+    // Find the switch centered on the "Check automatically" row, not the
+    // other General switch above it.
+    let mut anchor = None;
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+        let label_y = out.shapes.iter().find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text() == "Check automatically" => {
+                Some(ink_rect(t).center().y)
+            }
+            _ => None,
+        });
+        anchor = label_y.and_then(|y| {
+            out.shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    egui::epaint::Shape::Rect(r)
+                        if (r.rect.width() - super::SWITCH_W).abs() < 0.5
+                            && (r.rect.height() - super::SWITCH_H).abs() < 0.5 =>
+                    {
+                        Some(r.rect)
+                    }
+                    _ => None,
+                })
+                .min_by(|a, b| {
+                    (a.center().y - y)
+                        .abs()
+                        .total_cmp(&(b.center().y - y).abs())
+                })
+                .map(|rect| rect.center())
+        });
+    }
+    let anchor = anchor.expect("updates switch visible");
+    let click = |pressed| egui::Event::PointerButton {
+        pos: anchor,
+        button: egui::PointerButton::Primary,
+        pressed,
+        modifiers: egui::Modifiers::default(),
+    };
+    for frame in 0..3 {
+        let mut input = input_at(Some(anchor));
+        if frame == 0 {
+            input.events.push(click(true));
+            input.events.push(click(false));
+        }
+        let mut out = ctx.run_ui(input, |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+    }
+    assert!(
+        !prefs.check_updates(),
+        "clicking the switch must persist the opt-out"
     );
 }
 
@@ -902,13 +1113,6 @@ fn general_controls_are_centered_and_right_aligned() {
         .find(|(r, radius)| *radius >= 14 && r.width() < 200.0 && r.height() < 40.0)
         .map(|(r, _)| *r)
         .expect("zoom pill painted");
-    let switch_rect = rects
-        .iter()
-        .find(|(r, _)| {
-            (r.width() - super::SWITCH_W).abs() < 0.5 && (r.height() - super::SWITCH_H).abs() < 0.5
-        })
-        .map(|(r, _)| *r)
-        .expect("switch painted");
     let row_center = |needle: &str| {
         out.shapes
             .iter()
@@ -920,10 +1124,31 @@ fn general_controls_are_centered_and_right_aligned() {
             })
             .unwrap_or_else(|| panic!("{needle:?} visible"))
     };
+    // Two General rows carry a switch now (Restore tabs and Check
+    // automatically); pick the one centered on each label's row instead of
+    // relying on paint order.
+    let switch_for = |label: &str| {
+        let y = row_center(label);
+        rects
+            .iter()
+            .filter(|(r, _)| {
+                (r.width() - super::SWITCH_W).abs() < 0.5
+                    && (r.height() - super::SWITCH_H).abs() < 0.5
+            })
+            .min_by(|(a, _), (b, _)| {
+                (a.center().y - y)
+                    .abs()
+                    .total_cmp(&(b.center().y - y).abs())
+            })
+            .map_or_else(|| panic!("switch for {label:?} painted"), |(r, _)| *r)
+    };
+    let restore_switch = switch_for("Restore tabs on startup");
+    let updates_switch = switch_for("Check automatically");
     for (label, control) in [
         ("Theme", field),
         ("Default zoom", pill),
-        ("Restore tabs on startup", switch_rect),
+        ("Restore tabs on startup", restore_switch),
+        ("Check automatically", updates_switch),
     ] {
         let center = row_center(label);
         assert!(
@@ -931,7 +1156,7 @@ fn general_controls_are_centered_and_right_aligned() {
             "{label}: {control:?} must be centered on its row (row center {center})"
         );
     }
-    for control in [pill, switch_rect] {
+    for control in [pill, restore_switch, updates_switch] {
         assert!(
             (control.max.x - field.max.x).abs() <= 0.5,
             "controls must share one right edge: {control:?} vs {field:?}"

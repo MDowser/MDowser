@@ -5,9 +5,10 @@
 
 //! `app::run`: the eframe application contract (per-frame logic and ui).
 //!
-//! `logic` polls every tab and schedules repaints only while work is
-//! pending; `ui` draws the toolbar, the tab rail, the central content and
-//! the Preferences window; `on_exit` flushes the encrypted stores.
+//! `logic` polls every tab and the notification-only update check, and
+//! schedules repaints only while work is pending; `ui` draws the toolbar, the
+//! tab rail, the central content and the Preferences window; `on_exit` flushes
+//! the encrypted stores.
 
 use super::*;
 
@@ -207,6 +208,10 @@ impl eframe::App for MdowserApp {
         // off the UI thread must still reach Preferences; a confirmed
         // success clears the warning).
         self.prefs.tick();
+        // Notification-only update check: polls a finished fetch, starts the
+        // daily one when due, and records a newer stable release. No UI and
+        // no retry loop: failures wait for the normal interval or `Check now`.
+        self.update.tick(&mut self.prefs);
         // Remember the open tabs while "restore tabs on startup" is on. The
         // per-frame check compares against the saved snapshot WITHOUT
         // allocating; the disk is only touched when the URLs/index actually
@@ -293,12 +298,22 @@ impl eframe::App for MdowserApp {
                 ctx.request_repaint_after(std::time::Duration::from_millis(500));
             }
         }
+        // Wake for the update poll/due time even on an otherwise idle window
+        // (capped at an hour, so a laptop waking from sleep checks soon).
+        if let Some(wait) = self.update.next_check_in(&self.prefs) {
+            ctx.request_repaint_after(wait);
+        }
     }
 
     /// Drawing (immediate mode) on the root `Ui`.
     /// Panel order: top toolbar first, then the left tab rail, then central.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.handle_shortcuts(ui.ctx());
+
+        // One snapshot for the toolbar dot and the Preferences card. Owns its
+        // data, so the disjoint tab/store borrows below stay unaffected.
+        let update_view = self.update.view(&self.prefs);
+        let update_available = update_view.available.is_some();
 
         // Toolbar zoom: only apply when changed (every-frame `set_zoom_factor`
         // invalidates layout and forces repaint, breaking idle rest).
@@ -325,7 +340,8 @@ impl eframe::App for MdowserApp {
         let mut zoom = self.zoom;
         // Copy the preference window flag in/out: the tab borrow cannot
         // stay alive across the other `self` fields.
-        let mut prefs_open = self.windows.prefs_open;
+        let prefs_was_open = self.windows.prefs_open;
+        let mut prefs_open = prefs_was_open;
         let want_bookmark = {
             self.heal_active();
             let active = self.active;
@@ -341,11 +357,17 @@ impl eframe::App for MdowserApp {
                 &mut zoom,
                 focus,
                 &mut prefs_open,
+                update_available,
                 bookmark,
             )
         };
         self.zoom = zoom.clamp(ZOOM_MIN, ZOOM_MAX);
         self.windows.prefs_open = prefs_open;
+        // The gear's dot is the notification: opening it lands on Updates
+        // instead of whichever tab was last used.
+        if !prefs_was_open && prefs_open && update_available {
+            self.windows.open_updates();
+        }
         if want_bookmark {
             self.toggle_bookmark();
         }
@@ -415,9 +437,12 @@ impl eframe::App for MdowserApp {
         // "View third-party licenses" opens the embedded notices in a new
         // tab (the dialog never navigates by itself); "Delete all data and
         // close" wipes the data directory and exits immediately without saving.
-        let prefs_actions = self
-            .windows
-            .show(ui.ctx(), &mut self.history, &mut self.prefs);
+        let prefs_actions = self.windows.show_with_update(
+            ui.ctx(),
+            &mut self.history,
+            &mut self.prefs,
+            &update_view,
+        );
         if prefs_actions.wipe_all {
             self.wipe_all_and_exit();
         }
@@ -426,6 +451,17 @@ impl eframe::App for MdowserApp {
         }
         if prefs_actions.open_licenses {
             self.open_licenses();
+        }
+        if prefs_actions.check_now {
+            self.check_for_updates(ui.ctx());
+        }
+        if prefs_actions.open_release {
+            if let Some(version) = update_view.available.as_ref() {
+                // External browser: the app never navigates to the release
+                // page itself nor downloads an installer.
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab(update::release_url(version)));
+            }
         }
 
         // File drag over the window: the target sits above every panel and

@@ -2508,6 +2508,7 @@ dependencies = [
  "reqwest",
  "resvg",
  "roxmltree",
+ "semver",
  "serde",
  "serde_norway",
  "skrifa",

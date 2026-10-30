@@ -15,13 +15,17 @@
 #   macos        universal .app.zip (arm64 + Intel, via lipo)
 #   rpm          .rpm from source (Fedora container, rpmbuild)
 #   flatpak      .flatpak bundle (runtime branch read from the manifest)
-#   publish      merged privacy gate + one SHA256SUMS.txt + GitHub Release
+#   publish      merged privacy gate + one SHA256SUMS.txt + latest.txt marker
+#                + one GitHub Release (draft, published only after every asset)
 #
 # The scripts do the real work (see AGENTS.md: this workflow builds and
 # publishes, nothing else): build-dist.sh remaps the builder's home out of
-# every binary, runs check-dist.sh per job and writes per-job checksums;
-# publish re-runs the gate over the MERGED set and writes the final
-# SHA256SUMS.txt. Artifact names are identical to `make dist`.
+# every binary, runs check-dist.sh per job, writes the bare-version
+# `latest.txt` update marker in every dist/ and checksums the packaged files
+# (the marker is metadata, so it is excluded); publish re-runs the gate over
+# the MERGED build set, writes the final SHA256SUMS.txt, and refreshes
+# `latest.txt` for the in-app update checker that reads it from
+# /releases/latest. Build artifact names are identical to `make dist`.
 #
 # Manual run: `workflow_dispatch` with dry_run (default true) compiles
 # everything without publishing; a dry_run=false run must be dispatched from
@@ -159,7 +163,13 @@ jobs:
           mv /tmp/keep/* dist/
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh --require dist
-          (cd dist && sha256sum * > SHA256SUMS.txt)
+          # `latest.txt` is update metadata, not a downloadable build: the
+          # checksums cover the packaged files only (same rule as build-dist
+          # and the final publish set).
+          (cd dist && for f in *; do
+            case "$f" in latest.txt|SHA256SUMS.txt) continue ;; esac
+            sha256sum "$f"
+          done > SHA256SUMS.txt)
       # build.rs only WARNS when windres is missing: prove the icon,
       # VERSIONINFO and manifest survived the mingw link (the arm64 job has
       # the equivalent VersionInfo check for the native MSVC build).
@@ -461,7 +471,22 @@ jobs:
           cd ..
           rm -f dist/SHA256SUMS.txt
           ./scripts/check-dist.sh --require dist
-          (cd dist && sha256sum * > SHA256SUMS.txt)
+          # `latest.txt` is update metadata, not a downloadable build: the
+          # checksums cover the packaged files only (same rule as build-dist
+          # and the final publish set).
+          (cd dist && for f in *; do
+            case "$f" in latest.txt|SHA256SUMS.txt) continue ;; esac
+            sha256sum "$f"
+          done > SHA256SUMS.txt)
+      - name: Update marker (`latest.txt`)
+        run: |
+          set -eu
+          VER="${GITHUB_REF_NAME#v}"
+          # Bare semver + newline: the app rejects `v`, pre-releases and
+          # multi-line files. Not part of SHA256SUMS.txt (metadata, not a
+          # downloadable build).
+          printf '%s\n' "$VER" > dist/latest.txt
+          test "$(cat dist/latest.txt)" = "$VER"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -497,12 +522,27 @@ jobs:
             -e "s/@RPM_VERSION@/$RPM_VERSION/g" \
             "$NOTES" > "$NOTES.tmp"
           mv "$NOTES.tmp" "$NOTES"
-          # Pre-release tags stay out of the repo page's "Latest release".
+          # ANY tag containing `-` is a pre-release and stays out of the
+          # repo page's "Latest release" (and therefore out of
+          # /releases/latest, which backs `latest.txt`): `-alpha`, `-beta`,
+          # `-rc`, `-preview`, `-nightly`, ...
           PRERELEASE=()
           case "$GITHUB_REF_NAME" in
-            *-alpha*|*-beta*|*-rc*) PRERELEASE=(--prerelease) ;;
+            *-*) PRERELEASE=(--prerelease) ;;
           esac
-          gh release create "$GITHUB_REF_NAME" dist/* \
+          # Publish as a DRAFT first and publish only after EVERY asset,
+          # including latest.txt, uploaded: a visible release must never
+          # point the update marker at a version whose binaries are still
+          # missing. A re-run of an already published release uploads in
+          # place; a failed first run resumes its existing draft.
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft \
+              --title "$GITHUB_REF_NAME" \
+              "${PRERELEASE[@]}" --notes-file "$NOTES"
+          fi
+          gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          # Metadata is finalized together with publication, after every
+          # asset is present.
+          gh release edit "$GITHUB_REF_NAME" --draft=false \
             --title "$GITHUB_REF_NAME" \
-            "${PRERELEASE[@]}" --notes-file "$NOTES" \
-          || gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            "${PRERELEASE[@]}" --notes-file "$NOTES"

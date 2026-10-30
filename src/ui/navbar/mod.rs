@@ -85,7 +85,8 @@ impl ZoomMode {
 /// toggled by the Preferences button (the window itself lives in `App`).
 /// `bookmark` is the ribbon state for the shown page (see
 /// [`omnibox::BookmarkState`]). `history`/`bookmarks` feed the shared
-/// omnibox autocomplete (read-only).
+/// omnibox autocomplete (read-only). `update_available` paints the small
+/// accent dot on the Preferences gear (the update card has the details).
 ///
 /// Returns `true` when the bookmark ribbon was clicked: the `App` owns the
 /// store, so it performs the toggle.
@@ -98,6 +99,7 @@ pub fn show_navbar(
     zoom: &mut f32,
     focus: bool,
     prefs_open: &mut bool,
+    update_available: bool,
     bookmark: omnibox::BookmarkState,
 ) -> bool {
     let mut bookmark_toggled = false;
@@ -225,10 +227,30 @@ pub fn show_navbar(
                 }
                 ui.add_space(ZOOM_GAP);
                 // Last widget in the bar: Preferences stays reachable even on
-                // very narrow windows where the zoom pill hides.
-                if icons::icon_button(ui, icons::Icon::Settings, "Preferences (Ctrl/Cmd+,)", true)
-                    .clicked()
-                {
+                // very narrow windows where the zoom pill hides. A newer
+                // release adds a small accent dot; the tooltip (built only on
+                // hover) says why, and the accessible name stays static.
+                let prefs_resp = icons::icon_button_lazy(
+                    ui,
+                    icons::Icon::Settings,
+                    "Preferences (Ctrl/Cmd+,)",
+                    || {
+                        if update_available {
+                            "Preferences (Ctrl/Cmd+,) · update available".to_string()
+                        } else {
+                            "Preferences (Ctrl/Cmd+,)".to_string()
+                        }
+                    },
+                    true,
+                );
+                if update_available {
+                    ui.painter().circle_filled(
+                        egui::pos2(prefs_resp.rect.max.x - 7.0, prefs_resp.rect.min.y + 7.0),
+                        3.0,
+                        s.primary,
+                    );
+                }
+                if prefs_resp.clicked() {
                     *prefs_open = !*prefs_open;
                 }
             });

@@ -1077,5 +1077,33 @@ pub const MAX_INLINE_VECTOR_H: f32 = 32.0;
 /// centered next to a photo.
 pub const MAX_INLINE_IMAGE_H: f32 = 48.0;
 
+// ---------------------------------------------------------------------------
+// Update check (notification only; see `update/`)
+// ---------------------------------------------------------------------------
+
+/// Fixed marker asset behind GitHub's `releases/latest` redirect: the newest
+/// STABLE release publishes `latest.txt` next to its binaries with a bare
+/// `X.Y.Z` line. The app never downloads a build from here.
+pub const UPDATE_ENDPOINT: &str =
+    "https://github.com/MDowser/MDowser/releases/latest/download/latest.txt";
+
+/// `Accept` header for the marker: plain text, no markdown preference.
+pub const UPDATE_ACCEPT_HEADER_VALUE: &str = "text/plain";
+
+/// Automatic check interval (24 hours). `Check now` bypasses it.
+pub const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
+
+/// Total budget for one marker GET: tiny body, but GitHub redirects once to
+/// its asset host, whose connect time must fit too.
+pub const UPDATE_REQUEST_TIMEOUT_SECS: u64 = 15;
+
+/// Hard cap on the marker body. A valid marker is a few bytes; this leaves
+/// room for a trailing newline without ever buffering a page.
+pub const MAX_UPDATE_MARKER_BYTES: usize = 1024;
+
+/// Official release page prefix; the parsed version is appended (no URL is
+/// ever taken from the marker itself).
+pub const UPDATE_RELEASE_PREFIX: &str = "https://github.com/MDowser/MDowser/releases/tag/v";
+
 #[cfg(test)]
 mod tests;

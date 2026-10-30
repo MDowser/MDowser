@@ -67,6 +67,7 @@ policy in CI-style `cargo deny check`.
 | `reqwest` | MIT OR Apache-2.0 |
 | `resvg` | Apache-2.0 OR MIT |
 | `roxmltree` | MIT OR Apache-2.0 |
+| `semver` | MIT OR Apache-2.0 |
 | `serde` | MIT OR Apache-2.0 |
 | `serde_norway` | MIT OR Apache-2.0 |
 | `skrifa` | MIT OR Apache-2.0 |

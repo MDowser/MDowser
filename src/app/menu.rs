@@ -18,12 +18,13 @@
 //! out of the View menu, and the About panel carries the app's icon
 //! ([`about_icon`]) instead of AppKit's generic placeholder folder.
 //!
-//! The bar owns no behaviour of its own: activating an item replays the very
-//! shortcut the keyboard would ([`MenuAction::shortcut`]), queued by the
+//! The bar owns no behaviour of its own: activating a normal item replays the
+//! very shortcut the keyboard would ([`MenuAction::shortcut`]), queued by the
 //! `muda` handler and drained into the raw input the next frame
 //! ([`MdowserApp::poll_menu`] + `App::raw_input_hook`), so the menu and the
-//! keys share ONE handler (`App::handle_shortcuts`). `Edit` is the one
-//! deliberate exception: it carries Copy / Paste / Select all only.
+//! keys share ONE handler (`App::handle_shortcuts`). `Edit` deliberately
+//! carries Copy / Paste / Select all only. Check for Updates has no key
+//! equivalent: it opens the Updates card directly instead of replaying a key.
 //!
 //! A menu activation is not a winit event, so the handler pushes the command
 //! and wakes the UI (`Context::request_repaint`); the same handler also
@@ -41,7 +42,7 @@ use objc2_app_kit::NSWindow;
 
 use super::MdowserApp;
 
-/// A command the macOS menu bar can raise, one per browser shortcut.
+/// A command the macOS menu bar can raise, one per browser action.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MenuAction {
     /// New tab (`Ctrl/Cmd+T`).
@@ -52,6 +53,8 @@ pub(super) enum MenuAction {
     Reload,
     /// Open Preferences (`Ctrl/Cmd+,`).
     Preferences,
+    /// Open the Updates card and check now (no accelerator: AppKit standard).
+    CheckUpdates,
     /// Open the History page (`Ctrl/Cmd+Y`).
     History,
     /// Zoom in (`Ctrl/Cmd+=`).
@@ -96,7 +99,7 @@ impl MenuAction {
     fn shortcut(self) -> Option<egui::Event> {
         Some(match self {
             Self::Copy => egui::Event::Copy,
-            Self::Paste => return None,
+            Self::Paste | Self::CheckUpdates => return None,
             Self::SelectAll => command_key(egui::Key::A),
             Self::NewTab => command_key(egui::Key::T),
             Self::CloseTab => command_key(egui::Key::W),
@@ -120,6 +123,7 @@ fn action_for(id: &MenuId) -> Option<MenuAction> {
         "close-tab" => MenuAction::CloseTab,
         "reload" => MenuAction::Reload,
         "preferences" => MenuAction::Preferences,
+        "check-updates" => MenuAction::CheckUpdates,
         "history" => MenuAction::History,
         "zoom-in" => MenuAction::ZoomIn,
         "zoom-out" => MenuAction::ZoomOut,
@@ -147,6 +151,8 @@ fn menu_events(actions: impl IntoIterator<Item = MenuAction>) -> Vec<egui::Event
     for action in actions {
         match action {
             MenuAction::Paste => events.extend(paste_event()),
+            // Handled directly by `poll_menu` (not a keyboard shortcut).
+            MenuAction::CheckUpdates => {}
             _ => events.extend(action.shortcut()),
         }
     }
@@ -205,6 +211,8 @@ fn build() -> muda::Result<Menu> {
         &[
             &PredefinedMenuItem::about(Some("About MDowser"), Some(about)),
             &item("preferences", "Preferences…", Code::Comma),
+            // AppKit's conventional no-accelerator item.
+            &MenuItem::with_id("check-updates", "Check for Updates…", true, None),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::services(Some("Services")),
             &PredefinedMenuItem::separator(),
@@ -313,14 +321,26 @@ impl AppMenu {
 
 impl MdowserApp {
     /// Queues the commands the menu bar raised, as the egui events that
-    /// replay their shortcuts. Called from `App::logic`; the events are
+    /// replay their shortcuts. Check for Updates has no shortcut and is
+    /// handled here directly. Called from `App::logic`; the events are
     /// injected into the raw input by `App::raw_input_hook`, so they reach
     /// `handle_shortcuts` and the focused field on the next pass.
     pub(super) fn poll_menu(&mut self, ctx: &egui::Context) {
         let Some(menu) = &self.mac_menu else {
             return;
         };
-        let events = menu_events(menu.poll());
+        let actions = menu.poll();
+        let check_updates = actions.contains(&MenuAction::CheckUpdates);
+        let events = menu_events(
+            actions
+                .into_iter()
+                .filter(|action| *action != MenuAction::CheckUpdates),
+        );
+        if check_updates {
+            // No key equivalent: opening the card and starting the check is
+            // the whole command. `check_for_updates` requests the repaint.
+            self.check_for_updates(ctx);
+        }
         if events.is_empty() {
             return;
         }
@@ -343,6 +363,7 @@ mod tests {
             ("close-tab", MenuAction::CloseTab),
             ("reload", MenuAction::Reload),
             ("preferences", MenuAction::Preferences),
+            ("check-updates", MenuAction::CheckUpdates),
             ("history", MenuAction::History),
             ("zoom-in", MenuAction::ZoomIn),
             ("zoom-out", MenuAction::ZoomOut),
@@ -363,6 +384,8 @@ mod tests {
         assert_eq!(MenuAction::Copy.shortcut(), Some(egui::Event::Copy));
         // Paste reads the clipboard, so its event is built separately.
         assert_eq!(MenuAction::Paste.shortcut(), None);
+        // Check for Updates is a direct action, not a replayed key chord.
+        assert_eq!(MenuAction::CheckUpdates.shortcut(), None);
         for (action, modifiers, key) in [
             (
                 MenuAction::SelectAll,

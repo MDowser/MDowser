@@ -8,9 +8,10 @@
 //! - Owns `Vec<Tab>`, the active index, the encrypted local history and
 //!   the encrypted bookmark store.
 //! - `logic()` (no UI): polls every tab (documents + images) and the shared
-//!   favicon cache, records resolved pages in the encrypted local history,
-//!   ticks the debounced history/bookmark saves, and schedules repaints
-//!   only while work is pending.
+//!   favicon cache, runs the notification-only update check, records resolved
+//!   pages in the encrypted local history, ticks the debounced
+//!   history/bookmark saves, and schedules repaints only while work is
+//!   pending.
 //! - `ui()`: draws the top toolbar, the vertical tab rail (collapsed
 //!   to favicons, expands on hover), the central content panel (including
 //!   the internal `about:history` page) and the floating Preferences window.
@@ -18,8 +19,10 @@
 //!   app name or tab label), and just `MDowser` on Home (nothing open).
 //! - Neutral document style (`ui::theme`), light/dark from the OS by
 //!   default or forced in Preferences (`settings::Prefs`). Preferences also
-//!   hold the startup zoom and "restore tabs on startup" (open tabs are
-//!   remembered in `settings` and reopened on the next launch).
+//!   hold the startup zoom, "restore tabs on startup" (open tabs are
+//!   remembered in `settings` and reopened on the next launch) and the
+//!   automatic update-check choice/result. The updater only fetches a tiny
+//!   version marker; it never downloads or installs a build.
 //! - File drag and drop: while files hover over the window a full-window
 //!   target is painted; dropped local files/folders open in new tabs after
 //!   the active one, with the first dropped tab selected.
@@ -48,6 +51,7 @@ use crate::settings::{self, Prefs};
 use crate::ui;
 use crate::ui::omnibox::BookmarkState;
 use crate::ui::preferences::PreferencesState;
+use crate::update::{self, UpdateState};
 use eframe::egui;
 
 /// Main app (implements `eframe::App`).
@@ -84,6 +88,8 @@ pub struct MdowserApp {
     bookmarks: BookmarkStore,
     /// Persistent preferences (theme, startup zoom, session restore).
     prefs: Prefs,
+    /// Notification-only release check (daily background fetch + live state).
+    update: UpdateState,
     /// Last session persisted to disk (`settings::save_session`), so the
     /// file is only rewritten when the open tabs actually change.
     session_saved: Vec<settings::SessionTab>,
@@ -211,6 +217,7 @@ impl MdowserApp {
             history,
             bookmarks: BookmarkStore::load(),
             prefs,
+            update: UpdateState::new(),
             session_saved,
             session_saved_active: active,
             session_save_retry_at: None,
@@ -284,6 +291,14 @@ impl MdowserApp {
             return;
         }
         self.open_internal_tab(Tab::open_licenses);
+    }
+
+    /// Opens Preferences on the Updates card and starts a manual check now
+    /// (Preferences "Check now" and the macOS "Check for Updates…" item).
+    fn check_for_updates(&mut self, ctx: &egui::Context) {
+        self.windows.open_updates();
+        self.update.check_now();
+        ctx.request_repaint();
     }
 
     /// Creates the internal page's tab through `open`: never fetched, never

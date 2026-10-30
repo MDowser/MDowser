@@ -14,6 +14,9 @@
 //! theme=system
 //! zoom=1
 //! restore_tabs=true
+//! check_updates=true
+//! update_checked=1780000000
+//! update_available=0.8.0
 //! window=120,80,1536,864,0
 //! ```
 //!
@@ -40,6 +43,7 @@
 use crate::config;
 use crate::store::crypto::{decrypt, encrypt, load_or_create_key};
 use eframe::egui;
+use semver::Version;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -160,6 +164,13 @@ pub struct Prefs {
     default_zoom: f32,
     /// Reopen the last session's tabs on the next launch.
     restore_tabs: bool,
+    /// Check for newer releases automatically (once a day).
+    check_updates: bool,
+    /// Unix seconds of the last successful update check.
+    update_checked: Option<u64>,
+    /// Stable version recorded by the last successful check (the view
+    /// filters it against the running build).
+    update_available: Option<Version>,
     /// Data directory, when persistence is available.
     dir: Option<PathBuf>,
     /// Last failure while deleting the session file, shown in
@@ -218,6 +229,22 @@ impl Prefs {
                 !(value.eq_ignore_ascii_case("false") || value == "0")
             }
         };
+        // Same polarity rule: automatic update checks are ON unless the
+        // stored value explicitly says off. A corrupt value must not silently
+        // disable the notification feature.
+        let check_updates = match read_setting(&dir, "check_updates") {
+            None => true,
+            Some(value) => {
+                let value = value.trim();
+                !(value.eq_ignore_ascii_case("false") || value == "0")
+            }
+        };
+        let update_checked =
+            read_setting(&dir, "update_checked").and_then(|value| value.trim().parse::<u64>().ok());
+        let update_available = read_setting(&dir, "update_available").and_then(|value| {
+            let version = Version::parse(value.trim()).ok()?;
+            (version.pre.is_empty() && version.build.is_empty()).then_some(version)
+        });
         // A MISSING file is the documented default state. An UNREADABLE one
         // (permissions, undecryptable, over the cap) must not masquerade as
         // "restore tabs off": that used to delete the session on a
@@ -226,6 +253,9 @@ impl Prefs {
             theme,
             default_zoom,
             restore_tabs,
+            check_updates,
+            update_checked,
+            update_available,
             dir: Some(dir),
             session_delete_error: None,
             session_save_error: None,
@@ -257,6 +287,48 @@ impl Prefs {
     /// Reopen the last session's tabs on the next launch.
     pub fn restore_tabs(&self) -> bool {
         self.restore_tabs
+    }
+
+    /// Automatic update checks (ON by default). Manual `Check now` still
+    /// works when this is off.
+    pub fn check_updates(&self) -> bool {
+        self.check_updates
+    }
+
+    /// Enables/disables automatic update checks and persists the choice.
+    pub fn set_check_updates(&mut self, enabled: bool) {
+        if self.check_updates == enabled {
+            return;
+        }
+        self.check_updates = enabled;
+        self.write("check_updates", if enabled { "true" } else { "false" });
+    }
+
+    /// Unix seconds of the last successful update check.
+    pub fn update_checked(&self) -> Option<u64> {
+        self.update_checked
+    }
+
+    /// Stable version recorded by the last successful check. `UpdateView`
+    /// filters it against the running build, so a stored version from before
+    /// a manual upgrade never raises the dot.
+    pub fn update_available(&self) -> Option<&Version> {
+        self.update_available.as_ref()
+    }
+
+    /// Records a successful check: its timestamp plus the newer version (or
+    /// `None` when this build is current). Persisted encrypted like every
+    /// other preference. A failed check never reaches this method, so the
+    /// previous "available" result survives a transient network error.
+    pub(crate) fn record_update_check(&mut self, checked_at: u64, available: Option<&Version>) {
+        self.update_checked = Some(checked_at);
+        self.update_available = available.cloned();
+        // Version first, timestamp last: a crash between the two queued
+        // writes leaves the OLD timestamp (so the next launch checks again)
+        // instead of a new timestamp with a stale "available" version.
+        let text = available.map_or_else(String::new, |version| version.to_string());
+        self.write("update_available", &text);
+        self.write("update_checked", &checked_at.to_string());
     }
 
     /// Remembered native-window geometry (position, size, maximized), when a
@@ -432,6 +504,9 @@ impl Default for Prefs {
             theme: ThemePref::default(),
             default_zoom: 1.0,
             restore_tabs: true,
+            check_updates: true,
+            update_checked: None,
+            update_available: None,
             dir: None,
             session_delete_error: None,
             session_save_error: None,

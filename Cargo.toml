@@ -156,6 +156,10 @@ serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 # Async -> egui bridge: poll each frame for a finished download.
 poll-promise = "0.3"
+# Strict release-marker parsing and version ordering for the notification-only
+# update check (`src/update/`). Already in the graph through `rustc_version`
+# (build scripts), so this edge adds no transitive code.
+semver = "1"
 # Image decoding for markdown image tags and site favicons, pure Rust only
 # (no C libraries, no system deps). `image` already ships inside eframe;
 # only the codecs below add crates. Formats required by the product:

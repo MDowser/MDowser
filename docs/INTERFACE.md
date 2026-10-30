@@ -93,19 +93,21 @@ removes the page you are reading.
 
 Windows and Linux have no menu: the toolbar is the whole chrome. macOS always
 shows a system menu bar (`src/app/menu.rs`, `muda`): Application (About MDowser,
-Preferences… `Cmd+,`, Services, Hide/Hide Others/Show All, Quit), File (New Tab
-`Cmd+T`, Close Tab `Cmd+W`, Save Page `Cmd+S`), Edit (Copy `Cmd+C`, Paste `Cmd+V`,
-Select all `Cmd+A` — deliberately no more), View (Reload `Cmd+R`, Zoom In
-`Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size `Cmd+0`), History (Show
-History `Cmd+Y`), Window
-(Minimize, Zoom, Bring All to Front).
+Preferences… `Cmd+,`, Check for Updates…, Services, Hide/Hide Others/Show All,
+Quit), File (New Tab `Cmd+T`, Close Tab `Cmd+W`, Save Page `Cmd+S`), Edit (Copy
+`Cmd+C`, Paste `Cmd+V`, Select all `Cmd+A` — deliberately no more), View
+(Reload `Cmd+R`, Zoom In `Cmd++`/`Cmd+=`, Zoom Out `Cmd+-`, Actual Size
+`Cmd+0`), History (Show History `Cmd+Y`), Window (Minimize, Zoom, Bring All to
+Front).
 
-Every item replays the keyboard's shortcut through one handler; Paste reads the
-clipboard exactly like `Cmd+V`. Only MDowser's commands appear: automatic window
-tabbing is opted out at startup (`app::menu::disable_automatic_tabbing`, called
-by `main` before any window exists), so AppKit's "Show Tab Bar"/"Show All Tabs"
-never enter View — tabs are the in-window rail — and About MDowser carries the
-app's own icon (the embedded 256px raster), not AppKit's placeholder folder.
+Every item except Check for Updates replays the keyboard's shortcut through one
+handler; Paste reads the clipboard exactly like `Cmd+V`. Check for Updates opens
+the Updates card and starts a check directly (it has no key equivalent). Only
+MDowser's commands appear: automatic window tabbing is opted out at startup
+(`app::menu::disable_automatic_tabbing`, called by `main` before any window
+exists), so AppKit's "Show Tab Bar"/"Show All Tabs" never enter View — tabs are
+the in-window rail — and About MDowser carries the app's own icon (the embedded
+256px raster), not AppKit's placeholder folder.
 
 ## Toolbar
 
@@ -115,7 +117,10 @@ revalidation instead of serving a fresh record, and falls back to the stored
 copy — marked — when the network fails), home (opens the new-tab page;
 the page left behind stays on Back), zoom pill and Preferences gear. Circular
 hover fills; every icon is a monochrome vector glyph — muted at rest, easing to
-the accent and growing slightly on hover.
+the accent and growing slightly on hover. A newer release adds a small accent
+dot to the gear (no banner or toast); its hover tooltip says "update
+available", and opening Preferences from the gear dot selects General so the
+Updates card is visible.
 
 ## Omnibox
 
@@ -197,9 +202,18 @@ selected tab and each tab's scroll position persist while the dialog stays open
 - **General** holds the appearance card — theme (System/Light/Dark), default
   zoom (the toolbar's `- % +` pill; readout click resets to 100%) and "restore
   tabs on startup" (a caption under the switch explains when it is off because
-  of "Forget on exit") — plus a compact footer with the version, the app's
-  license (`MDowser <ver> · MPL-2.0`) and the "View third-party licenses" link,
-  opening `about:licenses` in a new tab.
+  of "Forget on exit") — plus the Updates card and a compact footer with the
+  version, the app's license (`MDowser <ver> · MPL-2.0`) and the "View
+  third-party licenses" link, opening `about:licenses` in a new tab.
+  The Updates card is notification-only: while a check runs it says "Checking
+  for updates…"; with a known newer version it names it (`Version X.Y.Z is
+  available.`); otherwise it reports "MDowser is up to date.", "Automatic checks
+  are off.", "Couldn't check for updates." or "Not checked yet.". "Open release
+  page" (only with a known newer version) opens
+  `https://github.com/MDowser/MDowser/releases/tag/vX.Y.Z` in the system
+  browser; "Check now" runs a manual check even when automatic checks are off;
+  the "Check automatically" switch (ON by default) controls the daily check.
+  Nothing is ever downloaded, unpacked or installed by the app.
 - **Data** holds the history card — the retention dropdown ("Forget on exit",
   "Keep 1 month", "Keep 3 months (default)", "Keep 6 months", "Keep 1 year",
   "Keep forever"), the destructive "Delete history" action (two-click

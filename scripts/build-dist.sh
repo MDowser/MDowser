@@ -34,7 +34,9 @@
 #            + mdowser-<ver>.flatpak (when flatpak-builder is available)
 #   Windows: mdowser-<ver>-windows-<arch>.zip (with .exe; x86_64, or
 #            aarch64 on Windows on ARM, native MSVC)
-#   Always: SHA256SUMS.txt
+#   Always: SHA256SUMS.txt + latest.txt (bare <ver> marker for the in-app
+#            notification-only update check; metadata, not a download, so it
+#            is intentionally not listed in the checksums)
 #
 # HONEST NOTE: GUI cross from macOS is best-effort (C + wgpu involved).
 # The 100% guaranteed path is running this script natively on each
@@ -1227,7 +1229,7 @@ for _stale in "$DIST"/*; do
     [ -f "$_stale" ] || continue
     _stale_name="$(basename "$_stale")"
     case "$_stale_name" in
-        SHA256SUMS.txt|.*) ;;
+        SHA256SUMS.txt|latest.txt|.*) ;;
         # Debian/RPM artifacts use the normalized form, not the full semver.
         *"$VER"*|*"$DEB_VER"*|*"$RPM_VER"*) ;;
         *) echo "WARN: dist/$_stale_name does not carry version $VER (left by an earlier run; remove it before publishing)" ;;
@@ -1269,7 +1271,11 @@ rm -f "$DIST/SHA256SUMS.txt"
         # `if`, not `[ ] && [ ] &&`: with `set -e` a failing last member of an
         # `&&` list would abort the loop (and the script) when the name that
         # sorts last is skipped (`SHA256SUMS.txt`).
-        if [ -f "$f" ] && [ "$f" != "SHA256SUMS.txt" ]; then
+        #
+        # `latest.txt` is release METADATA (the in-app update marker), not a
+        # downloadable build: CI omits it from the checksums and a manual
+        # `gh release upload dist/*` must match that set byte for byte.
+        if [ -f "$f" ] && [ "$f" != "SHA256SUMS.txt" ] && [ "$f" != "latest.txt" ]; then
             # shellcheck disable=SC2086: `_HASH` is a command plus its args
             # (`shasum -a 256` vs `sha256sum`); splitting is intended.
             $_HASH "$f"
@@ -1277,6 +1283,16 @@ rm -f "$DIST/SHA256SUMS.txt"
     done
 } > SHA256SUMS.txt)
 unset _HASH
+
+# Update marker: the SAME bare `<ver>\n` asset CI adds in the publish job, so
+# a locally built release can be uploaded by hand without forgetting it. The
+# app's marker parser accepts only one stable semver and no `v` prefix; the
+# content is verified here rather than trusted from `$VER`.
+printf '%s\n' "$VER" > "$DIST/latest.txt"
+if [ "$(cat "$DIST/latest.txt")" != "$VER" ]; then
+    echo "ERROR: could not write the update marker $DIST/latest.txt" >&2
+    exit 1
+fi
 
 echo ""
 echo "dist/ ready (ver=$VER):"

@@ -11,8 +11,8 @@
 //!   URL or an `https://` URL. See `app::MdowserApp::new`.
 //! - All logic lives in `app`, `browser`, `protocol`, `markdown`, `media`,
 //!   `viewer`, `store` and `ui`, plus small shared modules (`cache`,
-//!   `config`, `error`, `settings`, `history`, `licenses`, `bookmarks`,
-//!   `suggest`, `builtin_sites`, `util`).
+//!   `config`, `error`, `settings`, `update`, `history`, `licenses`,
+//!   `bookmarks`, `suggest`, `builtin_sites`, `util`).
 
 // A GUI, not a console program: on Windows the default subsystem pops a
 // console window behind the app. This selects the windowed subsystem there
@@ -51,6 +51,7 @@ mod settings;
 mod store;
 mod suggest;
 mod ui;
+mod update;
 mod util;
 mod viewer;
 

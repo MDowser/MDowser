@@ -7,8 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Notification-only update checks: once a day MDowser fetches a fixed, capped
+  `latest.txt` marker from the project's GitHub releases, adds an Updates card
+  to Preferences, and shows a dot on the Preferences gear when a newer stable
+  version exists. The card can check now, open the official release page in the
+  system browser, or turn automatic checks off; nothing is downloaded,
+  unpacked or installed by the app. macOS also gets a "Check for Updates…"
+  application-menu item. (`src/update/`, `src/settings/`,
+  `src/ui/preferences/`, `src/ui/navbar/`, `src/app/menu.rs`,
+  `.github/workflows/release.yml`, `docs/INTERFACE.md`, `docs/SECURITY.md`.)
+
 ### Changed
 
+- Release automation creates each GitHub Release as a draft, uploads every
+  asset (including the `latest.txt` update marker), and publishes it only after
+  all uploads succeed; any tag containing a `-` is published as a pre-release.
+  `make dist` writes the same `latest.txt` marker (excluded from
+  `SHA256SUMS.txt` as metadata), so a locally built set is complete for a
+  manual draft release.
 - Performance: a document's Markdown body is shared (`Arc<String>`) by the
   tab, the RAM fast path and every URL alias, so a fetched buffer moves into
   the cache without a copy, and a cache lookup parses only the requested

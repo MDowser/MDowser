@@ -143,6 +143,7 @@ MDowser keeps its network and document-handling surface intentionally small:
 
 - `https://` only, `GET` only, and a single Markdown content type.
 - No JavaScript execution, webview, cookies or proxy. The only persistent network state is an encrypted, bounded HTTP cache that Preferences can clear per class and "Forget on exit" disables.
+- Beyond the page you open and its images/favicons, the only request is a notification-only update check: one fixed, capped `latest.txt` fetch that can be turned off in Preferences. MDowser never downloads or installs an update itself.
 - Remote documents cannot name or load local paths; local files are opened only from user input or links in a local document.
 - Hard limits on input and decoding: 10 MiB documents, 16 MiB / 48 MP images, 1 million events, and bounded encrypted history, bookmarks and cache.
 - SVG is rasterized statically, and `unsafe_code = "forbid"`.

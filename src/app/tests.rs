@@ -13,6 +13,7 @@ use crate::history::HistoryStore;
 use crate::media::favicon::FaviconCache;
 use crate::settings::{Prefs, WindowGeometry};
 use crate::ui::preferences::PreferencesState;
+use crate::update::UpdateState;
 
 fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
     MdowserApp {
@@ -30,6 +31,7 @@ fn app_with(tabs: Vec<Tab>, active: usize) -> MdowserApp {
         history: HistoryStore::in_memory(),
         bookmarks: BookmarkStore::in_memory(),
         prefs: Prefs::default(),
+        update: UpdateState::new(),
         session_saved: Vec::new(),
         session_saved_active: active,
         session_save_retry_at: None,
