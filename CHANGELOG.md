@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Automatic update checks now run once a week instead of once a day; the
+  Updates card caption says so. `Check now` still works at any time.
+  (`src/config/mod.rs`, `src/update/`, `src/ui/preferences/`.)
+- The Updates card now spaces its status, caption and action deliberately and
+  uses a 14px status line with an 18px caption line height, so a failure line
+  no longer sits flush against the section title or the caption.
+  (`src/ui/preferences/`, `src/ui/theme/`.)
+
+### Fixed
+
+- An update check that cannot reach GitHub (typically the first automatic
+  check racing the network right after launch) no longer leaves the Updates
+  card failed until the next week: it retries automatically after 15 s, 1 min
+  and 5 min, showing "Couldn't reach GitHub. Trying again…", then falls back to
+  the normal weekly gate. The final copy is shorter and calmer ("Couldn't reach
+  GitHub.", "Couldn't read the update information.", "The latest release has
+  no update information yet.") and uses the warning tone instead of error red.
+  (`src/update/`, `src/ui/preferences/`, `src/config/mod.rs`,
+  `docs/INTERFACE.md`, `docs/SECURITY.md`.)
+- Turning the automatic update check off and back on no longer inherits a
+  failure's week-long retry gate: the new setting follows the normal due time
+  (an explicit re-enable checks right away when a check is due).
+  (`src/update/`, `src/app/run.rs`, `docs/ARCHITECTURE.md`.)
+
 ## [0.7.3] - 2026-10-30
 
 Notification-only update checks, friendlier check failures, and cache and

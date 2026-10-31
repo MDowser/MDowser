@@ -164,7 +164,7 @@ pub struct Prefs {
     default_zoom: f32,
     /// Reopen the last session's tabs on the next launch.
     restore_tabs: bool,
-    /// Check for newer releases automatically (once a day).
+    /// Check for newer releases automatically (once a week).
     check_updates: bool,
     /// Unix seconds of the last successful update check.
     update_checked: Option<u64>,

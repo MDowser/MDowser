@@ -5,7 +5,7 @@
 
 //! `update`: notification-only release check.
 //!
-//! The app never downloads or replaces itself. Once a day it asks the fixed
+//! The app never downloads or replaces itself. Once a week it asks the fixed
 //! GitHub `latest.txt` asset for the newest stable version marker
 //! (`X.Y.Z\n`, no `v`), compares it with [`current_version`] and, when the
 //! release is newer, exposes the fact through the Preferences button's dot
@@ -18,10 +18,13 @@
 //! - Cache: none. The marker is tiny and must never be served stale, so the
 //!   request sends `Cache-Control: no-cache` and the answer is not stored.
 //! - Failure: classified into a missing marker (HTTP 404, informational), no
-//!   network answer, or an unusable answer. Preferences shows a friendly line
-//!   for each; raw protocol text never reaches the UI. There is no retry loop:
-//!   the session waits out a 24h backoff, a restart follows the normal due
-//!   time (a failure writes no timestamp), and `Check now` stays available.
+//!   network answer, or an unusable answer. Preferences shows a short, calm
+//!   line for each; raw protocol text never reaches the UI. A check that could
+//!   not reach GitHub retries after [`config::UPDATE_TRANSIENT_RETRY_SECS`]
+//!   (the connection may simply not be up yet at launch); after that ladder,
+//!   or for a non-transient failure, the session waits out the normal weekly
+//!   backoff. A restart follows the normal due time (a failure writes no
+//!   timestamp), and `Check now` always stays available.
 //! - The marker only names a version; it never carries a URL, a signature or
 //!   an instruction. The release page URL is built locally from the parsed
 //!   semver and the fixed GitHub repository.
@@ -74,13 +77,19 @@ impl CheckFailure {
     /// Friendly one-line status; raw protocol text stays out of the UI.
     fn status_text(self) -> &'static str {
         match self {
-            Self::NoMarker => "The latest release doesn't publish update information yet.",
-            Self::Offline => "Couldn't reach GitHub. Check your connection.",
-            Self::Unusable => "Couldn't read the update information. Try again later.",
+            Self::NoMarker => "The latest release has no update information yet.",
+            Self::Offline => "Couldn't reach GitHub.",
+            Self::Unusable => "Couldn't read the update information.",
         }
     }
 
-    /// Whether the status should use the error color. A missing marker is a
+    /// A transport failure is worth retrying soon: it is often the first
+    /// check racing the network right after launch, not a real outage.
+    fn is_retryable(self) -> bool {
+        matches!(self, Self::Offline)
+    }
+
+    /// Whether the status should use the warning tone. A missing marker is a
     /// normal transitional state, not a failure to alarm the user about.
     pub(crate) fn is_error(self) -> bool {
         !matches!(self, Self::NoMarker)
@@ -96,6 +105,8 @@ pub struct UpdateView {
     pub checking: bool,
     /// Why the last automatic/manual attempt in this session failed.
     pub failure: Option<CheckFailure>,
+    /// A short automatic retry is scheduled (the last failure was transient).
+    pub retrying: bool,
     /// A strictly newer stable version, when one is known.
     pub available: Option<Version>,
     /// Unix seconds of the last successful check, when there is one.
@@ -114,6 +125,7 @@ impl UpdateView {
             enabled: prefs.check_updates(),
             checking: false,
             failure: None,
+            retrying: false,
             available,
             checked_at: prefs.update_checked(),
         }
@@ -127,7 +139,11 @@ impl UpdateView {
         } else if let Some(version) = &self.available {
             format!("Version {version} is available.")
         } else if let Some(failure) = self.failure {
-            failure.status_text().to_string()
+            if self.retrying && failure == CheckFailure::Offline {
+                "Couldn't reach GitHub. Trying again…".to_string()
+            } else {
+                failure.status_text().to_string()
+            }
         } else if !self.enabled {
             "Automatic checks are off.".to_string()
         } else if self.checked_at.is_some() {
@@ -138,6 +154,16 @@ impl UpdateView {
     }
 }
 
+/// One scheduled retry: when to run, and whether it belongs to the short
+/// transient ladder (which must run even when the weekly check is not due).
+#[derive(Debug, Clone, Copy)]
+struct Retry {
+    at: Instant,
+    /// `true` for a short retry after a transport failure; `false` for the
+    /// normal weekly gate, which only lets a due weekly check through.
+    force: bool,
+}
+
 /// Live updater state owned by `App`: the in-flight check and its retry gate.
 #[derive(Default)]
 pub(crate) struct UpdateState {
@@ -145,8 +171,10 @@ pub(crate) struct UpdateState {
     check: Option<Promise<Result<Version, CheckFailure>>>,
     /// Why the last attempt failed (shown until the next successful check).
     failure: Option<CheckFailure>,
-    /// Do not retry an automatic check before this monotonic instant.
-    retry_at: Option<Instant>,
+    /// When to try an automatic check again (short ladder or the weekly gate).
+    retry: Option<Retry>,
+    /// Short transient retries used since the last success/manual check.
+    retries: u8,
 }
 
 impl std::fmt::Debug for UpdateState {
@@ -154,7 +182,8 @@ impl std::fmt::Debug for UpdateState {
         f.debug_struct("UpdateState")
             .field("checking", &self.check.is_some())
             .field("failure", &self.failure)
-            .field("retry_at", &self.retry_at)
+            .field("retry", &self.retry)
+            .field("retries", &self.retries)
             .finish()
     }
 }
@@ -170,27 +199,36 @@ impl UpdateState {
         let mut view = UpdateView::from_prefs(prefs);
         view.checking = self.check.is_some();
         view.failure = self.failure;
+        // A short retry only runs while automatic checks are on; with them
+        // off the card must not promise an attempt that will not happen.
+        view.retrying =
+            self.check.is_none() && view.enabled && self.retry.is_some_and(|retry| retry.force);
         view
     }
 
-    /// Polls a finished check and starts the daily one when it is due.
+    /// Polls a finished check and starts the weekly one when it is due.
     ///
     /// A failed check does NOT write `update_checked`: after a restart the
     /// normal due time still applies (a recent success is not rechecked just
-    /// because a later attempt failed), while this running session waits one
-    /// normal interval (see [`Self::retry_at`]) instead of looping.
+    /// because a later attempt failed), while this running session uses the
+    /// short ladder for a transport failure and then one normal interval
+    /// instead of looping.
     pub(crate) fn tick(&mut self, prefs: &mut Prefs) {
         self.poll(prefs);
         if self.check.is_some() || !prefs.check_updates() {
             return;
         }
-        if let Some(at) = self.retry_at {
-            if at > Instant::now() {
+        if let Some(retry) = self.retry {
+            if retry.at > Instant::now() {
                 return;
             }
-            // An expired backoff must not keep `next_check_in` pinned to
-            // zero when the last successful check is still fresh.
-            self.retry_at = None;
+            self.retry = None;
+            // A short transient retry runs even when the weekly check is not
+            // due (the failed attempt may have followed a recent success).
+            if retry.force {
+                self.start();
+                return;
+            }
         }
         if !is_due(prefs.update_checked(), now_epoch()) {
             return;
@@ -200,10 +238,23 @@ impl UpdateState {
 
     /// Manual `Check now` (also reachable from the macOS menu). Ignored while
     /// a check is already running; works even when automatic checks are off.
+    /// A manual attempt resets the short retry ladder.
     pub(crate) fn check_now(&mut self) {
         if self.check.is_none() {
+            self.retries = 0;
+            self.retry = None;
             self.start();
         }
+    }
+
+    /// The user changed the automatic-check preference. A failure gate belongs
+    /// to the previous setting: a fresh enable must not inherit a week-long
+    /// wait the user never asked for, and a fresh disable leaves nothing to
+    /// resume. Clearing both lets the normal due time decide on the next tick
+    /// (a recent success still keeps the check quiet).
+    pub(crate) fn automatic_checks_toggled(&mut self) {
+        self.retry = None;
+        self.retries = 0;
     }
 
     /// How long until the UI should wake this module again: while checking
@@ -217,10 +268,18 @@ impl UpdateState {
         if !prefs.check_updates() {
             return None;
         }
-        if let Some(at) = self.retry_at {
-            let wait = at.saturating_duration_since(Instant::now()).min(MAX_WAIT);
+        if let Some(retry) = self.retry {
+            let wait = retry
+                .at
+                .saturating_duration_since(Instant::now())
+                .min(MAX_WAIT);
             if !wait.is_zero() {
                 return Some(wait);
+            }
+            // The short ladder must run even when the weekly check is fresh;
+            // an expired weekly gate falls through to the normal due time.
+            if retry.force {
+                return Some(Duration::ZERO);
             }
         }
         let now = now_epoch();
@@ -249,15 +308,39 @@ impl UpdateState {
                 let newer = (latest > *current_version()).then_some(&latest);
                 prefs.record_update_check(checked_at, newer);
                 self.failure = None;
-                self.retry_at = None;
+                self.retry = None;
+                self.retries = 0;
             }
             Err(failure) => {
                 // Keep any previously known newer release visible; only the
                 // check status changes. No persistence on failure.
                 self.failure = Some(failure);
-                self.retry_at = Some(config::deadline_after(config::UPDATE_CHECK_INTERVAL_SECS));
+                self.schedule_failure(failure);
             }
         }
+    }
+
+    /// Picks the next attempt after a failed check: a short ladder for a
+    /// transport failure (the network may simply not be up yet at launch),
+    /// then the normal weekly gate. A non-transient failure (missing marker,
+    /// unusable answer) goes straight to the gate.
+    fn schedule_failure(&mut self, failure: CheckFailure) {
+        if failure.is_retryable() {
+            let index = usize::from(self.retries);
+            if let Some(seconds) = config::UPDATE_TRANSIENT_RETRY_SECS.get(index) {
+                self.retries = self.retries.saturating_add(1);
+                self.retry = Some(Retry {
+                    at: Instant::now() + Duration::from_secs(*seconds),
+                    force: true,
+                });
+                return;
+            }
+        }
+        self.retries = 0;
+        self.retry = Some(Retry {
+            at: config::deadline_after(config::UPDATE_CHECK_INTERVAL_SECS),
+            force: false,
+        });
     }
 
     /// Spawns the capped network fetch on a worker thread.
@@ -346,7 +429,7 @@ fn accept_marker_content_type(types: &[String]) -> Result<(), String> {
     }
 }
 
-/// Daily automatic-check interval, with clock-rollback treated as due (a
+/// Automatic-check interval (one week), with clock-rollback treated as due (a
 /// timestamp in the future must not disable checks until the clock catches up).
 pub(crate) fn is_due(last_checked: Option<u64>, now: u64) -> bool {
     last_checked.is_none_or(|last| {

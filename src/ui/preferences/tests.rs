@@ -9,6 +9,7 @@
 use super::{PreferencesState, PreferencesTab};
 use crate::history::HistoryStore;
 use crate::settings::Prefs;
+use crate::ui::theme;
 use eframe::egui;
 
 fn input_at(pointer: Option<egui::Pos2>) -> egui::RawInput {
@@ -389,6 +390,7 @@ fn updates_card_reports_status_and_requests_actions() {
         enabled: true,
         checking: false,
         failure: None,
+        retrying: false,
         available: Some(semver::Version::new(999, 0, 0)),
         checked_at: Some(1),
     };
@@ -419,6 +421,11 @@ fn updates_card_reports_status_and_requests_actions() {
     ] {
         assert!(seen.iter().any(|text| text == want), "{want:?} missing");
     }
+    assert!(
+        seen.iter()
+            .any(|text| text.starts_with("Checks GitHub once a week.")),
+        "the caption must state the weekly cadence"
+    );
     let anchor = anchor.expect("release link visible") + egui::vec2(1.0, 1.0);
     let click = |pressed| egui::Event::PointerButton {
         pos: anchor,
@@ -508,10 +515,95 @@ fn updates_card_reports_status_and_requests_actions() {
             .map(|(text, _)| text)
             .collect();
     }
-    let expected = "The latest release doesn't publish update information yet.";
+    let expected = "The latest release has no update information yet.";
     assert!(seen.iter().any(|text| text == expected));
     assert!(seen.iter().any(|text| text == "Try again"));
     assert!(!seen.iter().any(|text| text == "Check now"));
+}
+
+/// The Updates card owns its vertical rhythm: the dialog zeroes the default
+/// inter-widget gap, so the status, caption and action need explicit air.
+/// The status is a 14px sentence (not a 15px setting row) and the caption
+/// uses an 18px line height so its two lines do not run together.
+#[test]
+fn updates_card_typography_has_clear_hierarchy() {
+    use crate::update::{CheckFailure, UpdateView};
+
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut store = HistoryStore::in_memory();
+    let mut prefs = Prefs::default();
+    let mut windows = PreferencesState::new();
+    windows.prefs_open = true;
+    windows.selected = PreferencesTab::General;
+    let update = UpdateView {
+        enabled: true,
+        checking: false,
+        failure: Some(CheckFailure::Offline),
+        retrying: false,
+        available: None,
+        checked_at: Some(1),
+    };
+
+    let mut last = None;
+    for _ in 0..4 {
+        let mut out = ctx.run_ui(input_at(None), |root| {
+            windows.show_with_update(root.ctx(), &mut store, &mut prefs, &update);
+        });
+        out.textures_delta.clear();
+        last = Some(out);
+    }
+    let out = last.expect("dialog rendered");
+    let find = |want: &str| {
+        out.shapes.iter().find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t) if t.galley.text() == want => Some((
+                t.pos,
+                t.galley.size(),
+                t.galley.job.sections.first().map(|s| s.format.font_id.size),
+            )),
+            _ => None,
+        })
+    };
+    let (title_pos, title_size, _) = find("UPDATES").expect("section title");
+    let (status_pos, status_size, status_font) =
+        find("Couldn't reach GitHub.").expect("failure status");
+    let (caption_pos, caption_size, caption_font) = out
+        .shapes
+        .iter()
+        .find_map(|c| match &c.shape {
+            egui::epaint::Shape::Text(t)
+                if t.galley.text().starts_with("Checks GitHub once a week.") =>
+            {
+                Some((
+                    t.pos,
+                    t.galley.size(),
+                    t.galley.job.sections.first().map(|s| s.format.font_id.size),
+                ))
+            }
+            _ => None,
+        })
+        .expect("caption");
+    let (link_pos, _, _) = find("Try again").expect("retry link");
+
+    assert_eq!(status_font, Some(theme::typography::STATUS));
+    assert_eq!(caption_font, Some(theme::typography::UI_SMALL));
+    assert!(
+        caption_size.y >= 2.0 * theme::typography::UI_LINE_HEIGHT,
+        "two caption lines must use the 18px line height, got {caption_size:?}"
+    );
+    let gap = |after: f32, before: f32| before - after;
+    assert!(
+        (gap(title_pos.y + title_size.y, status_pos.y) - theme::spacing::S).abs() <= 1.0,
+        "section title to status needs 6px of air"
+    );
+    assert!(
+        (gap(status_pos.y + status_size.y, caption_pos.y) - theme::spacing::XS).abs() <= 1.0,
+        "status to caption needs 4px of air"
+    );
+    assert!(
+        (gap(caption_pos.y + caption_size.y, link_pos.y) - theme::spacing::L).abs() <= 1.0,
+        "caption to action needs 12px of air"
+    );
 }
 
 /// The Updates card's switch is the opt-out: clicking it writes
@@ -531,6 +623,7 @@ fn updates_switch_turns_automatic_checks_off() {
         enabled: true,
         checking: false,
         failure: None,
+        retrying: false,
         available: None,
         checked_at: None,
     };

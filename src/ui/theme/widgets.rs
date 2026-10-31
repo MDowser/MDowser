@@ -446,7 +446,7 @@ pub const BODY_FONT_SIZE: f32 = 16.0;
 /// keep the font's natural line height (their glyphs are taller than 24px).
 pub const BODY_LINE_HEIGHT: f32 = 24.0;
 
-/// Type scale for chrome and document helpers: one token per size so the
+/// Type scale for chrome and document helpers: one token per role so the
 /// omnibox, Preferences, history rows and the display face cannot drift.
 /// Values are pixel-identical to the literals they replace.
 pub mod typography {
@@ -454,12 +454,16 @@ pub mod typography {
     pub const UI_COMPACT: f32 = 11.5;
     /// Small chrome text (`TextStyle::Small`, captions, section labels): 12px.
     pub const UI_SMALL: f32 = 12.0;
+    /// Line height for small chrome text: 18px (1.5 x `UI_SMALL`).
+    pub const UI_LINE_HEIGHT: f32 = 18.0;
     /// Preferences section label (uppercase eyebrow): 11px.
     pub const EYEBROW: f32 = 11.0;
     /// Link/list measure in Preferences (`text_link` galley): 13px.
     pub const UI_LINK: f32 = 13.0;
     /// Buttons (`TextStyle::Button`) and omnibox titles: 14px.
     pub const BUTTON: f32 = 14.0;
+    /// Primary status sentences (Updates card): 14px.
+    pub const STATUS: f32 = 14.0;
     /// Dropdown rows: 14.5px.
     pub const DROPDOWN: f32 = 14.5;
     /// Setting rows and danger rows: 15px.

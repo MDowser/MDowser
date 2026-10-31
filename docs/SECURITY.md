@@ -102,15 +102,18 @@ minimal.
   dot and the Updates card; "Open release page" builds
   `https://github.com/MDowser/MDowser/releases/tag/vX.Y.Z` locally and hands it
   to the system browser. MDowser never downloads, unpacks or replaces itself.
-- A failed check does not persist a timestamp and cannot loop: the session
-  waits out a 24h backoff, a restart follows the normal due time (the failure
-  does not push it back), and `Check now` remains an explicit user action.
-  Failures are classified as a missing marker (HTTP 404), no network answer, or
-  an unusable answer; a missing marker is informational, not an error, because
-  a release made before this feature does not publish the asset. Raw response
-  or error text is never rendered in Preferences. Automatic checks can be
-  turned off in Preferences and send no browsing data (GitHub sees the public
-  endpoint request, the source IP and `MDowser/<version>`).
+- A failed check does not persist a timestamp and cannot loop: a transport
+  failure retries after 15s, 1 min and 5 min (a bounded ladder for a network
+  that is not up yet at launch), then the session waits out a one-week
+  backoff; a restart follows the normal due time (the failure does not push it
+  back), and `Check now` remains an explicit user action. Failures are
+  classified as a
+  missing marker (HTTP 404), no network answer, or an unusable answer; a
+  missing marker is informational, not an error, because a release made before
+  this feature does not publish the asset. Raw response or error text is never
+  rendered in Preferences. Automatic checks can be turned off in Preferences
+  and send no browsing data (GitHub sees the public endpoint request, the
+  source IP and `MDowser/<version>`).
 - Marker fetches share the process's network stack but not a tab's
   cancellation, history or cache entry.
 

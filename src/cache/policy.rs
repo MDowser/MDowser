@@ -431,8 +431,12 @@ pub(crate) fn resource_key(url: &Url) -> Option<String> {
         return None;
     }
     let mut clean = url.clone();
-    let _ = clean.set_username("");
-    let _ = clean.set_password(None);
+    // Fail closed like every other credential sink: `https` URLs always
+    // accept these setters today, but a future scheme/parser change must
+    // never leave a secret in a persisted cache key.
+    if clean.set_username("").is_err() || clean.set_password(None).is_err() {
+        return None;
+    }
     clean.set_fragment(None);
     Some(clean.as_str().to_string())
 }

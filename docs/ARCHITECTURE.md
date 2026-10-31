@@ -48,7 +48,7 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │            window geometry; settings.bin/session.bin + store.key, atomic
   │            file helpers; `session`, `file`, `platform` submodules)
   ├─ update (notification-only release check: strict latest.txt marker,
-  │          daily due logic, capped fixed-endpoint GET through
+  │          weekly due logic, capped fixed-endpoint GET through
   │          protocol::client, in-flight Promise + session retry gate; never
   │          downloads or replaces the app)
   ├─ protocol/client (capped GET cascade, global rustls pool;
@@ -540,14 +540,20 @@ Key contracts per area (the module map above names the main module areas):
   `restore_tabs`: only an explicit false/0 disables automatic checks.
 - The update check (`update/`) is notification-only: it polls one capped
   `latest.txt` GET while running, starts the automatic check when
-  `update_checked` is missing or 24h old, and writes `update_checked` +
+  `update_checked` is missing or a week old, and writes `update_checked` +
   `update_available` only after a successful parse. A failure stays
   session-only (`UpdateState.failure`, classified as missing marker, offline or
-  unusable), keeps any previously known newer version visible, and sets a 24h
-  in-process retry gate; `Check now` bypasses the due time and the opt-out.
-  The app polls the `Promise` each frame and schedules a repaint only while
-  checking, at the due time, or at the retry gate (capped at one hour). The
-  Preferences card and the gear dot read the same `UpdateView`.
+  unusable), keeps any previously known newer version visible, and schedules a
+  retry: a transport failure (the network may not be up yet at launch) retries
+  after 15s, 1 min and 5 min, then falls back to a one-week in-process gate;
+  other failures go straight to the gate. A short retry runs even when the
+  weekly check is not due; `Check now` bypasses the retry, the due time and the
+  opt-out, and toggling the automatic-check preference clears the gate so the
+  new setting follows the normal due time. The app polls the `Promise` each
+  frame and schedules a repaint only while checking, at the due time, or at
+  the retry gate (capped at one hour). The Preferences card and the gear dot
+  read the same `UpdateView`; its `retrying` flag tells the card that a short
+  retry is pending.
 - The read-modify-write uses a per-directory plaintext CACHE: a read body serves
   every later read AND write (four keys decrypt once; startup validation seeds
   it, so a valid `settings.bin` is decrypted once per launch). The shared
@@ -911,7 +917,7 @@ Key contracts per area (the module map above names the main module areas):
   (`SMALL/HAIRLINE/CARD/MENU/TILE/SHEET/FULL` + `theme::pill_radius`; rows use
   `row::ROW_RADIUS = radius::MENU`, switch/zoom tracks use `pill_radius`). Type
   shares `theme::typography`
-  (`UI_COMPACT/UI_SMALL/EYEBROW/UI_LINK/BUTTON/DROPDOWN/ROW/HEADING/DIALOG_TITLE/PAGE_TITLE/DISPLAY`),
+  (`UI_COMPACT/UI_SMALL/UI_LINE_HEIGHT/EYEBROW/UI_LINK/BUTTON/STATUS/DROPDOWN/ROW/HEADING/DIALOG_TITLE/PAGE_TITLE/DISPLAY`),
   strokes share `theme::stroke` (`HAIRLINE/ICON/EMPHASIS`), gaps share
   `theme::spacing` (`XXS/XS/S/M/L/XL/PAGE_END`), and every chrome icon button
   shares `theme::ICON_BOX` (26px: tab close, omnibox clear, history clear, zoom

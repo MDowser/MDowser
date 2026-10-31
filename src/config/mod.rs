@@ -1090,8 +1090,16 @@ pub const UPDATE_ENDPOINT: &str =
 /// `Accept` header for the marker: plain text, no markdown preference.
 pub const UPDATE_ACCEPT_HEADER_VALUE: &str = "text/plain";
 
-/// Automatic check interval (24 hours). `Check now` bypasses it.
-pub const UPDATE_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
+/// Automatic check interval (7 days / once a week). `Check now` bypasses it.
+pub const UPDATE_CHECK_INTERVAL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Short retry ladder for a check that could not reach GitHub at all
+/// (typically the first automatic check racing the network right after
+/// launch). Each entry is the wait before the next attempt; after the last
+/// one the normal weekly gate applies. Entries are deliberately short: a
+/// connection that comes up seconds later must not leave the card in a failed
+/// state until the next week.
+pub const UPDATE_TRANSIENT_RETRY_SECS: [u64; 3] = [15, 60, 300];
 
 /// Total budget for one marker GET: tiny body, but GitHub redirects once to
 /// its asset host, whose connect time must fit too.

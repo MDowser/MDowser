@@ -88,7 +88,7 @@ pub struct MdowserApp {
     bookmarks: BookmarkStore,
     /// Persistent preferences (theme, startup zoom, session restore).
     prefs: Prefs,
-    /// Notification-only release check (daily background fetch + live state).
+    /// Notification-only release check (weekly background fetch + live state).
     update: UpdateState,
     /// Last session persisted to disk (`settings::save_session`), so the
     /// file is only rewritten when the open tabs actually change.

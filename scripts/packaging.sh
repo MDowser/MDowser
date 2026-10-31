@@ -159,7 +159,6 @@ install_linux_tree() {
             return 1
         fi
     done
-    unset _ilt_pre
     install -d "$_ilt_appdir/bin" \
         "$_ilt_appdir/share/applications" \
         "$_ilt_appdir/share/metainfo" \

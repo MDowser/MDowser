@@ -8,12 +8,13 @@
 
 use super::{
     accept_marker_content_type, current_version, is_due, parse_marker, release_url, CheckFailure,
-    UpdateState,
+    Retry, UpdateState,
 };
 use crate::config;
 use crate::protocol::client::GetError;
 use crate::settings::Prefs;
 use semver::Version;
+use std::time::{Duration, Instant};
 
 #[test]
 fn marker_accepts_one_stable_version_with_optional_newline() {
@@ -52,10 +53,11 @@ fn marker_rejects_prefixes_multi_lines_and_prereleases() {
 
 #[test]
 fn due_logic_handles_first_check_interval_and_clock_rollback() {
-    let day = config::UPDATE_CHECK_INTERVAL_SECS;
+    let interval = config::UPDATE_CHECK_INTERVAL_SECS;
+    assert_eq!(interval, 7 * 24 * 60 * 60, "automatic checks are weekly");
     assert!(is_due(None, 1_000));
-    assert!(!is_due(Some(1_000), 1_000 + day - 1));
-    assert!(is_due(Some(1_000), 1_000 + day));
+    assert!(!is_due(Some(1_000), 1_000 + interval - 1));
+    assert!(is_due(Some(1_000), 1_000 + interval));
     // A stored timestamp in the future (clock moved backwards) must not
     // disable checks until real time catches up.
     assert!(is_due(Some(2_000), 1_000));
@@ -115,10 +117,11 @@ fn view_priority_and_newer_than_current_filter() {
     // A known release stays visible even if a later check failed.
     assert_eq!(view.status_text(), format!("Version {after} is available."));
     view.available = None;
-    assert_eq!(
-        view.status_text(),
-        "Couldn't read the update information. Try again later."
-    );
+    assert_eq!(view.status_text(), "Couldn't read the update information.");
+    view.retrying = true;
+    view.failure = Some(CheckFailure::Offline);
+    assert_eq!(view.status_text(), "Couldn't reach GitHub. Trying again…");
+    view.retrying = false;
     view.failure = None;
     view.enabled = false;
     assert_eq!(view.status_text(), "Automatic checks are off.");
@@ -164,27 +167,94 @@ fn check_failures_classify_and_stay_friendly() {
     view.failure = Some(CheckFailure::NoMarker);
     assert_eq!(
         view.status_text(),
-        "The latest release doesn't publish update information yet."
+        "The latest release has no update information yet."
     );
     assert!(
         !CheckFailure::NoMarker.is_error(),
         "a missing marker is informational, not an error"
     );
     view.failure = Some(CheckFailure::Offline);
-    assert_eq!(
-        view.status_text(),
-        "Couldn't reach GitHub. Check your connection."
-    );
+    assert_eq!(view.status_text(), "Couldn't reach GitHub.");
     assert!(CheckFailure::Offline.is_error());
-    view.failure = Some(CheckFailure::Unusable);
-    assert_eq!(
-        view.status_text(),
-        "Couldn't read the update information. Try again later."
+    assert!(
+        CheckFailure::Offline.is_retryable(),
+        "a transport failure may only be the network coming up"
     );
+    assert!(!CheckFailure::NoMarker.is_retryable());
+    assert!(!CheckFailure::Unusable.is_retryable());
+    view.failure = Some(CheckFailure::Unusable);
+    assert_eq!(view.status_text(), "Couldn't read the update information.");
     assert!(
         !view.status_text().contains("raw"),
         "raw protocol text never reaches the card"
     );
+}
+
+/// A transport failure retries soon instead of leaving the card failed until
+/// the next week; the ladder is bounded and non-transient failures skip it.
+#[test]
+fn transient_failures_use_a_short_bounded_retry_ladder() {
+    let mut update = UpdateState::new();
+    for (index, expected) in config::UPDATE_TRANSIENT_RETRY_SECS.iter().enumerate() {
+        update.schedule_failure(CheckFailure::Offline);
+        let retry = update.retry.expect("a retry is scheduled");
+        assert!(retry.force, "a transport failure uses the short ladder");
+        assert_eq!(update.retries, index as u8 + 1);
+        let wait = retry.at.saturating_duration_since(Instant::now());
+        assert!(
+            wait > Duration::from_secs(expected.saturating_sub(1))
+                && wait <= Duration::from_secs(*expected),
+            "wait {wait:?} must be the {expected}s backoff"
+        );
+    }
+    // The ladder is exhausted: fall back to the normal weekly gate.
+    update.schedule_failure(CheckFailure::Offline);
+    let retry = update.retry.expect("a retry is scheduled");
+    assert!(!retry.force, "the weekly gate is not a forced retry");
+    assert_eq!(update.retries, 0);
+    assert!(
+        retry.at.saturating_duration_since(Instant::now())
+            > Duration::from_secs(config::UPDATE_CHECK_INTERVAL_SECS - 1),
+        "the exhausted ladder falls back to the weekly gate"
+    );
+
+    for failure in [CheckFailure::NoMarker, CheckFailure::Unusable] {
+        let mut update = UpdateState::new();
+        update.schedule_failure(failure);
+        let retry = update.retry.expect("a retry is scheduled");
+        assert!(!retry.force, "{failure:?} must skip the short ladder");
+        assert_eq!(update.retries, 0);
+    }
+}
+
+/// The short retry runs even when a recent success makes the weekly check not
+/// due, and the view says it is trying again instead of showing a dead error.
+#[test]
+fn transient_retry_is_forced_and_visible() {
+    let mut prefs = Prefs::default();
+    prefs.record_update_check(super::now_epoch(), None);
+    let mut update = UpdateState::new();
+    update.failure = Some(CheckFailure::Offline);
+    update.retry = Some(Retry {
+        at: Instant::now() - Duration::from_secs(1),
+        force: true,
+    });
+    assert_eq!(update.next_check_in(&prefs), Some(Duration::ZERO));
+
+    update.retry = Some(Retry {
+        at: Instant::now() + Duration::from_secs(30),
+        force: true,
+    });
+    let view = update.view(&prefs);
+    assert!(view.retrying);
+    assert_eq!(view.status_text(), "Couldn't reach GitHub. Trying again…");
+
+    // With automatic checks off the card must not promise a retry that will
+    // not run; the failure itself stays visible.
+    prefs.set_check_updates(false);
+    let view = update.view(&prefs);
+    assert!(!view.retrying);
+    assert_eq!(view.status_text(), "Couldn't reach GitHub.");
 }
 
 #[test]
@@ -207,12 +277,38 @@ fn expired_retry_gate_does_not_spin() {
     let mut prefs = Prefs::default();
     prefs.record_update_check(super::now_epoch(), None);
     let mut update = UpdateState::new();
-    update.retry_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    update.retry = Some(Retry {
+        at: Instant::now() - Duration::from_secs(1),
+        force: false,
+    });
     let wait = update.next_check_in(&prefs).expect("automatic checks on");
     assert!(
-        wait > std::time::Duration::ZERO,
+        wait > Duration::ZERO,
         "expired gate must wait for the due time, not spin"
     );
+}
+
+/// Re-enabling automatic checks must not inherit a failure gate from the
+/// previous setting: the normal due time decides again on the next tick.
+#[test]
+fn toggling_automatic_checks_clears_the_retry_gate() {
+    let mut update = UpdateState::new();
+    update.schedule_failure(CheckFailure::Offline);
+    assert!(update.retry.is_some());
+    assert_eq!(update.retries, 1);
+
+    update.automatic_checks_toggled();
+    assert!(
+        update.retry.is_none(),
+        "the old gate must not survive a toggle"
+    );
+    assert_eq!(update.retries, 0, "the short ladder starts over");
+
+    // After the reset a due check is picked up immediately by the normal
+    // path (no success has ever been recorded in this session).
+    let mut prefs = Prefs::default();
+    prefs.set_check_updates(true);
+    assert_eq!(update.next_check_in(&prefs), Some(Duration::ZERO));
 }
 
 /// Live smoke test (ignored by default so the suite never touches the

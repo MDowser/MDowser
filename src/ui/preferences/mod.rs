@@ -505,26 +505,42 @@ impl PreferencesState {
         // the official GitHub release to the system browser. Nothing is
         // downloaded or installed by the app.
         card(ui, s, |ui| {
+            // The dialog zeroes the inter-widget gap so the header stays
+            // flush; this card lays out its text block with explicit air
+            // instead of letting the status, caption and actions collide.
+            ui.spacing_mut().item_spacing.y = 0.0;
             section_title(ui, s, "UPDATES");
+            ui.add_space(theme::spacing::S);
             let status_color = if update.available.is_some() {
                 s.primary
-            } else if update.failure.is_some_and(CheckFailure::is_error) {
-                s.error
+            } else if update.failure.is_some_and(CheckFailure::is_error) && !update.retrying {
+                // A failed check is informational for this notification-only
+                // feature: amber, not the red used for real errors.
+                s.alert_warning
             } else {
                 s.on_surface
             };
             ui.label(
                 egui::RichText::new(update.status_text())
-                    .size(theme::typography::ROW)
+                    .size(theme::typography::STATUS)
                     .color(status_color),
             );
             let caption = if update.enabled {
-                "Checks GitHub once a day. Updates are never downloaded or installed automatically."
+                "Checks GitHub once a week. Updates are never downloaded or installed automatically."
             } else {
                 "Automatic checks are off. Check now still works; updates are never installed automatically."
             };
-            ui.label(theme::weak(ui, caption));
-            ui.add_space(theme::spacing::S);
+            ui.add_space(theme::spacing::XS);
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(caption)
+                        .size(theme::typography::UI_SMALL)
+                        .line_height(Some(theme::typography::UI_LINE_HEIGHT))
+                        .color(s.on_surface_variant),
+                )
+                .selectable(false),
+            );
+            ui.add_space(theme::spacing::L);
             ui.horizontal(|ui| {
                 if update.checking {
                     ui.label(theme::weak(ui, "Checking…"));
@@ -552,6 +568,7 @@ impl PreferencesState {
                     }
                 }
             });
+            ui.add_space(theme::spacing::M);
             divider(ui, s);
             setting_row(ui, s, "Check automatically", |ui| {
                 let mut enabled = update.enabled;

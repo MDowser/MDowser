@@ -209,8 +209,8 @@ impl eframe::App for MdowserApp {
         // success clears the warning).
         self.prefs.tick();
         // Notification-only update check: polls a finished fetch, starts the
-        // daily one when due, and records a newer stable release. No UI and
-        // no retry loop: failures wait for the normal interval or `Check now`.
+        // weekly one when due, and records a newer stable release. No UI here:
+        // a failure uses the short ladder, then the weekly gate.
         self.update.tick(&mut self.prefs);
         // Remember the open tabs while "restore tabs on startup" is on. The
         // per-frame check compares against the saved snapshot WITHOUT
@@ -437,12 +437,18 @@ impl eframe::App for MdowserApp {
         // "View third-party licenses" opens the embedded notices in a new
         // tab (the dialog never navigates by itself); "Delete all data and
         // close" wipes the data directory and exits immediately without saving.
+        let updates_were_enabled = self.prefs.check_updates();
         let prefs_actions = self.windows.show_with_update(
             ui.ctx(),
             &mut self.history,
             &mut self.prefs,
             &update_view,
         );
+        if updates_were_enabled != self.prefs.check_updates() {
+            // A toggle is an explicit choice about automatic checks: do not
+            // carry the previous setting's failure gate into the new one.
+            self.update.automatic_checks_toggled();
+        }
         if prefs_actions.wipe_all {
             self.wipe_all_and_exit();
         }
