@@ -15,8 +15,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   ├─ error (the unified `BrowserError` every module converts its failures
   │          into: one message-shaped type for the error view and logs)
   ├─ util (shared helpers: panic guard for background jobs, display caps
-  │         (`truncate_chars`), credential stripping for logs, stored-URL
-  │         normalization)
+  │         (`truncate_chars`), credential stripping for logs (including
+  │         passwords that contain a URL separator), stored-URL normalization)
   ├─ assets (embedded Noto faces: color emoji, monochrome emoji, CJK,
   │          Latin + script set; the two largest ship Brotli-compressed
   │          and are decompressed once into process-lifetime
@@ -1306,7 +1306,7 @@ is [`INTERFACE.md#keyboard-shortcuts`](INTERFACE.md#keyboard-shortcuts).
 ## Bounds and conventions
 
 - Shared anti-abuse bounds live in `config/` (`MAX_SETTINGS_BYTES`, the
-  code/table render-cache byte budgets, the font-asset gzip bound and
+  code/table render-cache byte budgets, the emoji-font asset gzip bound and
   `LOCAL_READ_CHUNK_BYTES`). The structural/MDX scan-line budgets live beside
   their passes in `markdown::document`, the store repair-lock timeouts in
   `store::crypto`, and the display helpers in `util.rs`.

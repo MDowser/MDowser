@@ -465,6 +465,27 @@ mod tests {
         assert!(circle.x < title.0.x, "the dot sits left of the title");
     }
 
+    /// Error details are painted AND copied through `display_line`: a
+    /// blocked-scheme password containing a `/` must be gone from both, not
+    /// just from the `Requested:` line (which the navigation path sanitizes
+    /// separately).
+    #[test]
+    fn error_details_do_not_echo_a_separator_password() {
+        let ctx = egui::Context::default();
+        crate::ui::theme::apply(&ctx);
+        let lines = vec!["HTTPS only, blocked: mailto:user:pa/ss@b.com".to_string()];
+        let out = render(&ctx, "b.com", &lines, ErrorKind::BadAddress, Vec::new());
+        let painted = texts(&out);
+        assert!(
+            painted.iter().any(|t| t.contains("blocked:")),
+            "the detail line is painted: {painted:?}"
+        );
+        assert!(
+            painted.iter().all(|t| !t.contains("pa/ss")),
+            "password survived into the error view: {painted:?}"
+        );
+    }
+
     /// "No markdown here" offers the escape hatch: a large accent button
     /// that hands the resolved address to the OS default handler (the
     /// `OpenUrl` command `egui-winit` executes through the embedded

@@ -209,6 +209,12 @@ pub(crate) fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 ///   the next `/`, `\`, `?` or `#`), with or without a password.
 /// - Plain `mailto:a@b` text is left alone: after `scheme:` there is no
 ///   slash run, so no authority position exists.
+/// - A password may itself contain `/`, `?`, `#` or `\` (`user:pa/ss@host`).
+///   A final loose pass uses the LAST `@` for scheme- or authority-prefixed
+///   tokens and for the separator-bearing schemeless spelling, so a
+///   blocked-scheme error line cannot echo it. Plain schemeless
+///   `user:pass@host` remains with the display sanitizer, where the
+///   host:port shape is decided.
 /// - Works token by token (whitespace-delimited) and copies every other
 ///   byte untouched; all slice indices are ASCII delimiter boundaries, so
 ///   slicing never panics on UTF-8.
@@ -314,7 +320,111 @@ fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
             }
         }
     }
+    // 4) A password may contain a separator (`user:pa/ss@host`). The
+    //    authority scan above stops at that separator, so a token can still
+    //    carry the `@` outside the authority it saw. Fail closed with the
+    //    last-`@` pass instead of letting a blocked-scheme error line echo
+    //    the password.
+    if let Some(clean) = strip_loose_credentials(&current) {
+        if clean != current {
+            current = std::borrow::Cow::Owned(clean);
+            changed = true;
+        }
+    }
     changed.then_some(current)
+}
+
+/// Final, fail-closed credential pass for a password that contains a URL
+/// separator. Over-redacts rather than leak.
+///
+/// The strict authority scan ends at the first `/`, `?`, `#` or `\`, so it
+/// cannot see the `@` in `user:pa/ss@host`. A scheme or authority prefix
+/// makes the credential shape unambiguous; a separator inside a schemeless
+/// `name:secret@host` segment does too. Use the LAST `@` (the URL parser's
+/// userinfo separator) and drop everything between the prefix's authority
+/// start and that `@`. Path-shaped colons (`host/a:b@c`), Windows paths and
+/// host:port tokens are left alone; a plain schemeless `user:pass@host`
+/// stays with `sanitize_for_display`.
+fn strip_loose_credentials(token: &str) -> Option<String> {
+    let at = token.rfind('@')?;
+    // Prefer the LAST `://` before the `@`: an error line can embed the
+    // real redirect URL inside the outer URL's path/query
+    // (`?next=https://u:p@evil`), so keep the outer prefix and clean the
+    // inner authority the server controls.
+    let (prefix, rest) = if let Some(sep) = token[..at].rfind("://") {
+        (&token[..sep + 3], &token[sep + 3..])
+    } else if token.starts_with("//") || token.starts_with(r"\\") {
+        let run = token
+            .bytes()
+            .take_while(|b| *b == b'/' || *b == b'\\')
+            .count();
+        (&token[..run], &token[run..])
+    } else {
+        let colon = token[..at].find(':')?;
+        let scheme = &token[..colon];
+        if !is_scheme_syntax(scheme) {
+            return None;
+        }
+        let run = token[colon + 1..]
+            .bytes()
+            .take_while(|b| *b == b'/' || *b == b'\\')
+            .count();
+        let auth_start = colon + 1 + run;
+        let has_second_colon = token[colon + 1..at].contains(':');
+        let separator_in_creds = token[colon + 1..at].contains(['/', '\\', '?', '#']);
+        if run == 0 && !has_second_colon && !separator_in_creds {
+            // `mailto:a@b`, `nas:5000/x@y` and a plain host:port are not
+            // credential-shaped. A separator is the ambiguous schemeless
+            // form (`user:pa/ss@host`), handled below.
+            return None;
+        }
+        if run > 0 {
+            (&token[..auth_start], &token[auth_start..])
+        } else if !has_second_colon {
+            // `user:pa/ss@host`: no second colon before the `@`, so this is
+            // not scheme syntax with userinfo; the whole token is the
+            // ambiguous schemeless spelling. Strip to the host.
+            ("", token)
+        } else if crate::protocol::client::is_blocked_scheme(scheme) {
+            // A blocked non-hierarchical spelling shows just the host, like
+            // `sanitize_for_display`; the scheme itself is not addressable.
+            ("", &token[colon + 1..])
+        } else {
+            // `http:user:pass@host` keeps its scheme but loses userinfo.
+            (&token[..colon + 1], &token[colon + 1..])
+        }
+    };
+    let rest_at = rest.rfind('@')?;
+    let pre = &rest[..rest_at];
+    let colon = pre.find(':')?;
+    // A colon after a path/query/fragment separator is not userinfo
+    // (`host/a:b@c`, `host?x=a:b@c`).
+    if pre[..colon].contains(['/', '\\', '?', '#']) {
+        return None;
+    }
+    let creds = &pre[colon + 1..];
+    // A path-like segment is not userinfo.
+    if creds.starts_with(['/', '\\']) && !creds.contains(':') {
+        return None;
+    }
+    // A host:port/path token the URL parser accepts (`nas:5000/x@y`) is
+    // not userinfo.
+    let digits = creds.bytes().take_while(u8::is_ascii_digit).count();
+    if (1..=5).contains(&digits)
+        && matches!(creds.as_bytes().get(digits), Some(b'/' | b'\\'))
+        && credential_free_https(rest)
+    {
+        return None;
+    }
+    let after = &rest[rest_at + 1..];
+    Some(format!("{prefix}{after}"))
+}
+
+/// True when `token` (without a scheme) parses as an `https` URL with no
+/// userinfo. Keeps host:port-shaped text readable in log lines.
+fn credential_free_https(token: &str) -> bool {
+    url::Url::parse(&format!("https://{token}"))
+        .is_ok_and(|url| url.username().is_empty() && url.password().is_none())
 }
 
 /// Rebuilds `token` without the userinfo found at `auth_start`.
@@ -721,6 +831,54 @@ mod tests {
         assert_eq!(
             strip_credentials_for_log("blocked: mailto:user:pass@b.com"),
             "blocked: mailto:b.com"
+        );
+        // A password may itself contain a separator: the strict authority
+        // scan stops at `/`, so the loose pass must still remove the
+        // userinfo for a scheme- or authority-prefixed spelling. This is
+        // the blocked-scheme error-line path (`parse_https` builds the
+        // message with this helper), where a leak would reach the error
+        // view and "Copy log".
+        assert_eq!(
+            strip_credentials_for_log("blocked: mailto:user:pa/ss@b.com"),
+            "blocked: b.com"
+        );
+        assert_eq!(
+            strip_credentials_for_log("blocked: user:pa/ss@ex.com/x"),
+            "blocked: ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("blocked: http:user:pa/ss@ex.com/x"),
+            "blocked: http:ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("blocked: http:/user:pa/ss@ex.com/x"),
+            "blocked: http:/ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://user:pa/ss@ex.com/x"),
+            "https://ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("//user:pa/ss@ex.com/x"),
+            "//ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://ex.com/?next=http://user:pa/ss@evil/x"),
+            "https://ex.com/?next=http://evil/x"
+        );
+        // The loose pass must not eat a path/query colon or a Windows drive
+        // path.
+        assert_eq!(
+            strip_credentials_for_log("https://host/a:b@c"),
+            "https://host/a:b@c"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://host?x=a:b@c"),
+            "https://host?x=a:b@c"
+        );
+        assert_eq!(
+            strip_credentials_for_log(r"C:\Users\me\a@b.md"),
+            r"C:\Users\me\a@b.md"
         );
         // A single colon stays `host:port` / email local part: nothing to
         // strip without a userinfo password.

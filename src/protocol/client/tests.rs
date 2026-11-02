@@ -246,6 +246,7 @@ fn display_sanitizer_never_echoes_credentials() {
         "b.com"
     );
     assert_eq!(sanitize_for_display("a:b/c@d\nhello"), "d");
+    assert_eq!(sanitize_for_display("user:pa/ss@ex.com\nhello"), "ex.com");
     // Path/query `@`s and host:port segments are not credentials: the
     // token stays readable.
     assert_eq!(sanitize_for_display("https://host/a@b"), "https://host/a@b");
@@ -253,6 +254,29 @@ fn display_sanitizer_never_echoes_credentials() {
         sanitize_for_display("C:\\Users\\me\\a@b.md"),
         "C:\\Users\\me\\a@b.md"
     );
+}
+
+/// The blocked-scheme error LINE is built by `parse_https` with the shared
+/// log sanitizer, not by the display sanitizer. A password containing a
+/// `/` must not survive there either: the error view paints the line in
+/// Details and includes it in "Copy log".
+#[test]
+fn blocked_scheme_error_line_never_echoes_a_separator_password() {
+    for (input, expected) in [
+        ("mailto:user:pa/ss@b.com", "b.com"),
+        // No scheme prefix: `user:` looks like scheme syntax, so
+        // `parse_https` rejects it too, and the line must not leak either.
+        ("user:pa/ss@ex.com", "ex.com"),
+    ] {
+        let error = parse_https(input).expect_err("blocked scheme");
+        match error {
+            crate::error::BrowserError::NotHttps(line) => {
+                assert_eq!(line, expected, "input: {input}");
+                assert!(!line.contains("pa/ss"), "password survived: {line}");
+            }
+            other => panic!("unexpected error for {input}: {other:?}"),
+        }
+    }
 }
 
 /// `finish_document` derives the first-H1 title fallback once, next to the

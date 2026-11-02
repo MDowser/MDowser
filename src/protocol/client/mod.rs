@@ -567,7 +567,27 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
         // non-hierarchical scheme (`mailto:user:pass@b.com` became
         // `mailto:b.com`): show just the domain. Recovered from the raw
         // input, where the scheme is still visible.
-        return blocked_scheme_password_domain(input).unwrap_or_else(|| stripped.into_owned());
+        if let Some(domain) = blocked_scheme_password_domain(input) {
+            return domain;
+        }
+        if stripped != input {
+            // The shared pass removed the userinfo. When the credential was
+            // the FIRST token (`a:b/c@d\nhello` -> `d\nhello`), the display
+            // echo is still one address token, so drop the rest. When the
+            // credential sat inside a whole error line
+            // (`HTTPS only, blocked: http:user:pass@host`), keep the line's
+            // context; the password is already gone.
+            let first_end = input
+                .find(|c: char| c.is_ascii_whitespace())
+                .unwrap_or(input.len());
+            if input[..first_end].contains('@') {
+                let end = stripped
+                    .find(|c: char| c.is_ascii_whitespace())
+                    .unwrap_or(stripped.len());
+                return stripped[..end].to_string();
+            }
+        }
+        return stripped.into_owned();
     };
     let pre = &stripped[..at];
     let Some(colon) = pre.find(':') else {

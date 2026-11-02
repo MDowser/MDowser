@@ -69,9 +69,9 @@ minimal.
 - Markdown autolinks are capped at 20 000 per document and anchors at 20 000;
   link joins at 8192 joins / depth 2048; route candidates at 5; render nesting
   at depth 48; code highlighting at 4000 lines / 400 000 bytes (≈391 KiB). The
-  code and table render caches are 32 MiB / 16 MiB, and the embedded-font gzip
-  expansion is 64 MiB. All of these are `config::MAX_*`, so one module owns
-  every bound.
+  code and table render caches are 32 MiB / 16 MiB, and the embedded emoji
+  font's gzip expansion is 64 MiB. All of these are `config::MAX_*`, so one
+  module owns every bound.
 - Single-flight per tab: a new navigation cooperatively cancels the previous
   fetch (the cancel flag is checked per candidate and per chunk).
 - Wall-clock deadlines never panic: slot waits, image/favicon budget backoffs
@@ -439,6 +439,11 @@ card and the bookmark/history stores.
   is rejected, with its userinfo removed by the same sanitizer, instead of
   being read as a userinfo host for `https://host`; the plain `user:pass@host`
   and `user:pass@host:8080` forms keep working with credentials stripped.
+  The log/error sanitizer also fails closed for a separator-bearing
+  userinfo whose password contains `/`, `?`, `#` or `\` (for example
+  `mailto:user:pa/ss@host` or `user:pa/ss@host`); the plain schemeless
+  `user:pass@host` spelling remains with the display sanitizer below, where
+  the host:port shape is decided.
 - The display echo is bounded at the first ASCII-whitespace character (one
   address token: a second-line paste cannot ride along), and a
   host-port-shaped token (`nas:5000/x@y`) is kept verbatim only when it parses

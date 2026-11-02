@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses a 14px status line with an 18px caption line height, so a failure line
   no longer sits flush against the section title or the caption.
   (`src/ui/preferences/`, `src/ui/theme/`.)
+- The closed "Keep visits" field shows the full policy (`Keep 3 months`)
+  instead of ellipsizing the menu's `(default)` suffix; the menu still marks
+  the default. (`src/ui/preferences/`.)
 
 ### Fixed
 
@@ -32,6 +35,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure's week-long retry gate: the new setting follows the normal due time
   (an explicit re-enable checks right away when a check is due).
   (`src/update/`, `src/app/run.rs`, `docs/ARCHITECTURE.md`.)
+- Blocked-scheme error details and "Copy log" no longer echo a pasted password
+  that contains `/`, `?`, `#` or `\` (for example
+  `mailto:user:pa/ss@host` or `user:pa/ss@host`): the shared log sanitizer now
+  strips a separator-bearing userinfo with the last `@` for scheme- or
+  authority-prefixed and ambiguous schemeless spellings alike; plain
+  schemeless `user:pass@host` stays with the display sanitizer.
+  (`src/util.rs`, `docs/SECURITY.md`.)
 
 ## [0.7.3] - 2026-10-30
 

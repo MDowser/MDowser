@@ -634,6 +634,11 @@ impl PreferencesState {
                     .iter()
                     .find(|(retention, _)| *retention == current)
                     .map_or("Keep 3 months (default)", |(_, label)| *label);
+                // The closed field is narrow: `Keep 3 months (default)` was
+                // ellipsized to `Keep 3 months ...` on the default policy.
+                // The menu still shows the full label; the field only needs
+                // the value it applies.
+                let selected = selected.strip_suffix(" (default)").unwrap_or(selected);
                 if let Some(retention) = dropdown(
                     ui,
                     s,

@@ -436,9 +436,11 @@ pub const MAX_CODE_CACHE_BYTES: usize = 32 * 1024 * 1024;
 /// cached tables (same contract as [`MAX_CODE_CACHE_BYTES`]).
 pub const MAX_TABLE_WIDTHS_CACHE_BYTES: usize = 16 * 1024 * 1024;
 
-/// Max bytes a gzip-compressed embedded font asset may expand to.
+/// Max bytes a gzip-compressed embedded color-emoji font asset
+/// (SVG-in-OpenType) may expand to.
 /// - The asset is trusted (shipped in the binary), but a corrupt table must
-///   never expand without limit.
+///   never expand without limit. The bundled text faces use Brotli and are
+///   not bounded by this constant.
 pub const MAX_FONT_ASSET_GZIP_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Upper bound on the settings file read before it is rewritten from

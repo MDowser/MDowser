@@ -88,12 +88,18 @@ fn preferences_geometry_is_stable_on_hover() {
         baseline = texts(&out.shapes);
     }
     assert!(!baseline.is_empty(), "something rendered");
-    // Hover the selected retention value (the dropdown's own text).
-    let anchor = baseline
+    // Hover the selected retention value (the dropdown's own text). The
+    // closed field must show the whole value, not the menu's
+    // `(default)` suffix ellipsized by the narrow field.
+    let (selected_text, selected_pos) = baseline
         .iter()
         .find(|(text, _)| text.contains("Keep 3 months"))
-        .map(|(_, pos)| *pos)
         .expect("retention dropdown visible");
+    assert_eq!(
+        selected_text, "Keep 3 months",
+        "the closed field must not truncate the default suffix"
+    );
+    let anchor = *selected_pos;
 
     let mut hovered = Vec::new();
     for _ in 0..4 {
