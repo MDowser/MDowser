@@ -681,9 +681,11 @@ fn finish_icon_button(
         );
     } else if enabled && resp.hovered() {
         ui.painter().rect_filled(rect, radius, s.omnibox_hover);
-    } else if enabled && resp.has_focus() {
+    }
+    if enabled && resp.has_focus() {
         // Keyboard focus is otherwise invisible on hand-painted buttons.
-        // Shared token so every chrome control focuses identically.
+        // Painted IN ADDITION to the hover/press fill: `else if` hid the
+        // ring as soon as the pointer rested on a focused control.
         theme::focus_ring(ui, rect, theme::pill_radius(rect.height()).nw);
     }
     // Hover/focus effect: the glyph eases from the muted tone to the accent

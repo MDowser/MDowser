@@ -482,11 +482,21 @@ jobs:
         run: |
           set -eu
           VER="${GITHUB_REF_NAME#v}"
-          # Bare semver + newline: the app rejects `v`, pre-releases and
-          # multi-line files. Not part of SHA256SUMS.txt (metadata, not a
-          # downloadable build).
-          printf '%s\n' "$VER" > dist/latest.txt
-          test "$(cat dist/latest.txt)" = "$VER"
+          # Bare stable X.Y.Z + newline: the app rejects `v`, pre-releases,
+          # build metadata and multi-line files. A pre-release must not
+          # publish a marker at all (an unreadable marker is worse than one
+          # that stays at the previous stable release). Not part of
+          # SHA256SUMS.txt (metadata, not a downloadable build).
+          case "$VER" in
+            *-*|*+*)
+              rm -f dist/latest.txt
+              echo "pre-release $VER: no update marker"
+              ;;
+            *)
+              printf '%s\n' "$VER" > dist/latest.txt
+              test "$(cat dist/latest.txt)" = "$VER"
+              ;;
+          esac
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -522,19 +532,20 @@ jobs:
             -e "s/@RPM_VERSION@/$RPM_VERSION/g" \
             "$NOTES" > "$NOTES.tmp"
           mv "$NOTES.tmp" "$NOTES"
-          # ANY tag containing `-` is a pre-release and stays out of the
-          # repo page's "Latest release" (and therefore out of
+          # ANY tag containing `-` or `+` is a pre-release and stays out of
+          # the repo page's "Latest release" (and therefore out of
           # /releases/latest, which backs `latest.txt`): `-alpha`, `-beta`,
-          # `-rc`, `-preview`, `-nightly`, ...
+          # `-rc`, `-preview`, `-nightly`, or semver build metadata (`+`).
           PRERELEASE=()
           case "$GITHUB_REF_NAME" in
-            *-*) PRERELEASE=(--prerelease) ;;
+            *-*|*+*) PRERELEASE=(--prerelease) ;;
           esac
-          # Publish as a DRAFT first and publish only after EVERY asset,
-          # including latest.txt, uploaded: a visible release must never
-          # point the update marker at a version whose binaries are still
-          # missing. A re-run of an already published release uploads in
-          # place; a failed first run resumes its existing draft.
+          # Publish as a DRAFT first and publish only after EVERY asset
+          # (including latest.txt when this is a stable release) uploaded: a
+          # visible release must never point the update marker at a version
+          # whose binaries are still missing. A re-run of an already
+          # published release uploads in place; a failed first run resumes
+          # its existing draft.
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" --draft \
               --title "$GITHUB_REF_NAME" \

@@ -314,7 +314,8 @@ pub(super) fn danger_row(
             egui::CornerRadius::same(theme::radius::MENU),
             theme::tint(s.error, 24),
         );
-    } else if response.has_focus() {
+    }
+    if response.has_focus() {
         theme::focus_ring_stroke(ui, rect, theme::radius::MENU, s.error);
     }
     let icon_rect = egui::Rect::from_center_size(
@@ -459,7 +460,8 @@ fn tab_button(
             egui::CornerRadius::same(theme::radius::MENU),
             s.container_hover,
         );
-    } else if response.has_focus() {
+    }
+    if response.has_focus() {
         theme::focus_ring(ui, rect, theme::radius::MENU);
     }
     if selected {
@@ -535,7 +537,8 @@ pub(super) fn close_button(ui: &mut egui::Ui, s: &theme::Scheme) -> egui::Respon
             egui::CornerRadius::same(theme::radius::FULL),
             s.omnibox_hover,
         );
-    } else if response.has_focus() {
+    }
+    if response.has_focus() {
         theme::focus_ring(ui, rect, theme::radius::FULL);
     }
     let c = rect.center();
@@ -568,7 +571,8 @@ pub(super) fn dropdown_row(
             egui::CornerRadius::same(crate::ui::row::ROW_RADIUS),
             s.container_hover,
         );
-    } else if response.has_focus() {
+    }
+    if response.has_focus() {
         theme::focus_ring(ui, rect, crate::ui::row::ROW_RADIUS);
     }
     let color = if selected { s.primary } else { s.on_surface };

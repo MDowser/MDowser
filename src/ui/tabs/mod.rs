@@ -10,7 +10,7 @@
 //!   tab, drawn at the toolbar's icon size (~8px of breathing room each
 //!   side). The page keeps almost the full window width.
 //! - Hover: the rail expands to 248px as a floating overlay (no content
-//!   reflow) showing favicon + title + close, plus a pinned `+ New Tab`.
+//!   reflow) showing favicon + title + close, plus a pinned `+ New tab`.
 //!   It collapses only when the pointer moves into the document area:
 //!   moving up to the toolbar or leaving the window keeps it open.
 //! - The expansion is ANIMATED (a short width tween clipped to the growing
@@ -46,7 +46,7 @@
 //!   an opaque overlay for nothing.
 //! - Two actions are pinned to the bottom in both states (same size, same
 //!   offsets), so they never move: `History` at the very bottom with
-//!   `+ New Tab` right above it (plus a separator in the expanded state).
+//!   `+ New tab` right above it (plus a separator in the expanded state).
 //! - Favicons come from `media::favicon` (`config::FAVICON_PATHS`:
 //!   `/favicon.ico`, `/favicon.png`, `/favicon.svg`); while unknown, the tab
 //!   shows an hourglass icon (loading) or a home/globe icon.
@@ -98,12 +98,12 @@ const ACTION_ROW_H: f32 = crate::config::CHROME_ROW_H;
 /// Vertical gap between the two pinned action rows (explicit; the layout
 /// zeroes egui's item spacing so this constant is the real gap).
 const ACTION_GAP: f32 = 8.0;
-/// Gap the expanded overlay adds between `+ New Tab` and the separator.
+/// Gap the expanded overlay adds between `+ New tab` and the separator.
 const ACTION_SEP_GAP: f32 = 6.0;
 /// egui's fixed separator widget height (`SeparatorStyle::spacing`).
 const ACTION_SEP_H: f32 = 6.0;
 /// Height reserved at the bottom for BOTH pinned actions (both states):
-/// `History` (bottom) plus `+ New Tab`, their explicit gap, and the expanded
+/// `History` (bottom) plus `+ New tab`, their explicit gap, and the expanded
 /// overlay's gap + separator. Derived from the same constants the layout
 /// uses, so the reserved height can never under-shoot the painted block
 /// (under-reserving let the separator cut across the list).
@@ -175,7 +175,7 @@ pub struct TabsResponse {
     /// both indices in the current `tabs` order of the frame that reported
     /// it (the same remove+insert `bookmarks::move_entry` performs).
     pub move_tab: Option<(usize, usize)>,
-    /// The "+ New Tab" action row was clicked.
+    /// The "+ New tab" action row was clicked.
     pub new: bool,
     /// The "History" action row was clicked.
     pub history: bool,
@@ -337,7 +337,7 @@ pub fn show_tabs(
                 });
             ui.data_mut(|d| d.insert_temp(shared_id, rail_scroll.state.unclamped_offset().y));
             // Pinned action rows (same geometry as the overlay's). `History`
-            // is the very bottom row; `+ New Tab` sits right above it.
+            // is the very bottom row; `+ New tab` sits right above it.
             // Bottom_up layout stacks in insertion order, so History goes
             // in first.
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
@@ -522,7 +522,7 @@ pub fn show_tabs(
                     ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                         // Same borderless action rows as the collapsed rail
                         // (plus their labels), so both states agree. History
-                        // is the bottom row, New Tab right above it. Item
+                        // is the bottom row, New tab right above it. Item
                         // spacing is zeroed and the gaps are the shared
                         // constants `ACTION_H` is derived from.
                         ui.spacing_mut().item_spacing.y = 0.0;
@@ -543,7 +543,7 @@ pub fn show_tabs(
                             row_w,
                             s,
                             icons::Icon::Plus,
-                            Some("New Tab"),
+                            Some("New tab"),
                             text_t,
                             "New tab",
                             || "New tab (Ctrl/Cmd+T)".to_string(),

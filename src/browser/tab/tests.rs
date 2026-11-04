@@ -639,7 +639,7 @@ fn window_title_url_fallback_is_bounded() {
 #[test]
 fn display_memo_refreshes_on_state_changes() {
     let mut t = Tab::new(1);
-    assert_eq!(t.display().0.title, "New Tab");
+    assert_eq!(t.display().0.title, "New tab");
     assert!(t.display().0.origin.is_none(), "Home has no origin");
 
     // A same-kind Loading → Loading transition (second navigation while

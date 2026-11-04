@@ -282,9 +282,11 @@ pub(crate) fn show_omnibox(
             egui::CornerRadius::same(theme::radius::MENU),
             theme::press_shade(s.omnibox_hover, ui.visuals().dark_mode),
         );
-    } else if indicator_resp.has_focus() {
+    }
+    if indicator_resp.has_focus() {
         // The ring follows the SHRUNK indicator rect, so it cannot use the
-        // whole-row `theme::focus_ring` helper directly.
+        // whole-row `theme::focus_ring` helper directly. Painted IN
+        // ADDITION to the hover fill, never hidden by it.
         theme::focus_ring_stroke(
             ui,
             indicator_rect.shrink(2.0),
@@ -437,7 +439,10 @@ pub(crate) fn show_omnibox(
         s.omnibox_bg
     };
     let stroke = if focused_now {
-        egui::Stroke::new(theme::stroke::EMPHASIS, s.primary)
+        // One stroke width for EVERY focus ring (the documented invariant):
+        // the old 2px EMPHASIS made the address capsule heavier than the
+        // buttons and find bar beside it.
+        egui::Stroke::new(theme::stroke::HAIRLINE, s.primary)
     } else {
         egui::Stroke::NONE
     };
@@ -730,7 +735,12 @@ pub(crate) fn show_omnibox(
                     .iter()
                     .any(|e| matches!(e, egui::Event::PointerMoved(_)))
         });
-        if pointer_moved && suggest.selected != index {
+        // `selected` is already 0 before any pick, so comparing only the
+        // index made hovering the FIRST row a no-op: the row painted its
+        // wash but Enter still submitted the typed address. An explicit
+        // hover always arms the pick, even when the cursor already sits on
+        // that index.
+        if pointer_moved && (!suggest.explicit || suggest.selected != index) {
             suggest.selected = index;
             // The pointer moved the highlight onto this row: Enter picks it.
             suggest.explicit = true;

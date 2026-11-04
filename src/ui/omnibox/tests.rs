@@ -739,6 +739,50 @@ fn stationary_pointer_over_the_popup_never_picks_a_row() {
     );
 }
 
+/// Hovering the FIRST row arms it even though the cursor index already
+/// starts there: before, `selected == 0` skipped the pick and Enter
+/// submitted the typed address under a visibly highlighted row.
+#[test]
+fn hovering_the_first_row_picks_it() {
+    let ctx = egui::Context::default();
+    crate::ui::theme::apply(&ctx);
+    let mut bookmarks = BookmarkStore::in_memory();
+    bookmarks.toggle("https://ex.com/alpha/", Some("Alpha"));
+    let mut history = HistoryStore::in_memory();
+    history.record("https://ex.com/alpha/beta/", Some("The Page"));
+    let mut tab = Tab::new(1);
+    tab.address = "ex.com/alpha".to_string();
+    for _ in 0..3 {
+        let _ = frame(&ctx, &mut tab, &history, &bookmarks, true, Vec::new());
+    }
+    let popup = popup_rect(&ctx);
+    // Move onto the first row (the Alpha bookmark).
+    let _ = frame(
+        &ctx,
+        &mut tab,
+        &history,
+        &bookmarks,
+        true,
+        vec![egui::Event::PointerMoved(egui::pos2(
+            popup.center().x,
+            popup.min.y + 28.0,
+        ))],
+    );
+    let (submitted, _) = frame(
+        &ctx,
+        &mut tab,
+        &history,
+        &bookmarks,
+        false,
+        vec![key(egui::Key::Enter)],
+    );
+    assert!(submitted, "Enter must submit");
+    assert_eq!(
+        tab.address, "ex.com/alpha/",
+        "the first row the pointer moved onto is the pick"
+    );
+}
+
 /// Moving the pointer ONTO a row is still an explicit pick: Enter navigates
 /// to it (the hover pick the popup documents).
 #[test]

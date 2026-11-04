@@ -217,8 +217,9 @@ fn fit_label(
 }
 
 /// One tab label: text centered in a fixed-size cell. Returns the cell rect,
-/// whether it is hovered, and whether it was clicked. Its geometry depends
-/// only on the label, so hover/selection never shift the bar.
+/// whether it is hovered, and whether it was clicked. The cell always fills
+/// its share of the strip, so mixed label lengths stay on one column grid
+/// and hover/selection never shift the bar.
 fn tab_label(
     ui: &mut egui::Ui,
     text: &str,
@@ -233,8 +234,7 @@ fn tab_label(
     let pad_x = theme::spacing::L;
     let text_w = (max_w - pad_x * 2.0).max(24.0);
     let (truncated, galley) = fit_label(ui, text, font, scheme.on_surface, text_w);
-    let desired = egui::vec2(galley.size().x + pad_x * 2.0, TAB_H);
-    let (rect, resp) = ui.allocate_exact_size(desired, egui::Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(max_w, TAB_H), egui::Sense::click());
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
     if truncated {
         // Shared hover helper: egui converts `on_hover_text`'s argument
@@ -258,7 +258,10 @@ fn tab_label(
         theme::focus_ring(ui, rect, theme::radius::SMALL);
     }
     ui.painter().galley(
-        egui::pos2(rect.min.x + pad_x, rect.center().y - galley.size().y / 2.0),
+        egui::pos2(
+            rect.center().x - galley.size().x / 2.0,
+            rect.center().y - galley.size().y / 2.0,
+        ),
         galley,
         ink,
     );

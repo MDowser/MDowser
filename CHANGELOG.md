@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The closed "Keep visits" field shows the full policy (`Keep 3 months`)
   instead of ellipsizing the menu's `(default)` suffix; the menu still marks
   the default. (`src/ui/preferences/`.)
+- Keyboard focus rings stay visible on controls that are also hovered (icon
+  buttons, Preferences rows/tabs/close buttons/dropdowns, the omnibox
+  indicator, zoom reset and footnote back arrows), and the omnibox
+  indicator's ring uses the same hairline width as every other control.
+  (`src/ui/`, `src/viewer/markdown/`.)
+- Markdown tabs are equal-width cells with centered labels, so mixed label
+  lengths keep one column grid instead of sizing each tab to its text.
+  (`src/viewer/markdown/components.rs`.)
+- In-app labels use sentence case, and shortcut hints use one `Ctrl/Cmd+T`
+  spelling; the empty home tab and the expanded tab rail say "New tab".
+  (`src/browser/tab/`, `src/ui/preferences/`, `src/ui/tabs/`.)
+- A rebuild replaces a target group's previous artifacts before writing new
+  ones, so a failed or skipped group cannot leave a stale package to be
+  checksummed; `make check-dist` also rejects a `dist/` holding only
+  `latest.txt`/`SHA256SUMS.txt`. (`scripts/build-dist.sh`,
+  `scripts/check-dist.sh`, `docs/SECURITY.md`.)
+- Pre-release versions (tags or `Cargo.toml` versions with `-` or `+`)
+  publish no `latest.txt` update marker and are marked as GitHub
+  pre-releases; stable `X.Y.Z` releases still write it.
+  (`scripts/build-dist.sh`, `.github/workflows/release.yml`,
+  `docs/BUILDING.md`.)
 
 ### Fixed
 
@@ -49,6 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of use, not only at parse time, and invalid-UTF-8 and no-candidate messages
   echo the bounded, credential-free URL like the other local failures.
   (`src/protocol/local.rs`, `docs/SECURITY.md`.)
+- Truncated input echoes no longer leak the prefix of a password longer than
+  the log-line cap: credentials are stripped before truncation. Passwords
+  split by a raw space or tab (`scheme://user:correct horse@host`) are
+  redacted too, while a path before a later email keeps its text.
+  (`src/util.rs`, `docs/SECURITY.md`.)
+- Hovering the omnibox's first suggestion now arms it for Enter; before, the
+  row highlighted but Enter submitted the typed address. (`src/ui/omnibox/`.)
+- `make deps` checks the resolved `rustc` against `Cargo.toml`'s
+  `rust-version` instead of accepting any `cargo`, the RPM spec requires NASM
+  only on x86/x86_64, and `windows.ps1` fails with a clear message when
+  winget's Python is installed but not on PATH. (`scripts/deps.sh`,
+  `packaging/rpm/mdowser.spec`, `windows.ps1`.)
+- The security note no longer calls remote-document images user-initiated: it
+  states that the document chooses their URLs and that the HTTPS and trusted
+  certificate rules are what bound them. (`docs/SECURITY.md`.)
 
 ## [0.7.3] - 2026-10-30
 

@@ -46,7 +46,11 @@ BuildRequires:  cargo
 BuildRequires:  rust
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
+# NASM assembles the x86/x86_64 kernels in rav1d and aws-lc-sys; other
+# architectures use their system assembler (see docs/BUILDING.md).
+%ifarch x86_64 i686 i586 i386
 BuildRequires:  nasm
+%endif
 BuildRequires:  make
 BuildRequires:  desktop-file-utils
 BuildRequires:  appstream

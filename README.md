@@ -55,7 +55,7 @@ Choose the asset matching your system:
 | Platform | Release asset |
 | --- | --- |
 | **macOS 13 or later** | `MDowser-<ver>-macos-universal.app.zip` — Apple Silicon and Intel |
-| **Linux** | `mdowser-<ver>-linux-<arch>.tar.gz`, the matching `.deb` or `.rpm`, or the `mdowser-<ver>.flatpak` bundle |
+| **Linux** | `mdowser-<ver>-linux-<arch>.tar.gz` (x86_64/arm64), the matching `.deb`, or the x86_64 `.rpm` / `mdowser-<ver>.flatpak` bundle |
 | **Windows (x64)** | `mdowser-<ver>-windows-x86_64.zip` |
 | **Windows on ARM** | `mdowser-<ver>-windows-aarch64.zip` |
 
@@ -113,11 +113,11 @@ The Makefile handles dependencies and packaging:
 make          # dependencies + current-OS packages in dist/
 make dist     # dependencies + packages for every platform the host can build in dist/
 make build    # host release binary in target/release/mdowser
-make install  # install that binary into /usr/local (PREFIX/DESTDIR supported)
+make install  # binary + desktop integration files into /usr/local (PREFIX/DESTDIR supported)
 make run      # debug build and run
 ```
 
-`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. If Rust itself is not installed yet, run `make deps` once first (the Makefile resolves the toolchain at startup). Requirements include stable Rust ≥ 1.99 and a C compiler. NASM is also required on x86/x86_64 hosts and for the x86_64 slice of a universal macOS build; ARM64-only builds use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
+`make` and `make dist` install missing host dependencies first via `make deps`; set `SKIP_SETUP=1` to skip setup. If Rust itself is not installed yet, run `make deps` once first (the Makefile resolves the toolchain at startup); on Linux use `ALLOW_RUSTUP=1 make deps`, since that script never runs the official installer silently. Requirements include stable Rust ≥ 1.99 and a C compiler. NASM is also required on x86/x86_64 hosts and for the x86_64 slice of a universal macOS build; ARM64-only builds use the system toolchain and do not need it. On native Windows without `make`, use `windows.ps1` as the equivalent entry point.
 
 The build guide covers full requirements, the `make test` pipeline, multi-platform packaging and native Windows setup: [**Building MDowser**](docs/BUILDING.md#native-windows).
 

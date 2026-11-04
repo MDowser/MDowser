@@ -54,7 +54,7 @@ pub(super) fn draw_row_background(
     }
 }
 
-/// Draws one pinned bottom action row (`+ New Tab` / `History`), shared by
+/// Draws one pinned bottom action row (`+ New tab` / `History`), shared by
 /// both rail states, and reports whether it is hovered (the collapsed rail
 /// keeps the overlay open while the pointer is over a row).
 #[allow(clippy::too_many_arguments)]

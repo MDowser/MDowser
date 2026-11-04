@@ -501,10 +501,11 @@ pub mod radius {
     pub const HAIRLINE: u8 = 2;
     /// Cards, code/table surfaces, widgets, quote boxes (6px).
     pub const CARD: u8 = 6;
-    /// Hand-painted rows, menus, suggestion rows, danger rows (8px).
-    /// Covers the former `same(8)` sites and `row::ROW_RADIUS`.
+    /// Hand-painted rows, suggestion rows, danger rows (8px). Covers the
+    /// former `same(8)` sites and `row::ROW_RADIUS`.
     pub const MENU: u8 = 8;
-    /// Tiles, menus, windows (10px).
+    /// Tiles, floating menus/popups, windows (10px). egui's
+    /// `menu_corner_radius`/`window_corner_radius` use this token.
     pub const TILE: u8 = 10;
     /// Dialogs, sheets (12-14px handled at the call site).
     pub const SHEET: u8 = 12;

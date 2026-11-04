@@ -332,9 +332,10 @@ fn zoom_pill(ui: &mut egui::Ui, zoom: &mut f32, mode: ZoomMode) {
                 egui::CornerRadius::same(theme::radius::CARD),
                 s.omnibox_hover,
             );
-        } else if pct_resp.has_focus() {
+        }
+        if pct_resp.has_focus() {
             // Keyboard focus must be visible here like on every other
-            // hand-painted control.
+            // hand-painted control, and IN ADDITION to the hover wash.
             theme::focus_ring(ui, pct_rect, theme::radius::CARD);
         }
         paint_zoom_label(ui, pct_rect.center(), zoom_percent, s.on_surface);

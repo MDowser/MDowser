@@ -25,7 +25,7 @@ toolbar, one favicon per tab at toolbar icon size; the active tab shows a
 surface pill and accent bar in the left gutter.
 
 - Hovering expands it to 248px as a floating overlay that never reflows the
-  page: favicon + title + close, plus pinned `+ New Tab` and `History` below it
+  page: favicon + title + close, plus pinned `+ New tab` and `History` below it
   at the bottom, toolbar-sized.
 - The expansion is a quintic ease-out width tween (fast start, gentle settle,
   mirrored on close), clipped to the growing edge; titles and action labels wait
@@ -41,7 +41,7 @@ surface pill and accent bar in the left gutter.
   heading), the schemeless URL only as a last resort.
 - A loading tab shows an hourglass where the favicon will be; a cached favicon
   stays with a small progress dot.
-- New tabs cap at `config::MAX_TABS` (128); one past the cap (`+ New Tab`, a
+- New tabs cap at `config::MAX_TABS` (128); one past the cap (`+ New tab`, a
   bookmark, `Ctrl/Cmd+T`, a file drop) is refused with a "Tab limit reached"
   toast.
 - Rows reorder: a drag reorders the rail live (list follows pointer, dragged
@@ -137,7 +137,7 @@ click (or keyboard focus) selects the whole address so typing replaces it, a
 drag selects from the press point. Launching the app or opening a tab never
 focuses the field (no popup over a fresh window or tab); only `Ctrl/Cmd+L` does.
 
-The left indicator is a button, not a focus target. It names the page kind
+The left indicator is a focusable button. It names the page kind
 (padlock HTTPS, page for a local file, globe/clock/info internal, cloud-off for
 an offline copy, archive for a saved one), and clicking
 it (or keyboard activation) opens a page-info card under the capsule with the

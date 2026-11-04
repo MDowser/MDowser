@@ -252,7 +252,7 @@ overflow-checks = true
 # with the system `strip` instead (`scripts/build-dist.sh` `try_strip`).
 # Rationale: the toolchain's `rust-objcopy` (used by `strip = true`) is
 # broken on some installs (missing libLLVM -> SIGABRT at link end).
-# Verified on stable 1.98.1 aarch64-apple-darwin. Keep `strip = "none"`
+# Verified on stable 1.99.1 aarch64-apple-darwin. Keep `strip = "none"`
 # here; do not re-enable cargo-side stripping without fixing `try_strip`.
 strip = "none"
 

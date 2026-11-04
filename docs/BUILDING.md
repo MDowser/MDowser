@@ -44,7 +44,8 @@ unless `SKIP_SETUP=1`):
   and `shasum` or `sha256sum`. `zip` is used when present and falls back to
   `ditto` (macOS) or python3.
 
-Native RPM and Flatpak builds run only on Linux hosts; `make deps` attempts
+Native RPM and Flatpak builds run only on Linux hosts (the release jobs are
+x86_64; a local build produces the host architecture); `make deps` attempts
 their tools there, best-effort:
 
 - RPM: `rpmbuild` (`rpm-build` on Fedora). `make dist-rpm` builds the package
@@ -71,6 +72,7 @@ and the packaging tools (`desktop-file-utils`, `appstream`, `appstream-glib`,
 ```sh
 make deps                    # everything this host can use
 make deps DEPS=packaging     # one group: toolchain | cross | packaging
+ALLOW_RUSTUP=1 make deps     # Linux: also install Rust via the official installer
 SKIP_SETUP=1 make deps       # report only, install nothing
 ```
 
@@ -100,7 +102,7 @@ make dist         # deps + EVERY platform into dist/ (+ SHA256SUMS.txt, latest.t
 make dist-host | make dist-mac | make dist-linux | make dist-windows
 make dist-rpm     # RPM from the full source tree (Linux host with rpmbuild)
 make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak/)
-make install      # runtime files under PREFIX (DESTDIR honored; RPM %install)
+make install      # binary + Linux desktop tree under PREFIX (DESTDIR honored; RPM %install)
 make flatpak      # alias of the Flatpak bundle build (needs flatpak-builder)
 make validate     # best-effort packaging metadata checks (SKIPs when tools missing)
 make check-version # Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md
@@ -124,8 +126,11 @@ directory is never searched for `install`/`tar`/similar tools first.
 `cargo` is resolvable; `SKIP_SETUP=1 make ...` keeps it to what is already
 present. A machine without Rust needs one explicit `make deps` first: the
 Makefile resolves `cargo` at startup and cannot pick up a binary installed
-later in the same run. Direct script invocations
-(`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that bootstrap.
+later in the same run. On Linux that script never runs the official rustup
+installer silently, so use `ALLOW_RUSTUP=1 make deps` to install Rust too (or
+install rustup yourself); macOS uses Homebrew's rustup. Direct script
+invocations (`./scripts/build-dist.sh`, `./scripts/build-test.sh`) skip that
+bootstrap.
 
 `make` builds the current platform's set only (macOS: the universal
 `.app.zip`; Linux: `.tar.gz` + `.deb`/`.rpm` + the Flatpak bundle; Windows:
@@ -172,7 +177,7 @@ bootstrap; pass `SKIP_SETUP=1` to keep auto-install off):
 ./scripts/build-dist.sh --mac | --linux | --windows | --rpm | --flatpak  # one group
 ./scripts/check-dist.sh --require  # privacy gate over dist/ (= make check-dist)
 ./scripts/validate.sh              # packaging metadata checks (= make validate)
-./scripts/install.sh               # runtime files under PREFIX (= make install)
+./scripts/install.sh               # binary + Linux desktop tree under PREFIX (= make install)
 ./scripts/deps.sh                  # build/packaging deps (= make deps)
 SKIP_SETUP=1 ./scripts/build-dist.sh --all  # without auto-installing toolchains
 ```
@@ -217,7 +222,9 @@ shown here as `<ver>`):
   glibc symbols when an ELF reader is available). With `rpmbuild` present
   (Fedora/RHEL/openSUSE host) the same run builds the RPM from source (copied
   verbatim from `RPMS/*/` into `dist/`), and `flatpak-builder` present adds
-  the `mdowser-<ver>.flatpak` bundle.
+  the `mdowser-<ver>.flatpak` bundle. Release RPMs and Flatpak bundles are
+  x86_64 (built by the x86_64 Linux jobs); a local run builds the host
+  architecture.
 - Windows x86_64: `mdowser-<ver>-windows-x86_64.zip` (the `.exe` at the root;
   icon, `VERSIONINFO` block and the DPI/version manifest are embedded in its
   resources).
@@ -450,9 +457,10 @@ jobs run `--host-only` with `NO_LOCAL_RPM=1`: Ubuntu's runner provides
 RPM is always Fedora's. The Release is titled with the tag and its
 body is fixed text substituted with the release version (CHANGELOG link,
 per-platform first-run and install notes, assets pointer and the
-use-at-your-own-risk disclaimer); any tag containing a `-` (`-alpha`, `-beta`,
-`-rc`, `-preview`, ...) is published as a pre-release and therefore never
-becomes GitHub's `/releases/latest` marker target. A manual run
+use-at-your-own-risk disclaimer); any tag containing a `-` or `+` (`-alpha`,
+`-beta`, `-rc`, `-preview`, build metadata) is published as a pre-release,
+publishes no `latest.txt` marker, and therefore never becomes GitHub's
+`/releases/latest` marker target. A manual run
 (`workflow_dispatch`) with `dry_run: true` compiles everything without
 publishing; a `dry_run: false` run must be dispatched from the matching
 `v<version>` tag, and the `verify` job rejects a branch, a tag without the

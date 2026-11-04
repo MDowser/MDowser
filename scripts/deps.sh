@@ -19,7 +19,7 @@
 #   - BEST-EFFORT and idempotent: a tool already on PATH is left alone, and a
 #     package that cannot be installed is a SKIP with the reason, never a
 #     failure. `SKIP_SETUP=1` is the same switch `make dist` honors.
-#   - Rust >= 1.99 is required. On macOS `brew install rustup` + the stable
+#   - Rust >= 1.99 is required. On macOS `brew install rustup` + the pinned
 #     toolchain; on Linux the official rustup installer is NOT run silently —
 #     set ALLOW_RUSTUP=1 to let this script run it, or install rustup yourself.
 #   - The Xcode Command Line Tools (the macOS C compiler) cannot be installed
@@ -47,6 +47,39 @@ have() { command -v "$1" >/dev/null 2>&1; }
 step() { printf '\n==> %s\n' "$1"; }
 ok() { printf '  ok    %s\n' "$1"; }
 skip() { printf '  SKIP  %s (%s)\n' "$1" "$2"; }
+
+# Minimum Rust line, read from the package metadata (the same value cargo
+# enforces) rather than duplicated here.
+required_rust_version() {
+    _rrv="$(sed -n '/^\[package\]/,/^\[/s/^[[:space:]]*rust-version[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
+        "$ROOT/Cargo.toml" | head -1)"
+    if [ -z "$_rrv" ]; then
+        _rrv="$(sed -n 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' \
+            "$ROOT/rust-toolchain.toml" | head -1)"
+    fi
+    printf '%s\n' "${_rrv:-1.99}"
+}
+
+# True when the resolved rustc is at least the numeric `X.Y` line in $1.
+# Anything unparsable is a failure, never a false "ok".
+rust_version_at_least() {
+    have rustc || return 1
+    _rva_ver="$(rustc --version 2>/dev/null | awk '{print $2}')"
+    _rva_ver="${_rva_ver%%-*}"       # 1.99.0-nightly -> 1.99.0
+    _rva_major="${_rva_ver%%.*}"
+    _rva_rest="${_rva_ver#*.}"
+    _rva_minor="${_rva_rest%%.*}"
+    _rva_req_major="${1%%.*}"
+    _rva_req_rest="${1#*.}"
+    _rva_req_minor="${_rva_req_rest%%.*}"
+    case "$_rva_major" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_rva_minor" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_rva_req_major" in ''|*[!0-9]*) return 1 ;; esac
+    case "$_rva_req_minor" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$_rva_major" -gt "$_rva_req_major" ] \
+        || { [ "$_rva_major" -eq "$_rva_req_major" ] \
+            && [ "$_rva_minor" -ge "$_rva_req_minor" ]; }
+}
 
 # --- package manager ---------------------------------------------------------
 PM=""
@@ -121,37 +154,65 @@ ensure_pkg() {
 }
 
 ensure_rust() {
-    if have cargo; then
-        ok "cargo (Rust >= 1.99)"
+    _req="$(required_rust_version)"
+    if have cargo && rust_version_at_least "$_req"; then
+        ok "cargo (Rust $(rustc --version 2>/dev/null | awk '{print $2}') >= $_req)"
         return 0
     fi
     if [ "$SKIP_SETUP" = "1" ]; then
-        skip "cargo" "Rust toolchain (SKIP_SETUP=1)"
+        if have cargo || have rustc; then
+            _found="$(rustc --version 2>/dev/null || cargo --version 2>/dev/null)"
+            skip "cargo" "Rust >= $_req required (found ${_found:-incomplete toolchain}; SKIP_SETUP=1)"
+        else
+            skip "cargo" "Rust >= $_req (SKIP_SETUP=1)"
+        fi
+        return 0
+    fi
+    if have cargo || have rustc; then
+        if have rustup; then
+            printf '  get   Rust %s toolchain (rustup)\n' "$_req"
+            rustup toolchain install "$_req" --profile minimal >/dev/null 2>&1 || true
+            ensure_toolchain_path
+            if have cargo && rust_version_at_least "$_req"; then
+                ok "cargo (Rust $(rustc --version 2>/dev/null | awk '{print $2}') >= $_req)"
+                return 0
+            fi
+        fi
+        _found="$(rustc --version 2>/dev/null || cargo --version 2>/dev/null)"
+        skip "cargo" "Rust >= $_req required (found ${_found:-incomplete toolchain}); update it with rustup or your package manager"
         return 0
     fi
     if [ "$OS" = "Darwin" ] && have brew; then
-        printf '  get   rustup + stable toolchain (brew)\n'
+        printf '  get   rustup + Rust %s toolchain (brew)\n' "$_req"
         brew install rustup >/dev/null 2>&1 || { skip "cargo" "brew install rustup failed"; return 0; }
         if have rustup; then
-            rustup toolchain install stable --profile minimal >/dev/null 2>&1 || true
-            rustup default stable >/dev/null 2>&1 || true
+            rustup toolchain install "$_req" --profile minimal >/dev/null 2>&1 || true
+            rustup default "$_req" >/dev/null 2>&1 || true
         elif have rustup-init; then
-            rustup-init -y --profile minimal --no-modify-path >/dev/null 2>&1 || true
+            rustup-init -y --profile minimal --no-modify-path \
+                --default-toolchain "$_req" >/dev/null 2>&1 || true
         fi
-        if have cargo; then
-            ok "cargo (Rust)"
+        ensure_toolchain_path
+        if have cargo && rust_version_at_least "$_req"; then
+            ok "cargo (Rust $(rustc --version 2>/dev/null | awk '{print $2}') >= $_req)"
         else
-            skip "cargo" "rustup installed; open a new shell (or run rustup default stable)"
+            skip "cargo" "Rust $_req not on PATH yet; open a new shell (or run rustup default $_req)"
         fi
         return 0
     fi
     if [ "$ALLOW_RUSTUP" = "1" ] && have curl; then
-        printf '  get   rustup (official installer, ALLOW_RUSTUP=1)\n'
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null 2>&1 \
-            && have cargo && ok "cargo (Rust)" || skip "cargo" "rustup installer failed"
+        printf '  get   rustup + Rust %s (official installer, ALLOW_RUSTUP=1)\n' "$_req"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain "$_req" >/dev/null 2>&1
+        ensure_toolchain_path
+        if have cargo && rust_version_at_least "$_req"; then
+            ok "cargo (Rust $(rustc --version 2>/dev/null | awk '{print $2}') >= $_req)"
+        else
+            skip "cargo" "rustup installer did not provide Rust $_req"
+        fi
         return 0
     fi
-    skip "cargo" "install Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh  (or ALLOW_RUSTUP=1 ./scripts/deps.sh)"
+    skip "cargo" "install Rust >= $_req: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh  (or ALLOW_RUSTUP=1 ./scripts/deps.sh)"
 }
 
 ensure_cargo_zigbuild() {

@@ -127,9 +127,11 @@ function Ensure-Package($Id, $Cmd, [string]$WingetArgs = "",
         return
     }
     if ((-not [string]::IsNullOrEmpty($Probe)) -and (Has-Winget $Id)) {
-        Write-Warning ("$Id is installed but '$Cmd $Probe' fails: " + `
-            "another $Cmd shadows it on PATH (often the Store stub; " + `
-            "disable App execution aliases or fix PATH order). Retrying.")
+        $pathHint = ("$Id is installed but '$Cmd $Probe' fails: another " + `
+            "$Cmd shadows it on PATH (often the Store stub; disable App " + `
+            "execution aliases or fix PATH order).")
+        if ($SkipSetup) { throw $pathHint }
+        Write-Warning ("$pathHint Retrying.")
     }
     elseif (Has-Winget $Id) {
         Write-Host "OK   $Id (winget reports installed)"
@@ -303,7 +305,14 @@ function Ensure-Msvc {
 }
 
 function Ensure-Python3Shim {
-    if (-not (Has-Cmd python)) { return }
+    if (-not (Has-Cmd python)) {
+        if (Has-Winget "Python.Python.3.12") {
+            throw ("Python is installed (winget) but 'python' is not on PATH: " + `
+                "open a new shell, or disable the Store python.exe alias, " + `
+                "then rerun this script")
+        }
+        throw "python not on PATH after setup (winget install Python.Python.3.12)"
+    }
     $py = (Get-Command python).Source
     & $py --version >$null 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -321,6 +330,13 @@ function Ensure-Python3Shim {
         catch {
             throw "Cannot write $shim (rerun elevated): $($_.Exception.Message)"
         }
+    }
+    # Fail here, with the shim's path, instead of later in Git Bash with a
+    # generic "python3 unusable" after PATH has hidden which file was tried.
+    & $shim --version >$null 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw ("'$shim' is not runnable (a Store stub or broken copy); " + `
+            "reinstall Python.Python.3.12 or fix PATH order")
     }
     # The real python dir first: a Store-stub python3.exe in WindowsApps
     # must not shadow the working shim in this session or in Git Bash.

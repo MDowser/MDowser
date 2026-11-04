@@ -18,7 +18,7 @@
 //! Sanitizer map (which helper for which sink; they overlap on purpose):
 //! - [`strip_credentials_for_log`] — LOG/ERROR lines: removes `user:pass@`
 //!   userinfo token by token. Every "bad address" message goes through
-//!   [`safe_input_echo`] (truncate + strip); the error view applies it via
+//!   [`safe_input_echo`] (strip + truncate); the error view applies it via
 //!   `display_line` to `Requested:`, details and Copy-log alike.
 //! - [`sanitize_title`] — DISPLAY/STORAGE titles: bounds and cleans
 //!   frontmatter/first-heading titles before tabs, history and bookmarks
@@ -222,10 +222,16 @@ pub(crate) fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 ///   display path: the error view reprocesses every line per repaint), so
 ///   the credential pass itself never allocates a `String` per line.
 pub fn strip_credentials_for_log(line: &str) -> std::borrow::Cow<'_, str> {
+    // A raw space/tab inside a pasted password splits the userinfo across
+    // tokens, so the token pass below would see `scheme://user:` (no `@`)
+    // and leak the password prefix. Redact those spans first; the token
+    // pass then handles every ordinary spelling.
+    let split = strip_split_userinfo(line);
+    let source = split.as_ref();
     let mut out: Option<String> = None;
     let mut last = 0usize;
     let mut i = 0usize;
-    let bytes = line.as_bytes();
+    let bytes = source.as_bytes();
     while i < bytes.len() {
         if bytes[i].is_ascii_whitespace() {
             i += 1;
@@ -235,21 +241,95 @@ pub fn strip_credentials_for_log(line: &str) -> std::borrow::Cow<'_, str> {
         while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
             i += 1;
         }
-        let token = &line[start..i];
+        let token = &source[start..i];
         if let Some(clean) = strip_token_credentials(token) {
-            let buf = out.get_or_insert_with(|| String::with_capacity(line.len()));
-            buf.push_str(&line[last..start]);
+            let buf = out.get_or_insert_with(|| String::with_capacity(source.len()));
+            buf.push_str(&source[last..start]);
             buf.push_str(&clean);
             last = i;
         }
     }
     match out {
         Some(mut buf) => {
-            buf.push_str(&line[last..]);
+            buf.push_str(&source[last..]);
             std::borrow::Cow::Owned(buf)
         }
-        None => std::borrow::Cow::Borrowed(line),
+        // Preserve the pre-pass allocation when it already rewrote the line.
+        None => match split {
+            std::borrow::Cow::Borrowed(original) => std::borrow::Cow::Borrowed(original),
+            std::borrow::Cow::Owned(owned) => std::borrow::Cow::Owned(owned),
+        },
     }
+}
+
+/// Redacts an authority whose password contains ASCII whitespace.
+///
+/// `http://alice:correct horse@example.com/` is not a URL the parser accepts,
+/// but it is raw pasted input and the error path echoes it. The ordinary
+/// token pass sees `http://alice:correct` (no `@`) and `horse@example.com/`
+/// (no userinfo colon), so both password fragments survive. This pass finds
+/// the credential shape (`user:non-numeric-tail`, nothing before the `@`
+/// beyond a whitespace boundary), then drops the whole span through the `@`
+/// on the same line, leaving `http://example.com/`.
+///
+/// Conservative on purpose: an authority ending in `:8443` (a port) or a
+/// token that already carries an `@` is left to the strict passes; the span
+/// never crosses a path/query/fragment separator, so a later email in prose
+/// is not mistaken for the userinfo separator; and no `@` later on the line
+/// means no redaction (so ordinary prose is untouched).
+fn strip_split_userinfo(line: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = line.as_bytes();
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut search = 0usize;
+    while let Some(rel) = line[search..].find("://") {
+        let sep = search + rel;
+        let mut auth = sep + "://".len();
+        while matches!(bytes.get(auth), Some(b'/' | b'\\')) {
+            auth += 1;
+        }
+        let mut head_end = auth;
+        while head_end < bytes.len()
+            && !bytes[head_end].is_ascii_whitespace()
+            && !matches!(bytes[head_end], b'/' | b'\\' | b'?' | b'#')
+        {
+            head_end += 1;
+        }
+        let head = &line[auth..head_end];
+        let credential_shape = !head.contains('@')
+            && head.find(':').is_some_and(|colon| {
+                let tail = &head[colon + 1..];
+                !tail.is_empty() && !tail.bytes().all(|b| b.is_ascii_digit())
+            });
+        if credential_shape {
+            // Only continue across the whitespace that split the password:
+            // a path, query or fragment means the authority already ended,
+            // so a later `@` belongs to following prose (an email address)
+            // and must not pull the path into the redacted span.
+            match line[head_end..]
+                .find(['@', '/', '\\', '?', '#', '\n', '\r'])
+                .map(|rel| head_end + rel)
+            {
+                Some(at) if bytes[at] == b'@' => {
+                    spans.push((auth, at));
+                    search = at + 1;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        search = sep + "://".len();
+    }
+    if spans.is_empty() {
+        return std::borrow::Cow::Borrowed(line);
+    }
+    let mut out = String::with_capacity(line.len());
+    let mut last = 0usize;
+    for (start, at) in spans {
+        out.push_str(&line[last..start]);
+        last = at + 1;
+    }
+    out.push_str(&line[last..]);
+    std::borrow::Cow::Owned(out)
 }
 
 /// Removes the userinfo from one whitespace-delimited token when the token
@@ -492,14 +572,19 @@ pub(crate) fn is_scheme_syntax(s: &str) -> bool {
 }
 
 /// Bounded, credential-free echo of rejected user input for error messages:
-/// truncated to `MAX_LOG_LINE_CHARS` and stripped of `user:pass@` userinfo.
+/// stripped of `user:pass@` userinfo, then truncated to `MAX_LOG_LINE_CHARS`.
 ///
 /// Every "bad address" message uses this, so a pasted password can never
 /// reach the error view (or "Copy log") even before the display-level
-/// sanitizer runs.
+/// sanitizer runs. Stripping runs FIRST: a password longer than the cap has
+/// its `@` beyond the cut, so truncating first left the credential prefix
+/// looking like an ordinary token and it survived.
 pub(crate) fn safe_input_echo(input: &str) -> String {
-    strip_credentials_for_log(&truncate_chars(input, crate::config::MAX_LOG_LINE_CHARS))
-        .into_owned()
+    truncate_chars(
+        &strip_credentials_for_log(input),
+        crate::config::MAX_LOG_LINE_CHARS,
+    )
+    .into_owned()
 }
 
 /// `$HOME` (or `$USERPROFILE`), when set and ABSOLUTE.
@@ -689,8 +774,9 @@ pub fn sanitize_title(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        guard_panics, is_recordable_url, normalize_stored_url, now_secs, sanitize_title,
-        strip_credentials_for_log, strip_scheme_everywhere, strip_scheme_prefix, truncate_chars,
+        guard_panics, is_recordable_url, normalize_stored_url, now_secs, safe_input_echo,
+        sanitize_title, strip_credentials_for_log, strip_scheme_everywhere, strip_scheme_prefix,
+        truncate_chars,
     };
 
     #[test]
@@ -957,6 +1043,47 @@ mod tests {
             strip_credentials_for_log("https://outer:secret@ex.com/?next=http://u:p@evil/x"),
             "https://evil/x"
         );
+    }
+
+    /// A raw space or tab inside a pasted password splits the userinfo
+    /// across whitespace tokens. Both halves must still disappear: the
+    /// ordinary token pass sees `scheme://user:secret` with no `@`.
+    #[test]
+    fn strips_passwords_split_across_whitespace() {
+        assert_eq!(
+            strip_credentials_for_log("http://alice:correct horse@example.com/x"),
+            "http://example.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://alice:correct\thorse@example.com/x"),
+            "https://example.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("access to https://alice:correct horse@example.com/x failed"),
+            "access to https://example.com/x failed"
+        );
+        // A port-shaped tail is not userinfo, and prose without a later `@`
+        // stays untouched.
+        assert_eq!(
+            strip_credentials_for_log("https://example.com:8443/x and user@host"),
+            "https://example.com:8443/x and user@host"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://example.com:not-a-port/x"),
+            "https://example.com:not-a-port/x"
+        );
+        // A path already ended the authority: an email further down the
+        // line must not pull that path into the redacted span.
+        assert_eq!(
+            strip_credentials_for_log("see https://example.com:not-a-port/x and mail user@host"),
+            "see https://example.com:not-a-port/x and mail user@host"
+        );
+        // The password never survives even when it straddles the echo cap:
+        // stripping runs before truncation.
+        let long = format!("file://alice:{}@example.com/notes.md", "s".repeat(2000));
+        let echoed = safe_input_echo(&long);
+        assert_eq!(echoed, "file://example.com/notes.md");
+        assert!(echoed.chars().count() <= crate::config::MAX_LOG_LINE_CHARS);
     }
 
     #[test]

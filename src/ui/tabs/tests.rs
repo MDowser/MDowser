@@ -137,7 +137,7 @@ fn overlay_expands_and_collapses_gradually() {
     }
     assert!(last >= EXPANDED_W, "overlay finishes expanding: {last}");
 
-    // The rail is CHROME: its labels (tab titles, `+ New Tab`, `History`)
+    // The rail is CHROME: its labels (tab titles, `+ New tab`, `History`)
     // stay in the regular face. `theme::strong` (`wght = 700`) is for the
     // document surfaces and the titled pages, never the rail.
     let out = frame(
@@ -534,7 +534,7 @@ fn rail_icons_match_the_toolbar_glyph_size() {
     assert!(reference.width() > 0.0, "the reference glyph painted");
 
     // The collapsed rail draws that same placeholder for a Home tab
-    // (History and New Tab paint their own icons further down).
+    // (History and New tab paint their own icons further down).
     let mut tabs = vec![Tab::new(1)];
     let mut favicons = FaviconCache::new();
     let mut overlay: Option<Rect> = None;
@@ -669,7 +669,7 @@ fn labels_drift_into_place_while_expanding() {
         let out = frame(&ctx, &mut tabs, &mut favicons, &mut overlay, hover);
         let edge = painted_edge(&out).unwrap_or(0.0);
         if edge > RAIL_W && edge < EXPANDED_W {
-            if let Some(x) = label_x(&out, "New Tab") {
+            if let Some(x) = label_x(&out, "New tab") {
                 mid = Some((x, edge));
                 break;
             }
@@ -682,7 +682,7 @@ fn labels_drift_into_place_while_expanding() {
     for _ in 0..40 {
         let out = frame(&ctx, &mut tabs, &mut favicons, &mut overlay, hover);
         if painted_edge(&out).is_some_and(|e| e >= EXPANDED_W) {
-            settled_x = label_x(&out, "New Tab");
+            settled_x = label_x(&out, "New tab");
             if settled_x.is_some() {
                 break;
             }

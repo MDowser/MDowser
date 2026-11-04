@@ -672,6 +672,10 @@ do_mac() {
     if [ "${_DID_MAC:-0}" = "1" ]; then return 0; fi
     _DID_MAC=1
     log "macOS: universal .app (arm64 + x86_64)"
+    # Single-group runs ADD to dist/: drop this group's previous output first,
+    # so a failed rebuild cannot leave a stale same-name package to be
+    # checksummed and published as if it were fresh.
+    rm -f "$DIST/$APP_UI-$VER-macos-universal.app.zip"
     need_target "aarch64-apple-darwin" || { warn "mac-app-universal (no aarch64-apple-darwin target)"; return 0; }
     need_target "x86_64-apple-darwin" || { warn "mac-app-universal (no x86_64-apple-darwin target)"; return 0; }
     # Intel needs nasm for rav1d's AVX kernels; the universal .app needs BOTH
@@ -789,6 +793,13 @@ do_linux() {
         cargo install cargo-zigbuild || { warn "linux (cargo-zigbuild install failed)"; return 0; }
     fi
     for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+        arch="${triple%%-*}"
+        [ "$arch" = "x86_64" ] && debarch="amd64" || debarch="arm64"
+        # Drop this arch's previous outputs before ANY early continue below
+        # (missing target/nasm, failed build): a stale package must never be
+        # left looking like this run's output (see do_mac).
+        rm -f "$DIST/$APP_LC-$VER-linux-$arch.tar.gz" \
+            "$DIST/${APP_LC}_${DEB_VER}_${debarch}.deb"
         need_target "$triple" || { warn "linux-$triple (no target)"; continue; }
         case "$triple" in
             x86_64-*) if ! ensure_nasm; then
@@ -820,8 +831,6 @@ do_linux() {
         fi
         unset _reuse_bin
         try_strip "$b"
-        arch="${triple%%-*}"
-        [ "$arch" = "x86_64" ] && debarch="amd64" || debarch="arm64"
         # Local (never global) stage variable: `mk_deb` owns the global
         # `stage` name below, and sharing it left THIS directory behind after
         # the `.deb` step already re-pointed and removed its own.
@@ -863,6 +872,9 @@ do_rpm() {
     # entry, AppStream metadata, icons and man page the .deb carries, so the
     # two packages cannot drift.
     log "RPM: $APP_LC $RPM_VER (rpmbuild, from source)"
+    # Previous same-version RPMs are replaced, never left to be re-checksummed
+    # if this build fails (see do_mac).
+    rm -f "$DIST/$APP_LC-$RPM_VER-"*.rpm
     if ! have rpmbuild; then
         warn "rpm (rpmbuild not found; install rpm-build, or run make dist-rpm on a Fedora/RHEL host)"
         return 0
@@ -969,6 +981,9 @@ do_flatpak() {
     # dist/mdowser-<ver>.flatpak. Needs flatpak-builder + the freedesktop
     # runtimes; skipped with a reason everywhere else (macOS/Windows).
     log "Flatpak: $APP_LC (dev.mdowser.app)"
+    # The wrapper writes dist/mdowser-<ver>.flatpak only on success; remove a
+    # previous bundle first so a failed build cannot leave it looking fresh.
+    rm -f "$DIST/$APP_LC-$VER.flatpak"
     if ! have flatpak-builder; then
         warn "flatpak (flatpak-builder not found; install it or run make deps)"
         return 0
@@ -983,6 +998,8 @@ do_flatpak() {
 do_windows() {
     log "Windows: x86_64 (.exe via mingw-w64)"
     triple="x86_64-pc-windows-gnu"
+    # Replace this group's previous archive before rebuilding (see do_mac).
+    rm -f "$DIST/$APP_LC-$VER-windows-x86_64.zip"
     need_target "$triple" || { warn "windows (no $triple target)"; return 0; }
     if ! have x86_64-w64-mingw32-gcc; then
         if [ "$SKIP_SETUP" = "1" ] || ! have brew; then
@@ -1230,8 +1247,11 @@ for _stale in "$DIST"/*; do
     _stale_name="$(basename "$_stale")"
     case "$_stale_name" in
         SHA256SUMS.txt|latest.txt|.*) ;;
-        # Debian/RPM artifacts use the normalized form, not the full semver.
-        *"$VER"*|*"$DEB_VER"*|*"$RPM_VER"*) ;;
+        # Match the version as a DELIMITED token: `*"0.7.3"*` also accepted
+        # `0.7.30` and `0.7.3-rc.1`. Debian/RPM artifacts use the normalized
+        # form (`~` for a pre-release), not the full semver.
+        *-"$VER"-*|*"$VER.flatpak") ;;
+        *_"$DEB_VER"_*|*-"$RPM_VER"-*) ;;
         *) echo "WARN: dist/$_stale_name does not carry version $VER (left by an earlier run; remove it before publishing)" ;;
     esac
 done
@@ -1286,12 +1306,18 @@ unset _HASH
 
 # Update marker: the SAME bare `<ver>\n` asset CI adds in the publish job, so
 # a locally built release can be uploaded by hand without forgetting it. The
-# app's marker parser accepts only one stable semver and no `v` prefix; the
-# content is verified here rather than trusted from `$VER`.
-printf '%s\n' "$VER" > "$DIST/latest.txt"
-if [ "$(cat "$DIST/latest.txt")" != "$VER" ]; then
-    echo "ERROR: could not write the update marker $DIST/latest.txt" >&2
-    exit 1
+# app's marker parser accepts only one stable `X.Y.Z` semver with no `v`,
+# pre-release or build suffix; writing `0.7.4-rc.1` would make every client
+# reject the file, so a pre-release simply has no marker.
+if printf '%s' "$VER" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+    printf '%s\n' "$VER" > "$DIST/latest.txt"
+    if [ "$(cat "$DIST/latest.txt")" != "$VER" ]; then
+        echo "ERROR: could not write the update marker $DIST/latest.txt" >&2
+        exit 1
+    fi
+else
+    rm -f "$DIST/latest.txt"
+    printf '··· SKIP: latest.txt (version %s is not a stable X.Y.Z; the app rejects pre-release markers)\n' "$VER"
 fi
 
 echo ""

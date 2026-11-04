@@ -208,6 +208,7 @@ def scan_path(path):
 
 entries = sorted(os.listdir(dist))
 checked = 0
+metadata = 0
 ignored = 0
 for entry in entries:
     path = os.path.join(dist, entry)
@@ -224,7 +225,13 @@ for entry in entries:
         problems.append(f"{entry}: release artifacts must be regular files, not symlinks")
         continue
     if os.path.isfile(path):
-        checked += 1
+        # `latest.txt`/`SHA256SUMS.txt` are release METADATA, not downloadable
+        # builds. Scan them too, but they cannot satisfy `--require`: a dist/
+        # holding only those two used to pass as a ready release.
+        if entry in ("latest.txt", "SHA256SUMS.txt"):
+            metadata += 1
+        else:
+            checked += 1
         scan_path(path)
     else:
         # Staging directories belong to a failed/interrupted build; they must
@@ -238,12 +245,13 @@ if problems:
     sys.exit(1)
 
 if require and checked == 0:
-    print(f"FAIL: no release artifacts in {dist} (--require)")
+    print(f"FAIL: no release artifacts in {dist} (--require; metadata alone is not a build)")
     sys.exit(1)
 
 ignored_note = f", {ignored} hidden file(s) ignored" if ignored else ""
+metadata_note = f", {metadata} metadata file(s)" if metadata else ""
 print(
     f"OK: {dist} clean ({checked} artifact(s) scanned, "
-    f"{scanned} payload file(s) checked{ignored_note})"
+    f"{scanned} payload file(s) checked{metadata_note}{ignored_note})"
 )
 PY

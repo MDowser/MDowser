@@ -508,11 +508,14 @@ card and the bookmark/history stores.
 
 ### SSRF note
 
-Fetching `localhost` or private IPs is user-initiated (the user typed the URL
-or opened a document that links it), not server-side; it is allowed by design
-for local preview. Document subresources (images) inherit the same policy:
-they are HTTPS-only and still require a valid certificate, so a local service
-without one cannot be reached. No proxy is used (deterministic direct TLS).
+Navigating to `localhost` or a private IP is user-initiated (a typed address
+or a followed link), not server-side, and is allowed by design for local
+preview. Remote images are different: the remote document chooses their URLs,
+so they are not user-initiated. They inherit the HTTPS-only rule and still
+need a certificate the system trust store accepts, which keeps ordinary
+loopback/LAN services (plain HTTP or self-signed) out of reach; a private host
+with a publicly trusted certificate remains reachable when a document names
+it. No proxy is used (deterministic direct TLS).
 
 ## Build artifacts
 
@@ -526,16 +529,19 @@ extra field, and tar staging sweeps extended attributes / passes
 `--no-xattrs`, so `com.apple.provenance` stays out of Linux packages. The RPM
 spec pins `%_buildhost` and `%defattr(-, root, root, -)`.
 
-`scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist` and
-`make validate`) fails the build if any `dist/` artifact carries the builder's
-paths, hostname, uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member.
-Only regular, non-hidden files count as artifacts: Finder's `.DS_Store` is
-ignored, while a symlink (hidden or not) or a leftover staging directory in
-`dist/` fails the gate (a release must not point outside it or ship a stale
-tree). `make check-dist`, `make dist` and CI pass `--require`, so a missing
-`dist/`, no artifact at all, or a missing inspector (no python3) is a hard
-failure, not a silent SKIP. Generic hostnames that collide with the `/build`
-and `/cargo` remap targets are never used as needles.
+`scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist`) fails
+the build if any `dist/` artifact carries the builder's paths, hostname,
+uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member. Only regular,
+non-hidden files are considered: Finder's `.DS_Store` is ignored, while a
+symlink (hidden or not) or a leftover staging directory in `dist/` fails the
+gate (a release must not point outside it or ship a stale tree). `latest.txt`
+and `SHA256SUMS.txt` are metadata: they are scanned but never count as a
+downloadable build. `make check-dist`, `make dist` and CI pass `--require`, so
+a missing `dist/`, no downloadable build at all, or a missing inspector (no
+python3) is a hard failure, not a silent SKIP. `make validate` runs the same
+scan best-effort when `dist/` exists, matching its never-fail-on-missing-tools
+contract. Generic hostnames that collide with the `/build` and `/cargo` remap
+targets are never used as needles.
 See [`BUILDING.md#build-artifact-privacy`](BUILDING.md#build-artifact-privacy).
 
 Release builds run in CI (`.github/workflows/release.yml`) on fresh

@@ -483,7 +483,7 @@ impl Tab {
     /// Short title for the tab strip (expanded rail rows / tooltips).
     /// Prefers the page's own title (frontmatter `title`, else the first
     /// `#` heading), then the schemeless host + path.
-    /// Never empty: falls back to `New Tab` / `Loading...` / `Error`.
+    /// Never empty: falls back to `New tab` / `Loading...` / `Error`.
     /// Capped at [`crate::config::TAB_TITLE_CHARS`] so a remote title cannot
     /// bloat the UI. Allocates: the rail's per-frame path goes through
     /// [`Self::display`]'s memo; this stays for tests.
@@ -496,7 +496,7 @@ impl Tab {
     fn compute_title(&self) -> String {
         use crate::config::TAB_TITLE_CHARS;
         match &self.state {
-            TabState::Home => "New Tab".to_string(),
+            TabState::Home => "New tab".to_string(),
             TabState::History => "History".to_string(),
             TabState::Licenses => "Licenses".to_string(),
             TabState::Loading { asked, .. } | TabState::Settling { asked, .. } => {

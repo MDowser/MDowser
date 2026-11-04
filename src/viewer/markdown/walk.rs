@@ -624,7 +624,8 @@ impl egui::Widget for BackArrow<'_> {
                 egui::CornerRadius::same(theme::radius::SMALL),
                 s.container_high,
             );
-        } else if resp.has_focus() {
+        }
+        if resp.has_focus() {
             theme::focus_ring(ui, box_rect, theme::radius::SMALL);
         }
         crate::ui::icons::paint(
