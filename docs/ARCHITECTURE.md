@@ -16,7 +16,8 @@ main → app (tabs + active index + zoom + favicons + encrypted history and
   │          into: one message-shaped type for the error view and logs)
   ├─ util (shared helpers: panic guard for background jobs, display caps
   │         (`truncate_chars`), credential stripping for logs (including
-  │         passwords that contain a URL separator), stored-URL normalization)
+  │         passwords that contain a URL separator or `://`), stored-URL
+  │         normalization)
   ├─ assets (embedded Noto faces: color emoji, monochrome emoji, CJK,
   │          Latin + script set; the two largest ship Brotli-compressed
   │          and are decompressed once into process-lifetime

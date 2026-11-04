@@ -37,6 +37,16 @@ pub(super) fn marker_at(events: &[Event<'static>], j: usize) -> Option<(Vec<Stri
     if !matches!(events.get(j), Some(Event::Start(Tag::HtmlBlock))) {
         return None;
     }
+    // Common case: the normalizer emits one Html event followed by the block
+    // end. Parse it without first copying its bytes into a scratch String;
+    // this runs for every component marker on every frame.
+    if let (Some(Event::Html(h)), Some(Event::End(TagEnd::HtmlBlock))) =
+        (events.get(j + 1), events.get(j + 2))
+    {
+        if let Some(fields) = crate::markdown::document::component_fields(h) {
+            return Some((fields, j + 3));
+        }
+    }
     let mut buf = String::new();
     let mut k = j + 1;
     while k < events.len() {

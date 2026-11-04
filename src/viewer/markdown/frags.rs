@@ -93,10 +93,12 @@ pub(super) fn collect_inline<'e>(
                 // Pre-resolved at load time: an over-long source and every
                 // `#frag` (an image never navigates) arrive as `None`.
                 let abs = ctx.dests.image_rc(dest_url);
-                // Bound the tooltip at capture: the title arrives unbounded
-                // from the parser and a multi-MB one used to be cloned per
-                // frame before the display-side truncation.
-                let title = truncate_chars(title, MAX_IMAGE_TITLE_CHARS).into_owned();
+                // Bound the tooltip before building its shared handle: the
+                // title arrives unbounded from the parser, and a multi-MB one
+                // used to be cloned per frame before the display-side
+                // truncation. A short title stays borrowed, so the only
+                // allocation is the interned `Arc<str>` in `real_image_frag`.
+                let title = truncate_chars(title, MAX_IMAGE_TITLE_CHARS);
                 *i += 1;
                 let alt_frags =
                     collect_inline_nested(events, i, ctx, strong, em, strike, false, None, in_cell);
@@ -247,12 +249,30 @@ pub(super) fn collect_inline<'e>(
 /// Maps an `<Badge type="…">` value to its pill accent.
 fn badge_kind(ty: &str) -> crate::viewer::inline::Badge {
     use crate::viewer::inline::Badge;
-    match ty.to_ascii_lowercase().as_str() {
-        "note" | "info" | "default" | "blue" => Badge::Note,
-        "tip" | "success" | "green" => Badge::Tip,
-        "warning" | "warn" | "yellow" => Badge::Warning,
-        "caution" | "danger" | "error" | "red" => Badge::Caution,
-        _ => Badge::Neutral,
+    // `eq_ignore_ascii_case` rather than a per-badge `to_ascii_lowercase`
+    // allocation: the fragment walk runs on every frame.
+    if ["note", "info", "default", "blue"]
+        .iter()
+        .any(|k| ty.eq_ignore_ascii_case(k))
+    {
+        Badge::Note
+    } else if ["tip", "success", "green"]
+        .iter()
+        .any(|k| ty.eq_ignore_ascii_case(k))
+    {
+        Badge::Tip
+    } else if ["warning", "warn", "yellow"]
+        .iter()
+        .any(|k| ty.eq_ignore_ascii_case(k))
+    {
+        Badge::Warning
+    } else if ["caution", "danger", "error", "red"]
+        .iter()
+        .any(|k| ty.eq_ignore_ascii_case(k))
+    {
+        Badge::Caution
+    } else {
+        Badge::Neutral
     }
 }
 
@@ -570,7 +590,7 @@ pub(super) fn real_image_frag<'a>(
     strike: bool,
     link: Option<&Arc<str>>,
     url: Arc<str>,
-    title: String,
+    title: Cow<'_, str>,
 ) -> Frag<'a> {
     Frag {
         text: alt.into(),
@@ -661,6 +681,15 @@ pub(super) fn is_svg_url(url: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn badge_kinds_are_ascii_case_insensitive() {
+        use crate::viewer::inline::Badge;
+        assert_eq!(badge_kind("TIP"), Badge::Tip);
+        assert_eq!(badge_kind("Warning"), Badge::Warning);
+        assert_eq!(badge_kind("DANGER"), Badge::Caution);
+        assert_eq!(badge_kind("unknown"), Badge::Neutral);
+    }
 
     /// In-place coalescing must append the LATER fragment into the run that
     /// stays, preserving text order and style, and still keep hard breaks

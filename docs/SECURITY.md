@@ -440,8 +440,11 @@ card and the bookmark/history stores.
   being read as a userinfo host for `https://host`; the plain `user:pass@host`
   and `user:pass@host:8080` forms keep working with credentials stripped.
   The log/error sanitizer also fails closed for a separator-bearing
-  userinfo whose password contains `/`, `?`, `#` or `\` (for example
-  `mailto:user:pa/ss@host` or `user:pa/ss@host`); the plain schemeless
+  userinfo whose password contains `/`, `?`, `#`, `\` or `://` (for example
+  `mailto:user:pa/ss@host`, `user:pa/ss@host` or
+  `https://user:pa://ss@host`). It tries every authority spelling left to
+  right, so a `://` inside the password is not mistaken for a second
+  authority and stripped only at its tail. The plain schemeless
   `user:pass@host` spelling remains with the display sanitizer below, where
   the host:port shape is decided.
 - The display echo is bounded at the first ASCII-whitespace character (one
@@ -450,8 +453,10 @@ card and the bookmark/history stores.
   as a credential-free URL, so a password-shaped `name:digits/path@…` input is
   stripped instead.
 - Local ("bad path") messages echo the input through the same bounded,
-  credential-free helper, and post-parse local read errors echo the
-  `file:` URL through it as well (`protocol::local::echo_url`).
+  credential-free helper, and every post-parse local read error (invalid
+  UTF-8 included) echoes the `file:` URL through it as well. The local path
+  resolver also rejects credentials and ports at the point of use, not only
+  at parse time (`protocol::local::echo_url`, `protocol::local::local_path`).
 - The stripping does not depend on the caller: the shared network entry point
   (`protocol::client::get_bytes`) removes authority credentials from the
   request URL itself, fail-closed, before anything is sent, and its own

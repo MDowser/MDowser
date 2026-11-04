@@ -267,6 +267,12 @@ mod tests {
         "مرحبا 123 abc",
         "مرحبا بالعالم، كيف حالك؟",
         "שלום (טוב) עולם",
+        // Arabic-Indic digits are numbers, not RTL letters: the shaper must
+        // leave their left-to-right order intact inside Arabic text.
+        "سنة ٢٠٢٦ سنة",
+        "العدد ١٢٣ هنا",
+        "Hola سلام 123 mundo",
+        "abc ١٢٣ שלום def",
     ];
 
     /// The prepared text must paint exactly the UBA visual order through

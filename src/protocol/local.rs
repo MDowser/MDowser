@@ -192,7 +192,7 @@ fn echo_url(url: &Url) -> String {
     crate::util::safe_input_echo(url.as_str())
 }
 
-/// Local path of a `file` URL, rejecting remote hosts.
+/// Local path of a `file` URL, rejecting remote hosts, credentials and ports.
 ///
 /// The error echo is built INSIDE each failure arm: a successful read used
 /// to allocate two full sanitized copies of the URL per document (and per
@@ -202,6 +202,16 @@ pub(crate) fn local_path(url: &Url) -> Result<PathBuf, String> {
         let host = url.host_str().unwrap_or_default();
         return Err(format!(
             "access to {}: remote file host '{host}' is not supported",
+            echo_url(url)
+        ));
+    }
+    // `Url::to_file_path` ignores userinfo and the port, so a credentialed
+    // URL would otherwise read the same path and echo itself in a later
+    // error. Parse-time checks already reject these; enforce the contract
+    // at the point of use too.
+    if !url.username().is_empty() || url.password().is_some() || url.port().is_some() {
+        return Err(format!(
+            "access to {}: credentials and ports are not supported for local files",
             echo_url(url)
         ));
     }
@@ -250,7 +260,7 @@ fn read_document(url: &Url, path: &Path, cancel: &AtomicBool) -> Result<String, 
     // `String::from_utf8` takes the owned body: no second full-body copy.
     String::from_utf8(bytes).map_err(|e| {
         BrowserError::InvalidUtf8 {
-            url: url.to_string(),
+            url: echo_url(url),
             detail: e.utf8_error().to_string(),
         }
         .to_string()
@@ -396,7 +406,7 @@ pub(crate) fn fetch_blocking(start: &Url, cancel: &AtomicBool) -> Result<Fetched
         }
     }
     Err(BrowserError::NoCandidateWorked {
-        asked: start.to_string(),
+        asked: echo_url(start),
         lines,
     })
 }
@@ -482,6 +492,20 @@ mod tests {
     fn local_path_rejects_hosts() {
         assert!(local_path(&u("file://server/x.md")).is_err());
         assert!(local_path(&u("file:///x.md")).is_ok());
+    }
+
+    #[test]
+    fn local_path_rejects_credentials_and_ports_without_echoing_them() {
+        // `file:` URLs cannot carry userinfo or a port (the URL parser and
+        // setters reject both), but `local_path` must stay safe if a
+        // non-file `Url` carrying them reaches it directly.
+        let creds = u("https://user:pass@localhost/x.md");
+        let err = local_path(&creds).expect_err("must reject credentials");
+        assert!(!err.contains("pass"), "password leaked: {err}");
+        assert!(err.contains("credentials and ports"), "unexpected: {err}");
+        let port = u("https://localhost:8080/x.md");
+        let err = local_path(&port).expect_err("must reject a port");
+        assert!(err.contains("credentials and ports"), "unexpected: {err}");
     }
 
     // -----------------------------------------------------------------------

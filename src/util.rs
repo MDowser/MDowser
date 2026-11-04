@@ -261,7 +261,18 @@ pub fn strip_credentials_for_log(line: &str) -> std::borrow::Cow<'_, str> {
 fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
     let mut current = std::borrow::Cow::Borrowed(token);
     let mut changed = false;
-    // 1) `scheme://[more slashes]userinfo@authority` (`http:///u:p@h`),
+    // 1) A password may contain a URL separator (`user:pa/ss@host`) or even
+    //    `://` (`user:pa://ss@host`). This pass runs FIRST, before the strict
+    //    authority scan below can mistake the `://` inside the password for
+    //    a new authority and strip only its tail. It tries every authority
+    //    spelling left to right and keeps the first credential-shaped hit.
+    if let Some(clean) = strip_loose_credentials(&current) {
+        if clean != current {
+            current = std::borrow::Cow::Owned(clean);
+            changed = true;
+        }
+    }
+    // 2) `scheme://[more slashes]userinfo@authority` (`http:///u:p@h`),
     //    left to right: an error line can embed a redirect URL whose PATH
     //    contains another URL (`?next=https://u:p@evil`), so every
     //    occurrence is examined.
@@ -281,7 +292,7 @@ fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
         search = auth_start.max(sep + "://".len());
     }
     let bytes = current.as_bytes();
-    // 2) Protocol-relative `//userinfo@authority` (no scheme to anchor on).
+    // 3) Protocol-relative `//userinfo@authority` (no scheme to anchor on).
     if current.starts_with("//") || current.starts_with(r"\\") {
         let run = bytes
             .iter()
@@ -292,7 +303,7 @@ fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
             changed = true;
         }
     } else if let Some(colon) = current.find(':') {
-        // 3) Malformed `scheme:/userinfo@authority` (a single separator, so
+        // 4) Malformed `scheme:/userinfo@authority` (a single separator, so
         //    no `://` above) and the no-separator spelling
         //    `scheme:user:pass@host` that `parse_https` blocks as scheme
         //    syntax: both must lose the pasted password before display. A
@@ -320,17 +331,6 @@ fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
             }
         }
     }
-    // 4) A password may contain a separator (`user:pa/ss@host`). The
-    //    authority scan above stops at that separator, so a token can still
-    //    carry the `@` outside the authority it saw. Fail closed with the
-    //    last-`@` pass instead of letting a blocked-scheme error line echo
-    //    the password.
-    if let Some(clean) = strip_loose_credentials(&current) {
-        if clean != current {
-            current = std::borrow::Cow::Owned(clean);
-            changed = true;
-        }
-    }
     changed.then_some(current)
 }
 
@@ -338,62 +338,99 @@ fn strip_token_credentials(token: &str) -> Option<std::borrow::Cow<'_, str>> {
 /// separator. Over-redacts rather than leak.
 ///
 /// The strict authority scan ends at the first `/`, `?`, `#` or `\`, so it
-/// cannot see the `@` in `user:pa/ss@host`. A scheme or authority prefix
-/// makes the credential shape unambiguous; a separator inside a schemeless
-/// `name:secret@host` segment does too. Use the LAST `@` (the URL parser's
-/// userinfo separator) and drop everything between the prefix's authority
-/// start and that `@`. Path-shaped colons (`host/a:b@c`), Windows paths and
-/// host:port tokens are left alone; a plain schemeless `user:pass@host`
-/// stays with `sanitize_for_display`.
+/// cannot see the `@` in `user:pa/ss@host`; it also mistakes a `://` inside a
+/// password (`user:pa://ss@host`) for a new authority and strips only the
+/// tail. A scheme or authority prefix makes the credential shape
+/// unambiguous; a separator inside a schemeless `name:secret@host` segment
+/// does too. Every authority spelling is tried LEFT TO RIGHT and the first
+/// credential-shaped hit is used, because the real authority starts before
+/// any separator inside its own password. Use the LAST `@` (the URL parser's
+/// userinfo separator) and drop everything between that authority start and
+/// the `@`. Path-shaped colons (`host/a:b@c`), Windows paths and host:port
+/// tokens are left alone; a plain schemeless `user:pass@host` stays with
+/// `sanitize_for_display`.
 fn strip_loose_credentials(token: &str) -> Option<String> {
     let at = token.rfind('@')?;
-    // Prefer the LAST `://` before the `@`: an error line can embed the
-    // real redirect URL inside the outer URL's path/query
-    // (`?next=https://u:p@evil`), so keep the outer prefix and clean the
-    // inner authority the server controls.
-    let (prefix, rest) = if let Some(sep) = token[..at].rfind("://") {
-        (&token[..sep + 3], &token[sep + 3..])
-    } else if token.starts_with("//") || token.starts_with(r"\\") {
+    // Every `://` before the userinfo separator, left to right: the first
+    // one may be the real scheme, while a later one can be a password
+    // (`user:pa://ss@host`) or an embedded redirect URL
+    // (`?next=https://u:p@evil`). Only a credential-shaped attempt wins.
+    let mut search = 0usize;
+    while let Some(rel) = token[search..].find("://") {
+        let sep = search + rel;
+        if sep >= at {
+            break;
+        }
+        if let Some(clean) = loose_clean(&token[..sep + 3], &token[sep + 3..]) {
+            return Some(clean);
+        }
+        search = sep + 3;
+    }
+    // Protocol-relative `//userinfo@authority`.
+    if token.starts_with("//") || token.starts_with(r"\\") {
         let run = token
             .bytes()
             .take_while(|b| *b == b'/' || *b == b'\\')
             .count();
-        (&token[..run], &token[run..])
+        if let Some(clean) = loose_clean(&token[..run], &token[run..]) {
+            return Some(clean);
+        }
+    }
+    // No scheme, or only the schemeless `scheme:userinfo@authority` /
+    // `user:pa/ss@authority` spelling: anchor on the first colon.
+    let colon = token[..at].find(':')?;
+    let scheme = &token[..colon];
+    if !is_scheme_syntax(scheme) {
+        return None;
+    }
+    let run = token[colon + 1..]
+        .bytes()
+        .take_while(|b| *b == b'/' || *b == b'\\')
+        .count();
+    let auth_start = colon + 1 + run;
+    let creds_region = &token[colon + 1..at];
+    // A colon that starts a `://` is part of a separator-bearing password
+    // (`user:pa://ss@host`), not userinfo punctuation. Only other colons
+    // mark `scheme:user:pass@host`.
+    let has_second_colon = creds_region
+        .match_indices(':')
+        .any(|(i, _)| !creds_region[i..].starts_with("://"));
+    let separator_in_creds = creds_region.contains(['/', '\\', '?', '#']);
+    if run == 0 && !has_second_colon && !separator_in_creds {
+        // `mailto:a@b`, `nas:5000/x@y` and a plain host:port are not
+        // credential-shaped. A separator is the ambiguous schemeless
+        // form (`user:pa/ss@host`), handled below.
+        return None;
+    }
+    if run == 0 && crate::protocol::client::is_blocked_scheme(scheme) && !separator_in_creds {
+        // A blocked non-hierarchical spelling without a separator in its
+        // password is stripped by the strict pass below, which keeps the
+        // scheme (`mailto:b.com`) like the rest of the log text. The loose
+        // pass only owns the spellings that pass cannot see through.
+        return None;
+    }
+    let (prefix, rest) = if run > 0 {
+        (&token[..auth_start], &token[auth_start..])
+    } else if !has_second_colon {
+        // `user:pa/ss@host`: no second colon before the `@`, so this is
+        // not scheme syntax with userinfo; the whole token is the
+        // ambiguous schemeless spelling. Strip to the host.
+        ("", token)
+    } else if crate::protocol::client::is_blocked_scheme(scheme) {
+        // A blocked non-hierarchical spelling shows just the host, like
+        // `sanitize_for_display`; the scheme itself is not addressable.
+        ("", &token[colon + 1..])
     } else {
-        let colon = token[..at].find(':')?;
-        let scheme = &token[..colon];
-        if !is_scheme_syntax(scheme) {
-            return None;
-        }
-        let run = token[colon + 1..]
-            .bytes()
-            .take_while(|b| *b == b'/' || *b == b'\\')
-            .count();
-        let auth_start = colon + 1 + run;
-        let has_second_colon = token[colon + 1..at].contains(':');
-        let separator_in_creds = token[colon + 1..at].contains(['/', '\\', '?', '#']);
-        if run == 0 && !has_second_colon && !separator_in_creds {
-            // `mailto:a@b`, `nas:5000/x@y` and a plain host:port are not
-            // credential-shaped. A separator is the ambiguous schemeless
-            // form (`user:pa/ss@host`), handled below.
-            return None;
-        }
-        if run > 0 {
-            (&token[..auth_start], &token[auth_start..])
-        } else if !has_second_colon {
-            // `user:pa/ss@host`: no second colon before the `@`, so this is
-            // not scheme syntax with userinfo; the whole token is the
-            // ambiguous schemeless spelling. Strip to the host.
-            ("", token)
-        } else if crate::protocol::client::is_blocked_scheme(scheme) {
-            // A blocked non-hierarchical spelling shows just the host, like
-            // `sanitize_for_display`; the scheme itself is not addressable.
-            ("", &token[colon + 1..])
-        } else {
-            // `http:user:pass@host` keeps its scheme but loses userinfo.
-            (&token[..colon + 1], &token[colon + 1..])
-        }
+        // `http:user:pass@host` keeps its scheme but loses userinfo.
+        (&token[..colon + 1], &token[colon + 1..])
     };
+    loose_clean(prefix, rest)
+}
+
+/// One attempt at [`strip_loose_credentials`] for one authority spelling:
+/// `prefix` is copied verbatim and `rest` starts at the authority. Returns
+/// the token without its userinfo when `rest` is credential-shaped.
+fn loose_clean(prefix: &str, rest: &str) -> Option<String> {
     let rest_at = rest.rfind('@')?;
     let pre = &rest[..rest_at];
     let colon = pre.find(':')?;
@@ -889,6 +926,36 @@ mod tests {
         assert_eq!(
             strip_credentials_for_log("user:pass@example.com"),
             "user:pass@example.com"
+        );
+        // A password may itself contain `://`: the inner `://` is not a new
+        // authority, so the whole userinfo must go (the strict scan used to
+        // strip only the tail and echo `user:pa`).
+        assert_eq!(
+            strip_credentials_for_log("https://user:pa://ss@ex.com/x"),
+            "https://ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("//user:pa://ss@ex.com/x"),
+            "//ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("blocked: user:pa://ss@ex.com/x"),
+            "blocked: ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("blocked: http:user:pa://ss@ex.com/x"),
+            "blocked: http:ex.com/x"
+        );
+        assert_eq!(
+            strip_credentials_for_log("https://ex.com/?next=http://user:pa://ss@evil/x"),
+            "https://ex.com/?next=http://evil/x"
+        );
+        // An outer userinfo in front of an embedded redirect that also has
+        // credentials: fail closed on both secrets even though the whole
+        // outer path is lost (the alternative was echoing one of them).
+        assert_eq!(
+            strip_credentials_for_log("https://outer:secret@ex.com/?next=http://u:p@evil/x"),
+            "https://evil/x"
         );
     }
 

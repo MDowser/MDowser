@@ -36,12 +36,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (an explicit re-enable checks right away when a check is due).
   (`src/update/`, `src/app/run.rs`, `docs/ARCHITECTURE.md`.)
 - Blocked-scheme error details and "Copy log" no longer echo a pasted password
-  that contains `/`, `?`, `#` or `\` (for example
-  `mailto:user:pa/ss@host` or `user:pa/ss@host`): the shared log sanitizer now
-  strips a separator-bearing userinfo with the last `@` for scheme- or
-  authority-prefixed and ambiguous schemeless spellings alike; plain
+  that contains `/`, `?`, `#`, `\` or even `://` (for example
+  `mailto:user:pa/ss@host`, `user:pa/ss@host` or
+  `https://user:pa://ss@host`): the shared log sanitizer now strips a
+  separator-bearing userinfo with the last `@` for scheme- or
+  authority-prefixed and ambiguous schemeless spellings alike, trying every
+  authority spelling left to right so a `://` inside the password is not
+  mistaken for a second authority and stripped only at its tail. Plain
   schemeless `user:pass@host` stays with the display sanitizer.
   (`src/util.rs`, `docs/SECURITY.md`.)
+- Local file reads enforce the no-credentials/no-port contract at the point
+  of use, not only at parse time, and invalid-UTF-8 and no-candidate messages
+  echo the bounded, credential-free URL like the other local failures.
+  (`src/protocol/local.rs`, `docs/SECURITY.md`.)
 
 ## [0.7.3] - 2026-10-30
 

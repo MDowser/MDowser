@@ -232,6 +232,13 @@ fn display_sanitizer_never_echoes_credentials() {
         "a password containing a slash must never be echoed"
     );
     assert_eq!(sanitize_for_display("mailto:user:pa/ss@b.com"), "b.com");
+    // `://` inside the password is still userinfo, not a second authority.
+    assert_eq!(
+        sanitize_for_display("https://user:pa://ss@ex.com/x"),
+        "https://ex.com/x"
+    );
+    assert_eq!(sanitize_for_display("user:pa://ss@ex.com/x"), "ex.com/x");
+    assert_eq!(sanitize_for_display("mailto:user:pa://ss@b.com"), "b.com");
     assert_eq!(sanitize_for_display("nas:5000/x@y"), "nas:5000/x@y");
     // A host:port-shaped token the URL parser REJECTS (port out of range)
     // is not echoed verbatim: the password inside it is stripped.
@@ -264,15 +271,17 @@ fn display_sanitizer_never_echoes_credentials() {
 fn blocked_scheme_error_line_never_echoes_a_separator_password() {
     for (input, expected) in [
         ("mailto:user:pa/ss@b.com", "b.com"),
+        ("mailto:user:pa://ss@b.com", "b.com"),
         // No scheme prefix: `user:` looks like scheme syntax, so
         // `parse_https` rejects it too, and the line must not leak either.
         ("user:pa/ss@ex.com", "ex.com"),
+        ("user:pa://ss@ex.com", "ex.com"),
     ] {
         let error = parse_https(input).expect_err("blocked scheme");
         match error {
             crate::error::BrowserError::NotHttps(line) => {
                 assert_eq!(line, expected, "input: {input}");
-                assert!(!line.contains("pa/ss"), "password survived: {line}");
+                assert!(!line.contains("pa"), "password survived: {line}");
             }
             other => panic!("unexpected error for {input}: {other:?}"),
         }
