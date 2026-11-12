@@ -139,7 +139,7 @@ the `.exe` zip), while `make dist` builds every platform the host can.
 `make icons` forces a regeneration: the build generates `assets/icons/`
 from `assets/icon.svg` whenever the committed files are missing or outdated
 (`build.rs` + `build_support/gen_icons.rs`), so a fresh checkout needs no
-  manual step.
+manual step.
 
 The build Brotli-compresses the two largest embedded fonts
 (`assets/fonts/NotoColorEmoji-Regular.ttf`,
@@ -148,19 +148,18 @@ The build Brotli-compresses the two largest embedded fonts
 quality 10) with byte-identical rendering. The runtime decompresses each face
 once (CJK synchronously at startup, color emoji on the background
 `media::emoji::prewarm` thread `App::new` spawns), so no first emoji parses
-  the face mid-frame; a machine that never shows the window still pays the
-  one-time decompression on that thread. A hash stamp caches the
+the face mid-frame; a machine that never shows the window still pays the
+one-time decompression on that thread. A hash stamp caches the
 result: only the first build per profile and target triple pays the ~90 s
 encoder pass; `OUT_DIR` is keyed by both. Build scripts run optimized
 (`[profile.*.build-override] opt-level = 3` in `Cargo.toml`, versus
-  `opt-level = 0` by default, at which the encoder would take minutes). Those
-  tables set
-`strip = "none"`: since Rust 1.77, build scripts are built without debug info
-and cargo passes `-C strip=debuginfo`, and on macOS that strip invokes the
-toolchain's `rust-objcopy`, which is broken on some installs (missing
-`libLLVM.dylib` → one `SIGABRT` warning per build script). Build scripts never
-ship, so their debug info costs only disk in `target/`. The encoder is a
-build-dependency (`brotli`, already in the app's graph).
+`opt-level = 0` by default, at which the encoder would take minutes). Those
+tables set `strip = "none"`: since Rust 1.77, build scripts are built without
+debug info and cargo passes `-C strip=debuginfo`, and on macOS that strip
+invokes the toolchain's `rust-objcopy`, which is broken on some installs
+(missing `libLLVM.dylib` → one `SIGABRT` warning per build script).
+Build scripts never ship, so their debug info costs only disk in `target/`.
+The encoder is a build-dependency (`brotli`, already in the app's graph).
 
 The Intel macOS build links `rav1d`'s NASM-assembled x86_64 objects, which
 carry no `LC_BUILD_VERSION`, so `ld` prints ~46 "no platform load command

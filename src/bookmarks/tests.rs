@@ -6,7 +6,9 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
-use super::{BookmarkStore, Toggle, BOOKMARKS_FILE, FILE_MAGIC, FILE_VERSION, KEY_FILE};
+#[cfg(unix)]
+use super::KEY_FILE;
+use super::{BookmarkStore, Toggle, BOOKMARKS_FILE, FILE_MAGIC, FILE_VERSION};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 

@@ -401,7 +401,9 @@ Key contracts per area (the module map above names the main module areas):
   tightened through that SAME handle (`fchmod`), never a fresh path lookup, so a
   symlink swapped in after the open is neither followed nor `chmod`ed.
   Crash-orphaned `<store>.tmp.*` files and key-creation temps
-  (`store.key.tmp.<pid>.<seq>`, raw key bytes) are swept on load.
+  (`store.key.tmp.<pid>.<seq>`, raw key bytes) are swept on load; a temp whose
+  owner is still running is skipped (procfs, `ps`, or `tasklist`), so cleanup
+  never races an in-flight write.
 - File format: magic `MDHS`, version 1, 12-byte random nonce,
   ChaCha20-Poly1305 with the header as AAD. The 256-bit key lives in the single
   shared `store.key` (history, bookmarks, settings, session; created 0600;

@@ -288,7 +288,11 @@ card and the bookmark/history stores.
   `chmod`ed. The key file opens with `O_NOFOLLOW` and is tightened on that
   handle, so a symlinked `store.key` is refused. Crash-orphaned
   `<store>.tmp.*` files AND the key-creation temps
-  (`store.key.tmp.<pid>.<seq>`, which hold raw key bytes) are swept.
+  (`store.key.tmp.<pid>.<seq>`, which hold raw key bytes) are swept. A temp
+  whose owning process is still alive is left untouched (Linux procfs, macOS
+  `ps`, Windows `tasklist`), so a second instance cannot delete another
+  instance's in-flight write; when liveness cannot be established, the temp
+  is kept.
 - **Atomic writes and backups.** Writes use a temp file + rename with a
   per-process unique temp name (debounced writes run on a worker thread, so
   the UI thread never fsyncs; concurrent instances cannot interleave). The

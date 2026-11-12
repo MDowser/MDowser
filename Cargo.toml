@@ -123,7 +123,10 @@ aws-lc-rs = { version = "1.18", default-features = false, features = ["aws-lc-sy
 # Only Parser/Options/Events are used (see `markdown/document/`,
 # `viewer/`): no `html` module, no `getopts` binary. Default features
 # would compile both for nothing, so keep the bare parser.
-pulldown-cmark = { version = "0.13", default-features = false }
+# 0.13.6 is the first release fixing RUSTSEC-2026-0433 (quadratic parsing
+# of nested image wikilinks with ENABLE_WIKILINKS; the option is not enabled
+# here, but the minimum keeps a fresh or manually downgraded resolution safe).
+pulldown-cmark = { version = "0.13.6", default-features = false }
 # Unicode bidirectional algorithm for display order in the viewer
 # (`viewer::bidi`): epaint lays glyphs left-to-right and applies no
 # bidi, so RTL runs are reordered for display here. Already in the graph

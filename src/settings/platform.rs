@@ -20,7 +20,7 @@ use super::*;
 /// Runs at most once per directory per process: the sweep is startup work
 /// (legacy files are never written again), while its callers sit on the
 /// settings-hot paths — every `read_setting` used to re-scan the directory
-/// and, off Linux, spawn `ps` per crash-orphaned temp on the UI thread.
+/// and spawn a process-table lookup per crash-orphaned temp on the UI thread.
 pub(crate) fn cleanup_legacy_files(dir: &Path) {
     static SWEPT: std::sync::OnceLock<Mutex<std::collections::HashSet<PathBuf>>> =
         std::sync::OnceLock::new();
@@ -96,7 +96,7 @@ fn temp_owner_is_alive(name: &str) -> bool {
         // permission games and no `unsafe`.
         std::path::Path::new(&format!("/proc/{pid}")).exists()
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(unix, not(target_os = "linux")))]
     {
         // No procfs: consult the process table without signalling
         // (`ps -o pid= -p <pid>` prints one line only while it exists).
@@ -106,6 +106,45 @@ fn temp_owner_is_alive(name: &str) -> bool {
             .output()
             .is_ok_and(|out| !out.stdout.iter().all(u8::is_ascii_whitespace))
     }
+    #[cfg(windows)]
+    {
+        // `ps` is not a Windows tool, and Git Bash's `ps` cannot see native
+        // process ids: asking it would mark EVERY other instance's live temp
+        // as orphaned and delete it mid-write. `tasklist` is the built-in
+        // that understands native PIDs. If it cannot run, fail closed (keep
+        // the temp): leaking a crash orphan is safer than breaking another
+        // instance's atomic rename.
+        let filter = format!("PID eq {pid}");
+        match std::process::Command::new("tasklist")
+            .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+            .stdin(std::process::Stdio::null())
+            .output()
+        {
+            Ok(out) => tasklist_has_pid(&out.stdout, pid),
+            Err(_) => true,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        // Unknown process API: never delete a temp whose owner cannot be
+        // proven gone (fail closed).
+        true
+    }
+}
+
+/// Parses the CSV rows of `tasklist /FO CSV /NH` and checks the PID column.
+///
+/// The image name (and localized memory text) are irrelevant; only the
+/// second field is the numeric PID. Kept platform-independent so the parser
+/// is exercised by the host test suite too.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn tasklist_has_pid(stdout: &[u8], pid: u32) -> bool {
+    let want = pid.to_string();
+    String::from_utf8_lossy(stdout).lines().any(|line| {
+        line.split(',')
+            .nth(1)
+            .is_some_and(|field| field.trim().trim_matches('"') == want)
+    })
 }
 
 /// Removes one encrypted store file plus its `.bak` (an unreadable-blob

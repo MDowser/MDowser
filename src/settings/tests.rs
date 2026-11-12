@@ -26,6 +26,19 @@ fn cleanup(dir: &PathBuf) {
 }
 
 #[test]
+fn tasklist_liveness_parser_reads_only_the_pid_column() {
+    let rows = b"\"mdowser.exe\",\"4242\",\"Console\",\"1\",\"50,000 K\"\r\n";
+    assert!(super::tasklist_has_pid(rows, 4242));
+    assert!(!super::tasklist_has_pid(rows, 42));
+    assert!(!super::tasklist_has_pid(rows, 42420));
+    assert!(!super::tasklist_has_pid(
+        b"INFO: No tasks are running.\r\n",
+        4242
+    ));
+    assert!(!super::tasklist_has_pid(b"", 4242));
+}
+
+#[test]
 fn theme_settings_roundtrip_and_reject_garbage() {
     for theme in [ThemePref::System, ThemePref::Light, ThemePref::Dark] {
         assert_eq!(ThemePref::from_setting(theme.as_setting()), Some(theme));

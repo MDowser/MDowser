@@ -85,6 +85,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The security note no longer calls remote-document images user-initiated: it
   states that the document chooses their URLs and that the HTTPS and trusted
   certificate rules are what bound them. (`docs/SECURITY.md`.)
+- On Windows, the startup temp-file sweep now checks owner liveness through
+  the native `tasklist` PID column instead of the unavailable `ps`. A second
+  running instance's in-flight store temp is left untouched, while
+  crash-orphaned temps are still removed; if liveness cannot be established,
+  the temp is kept. The parser has a host-run unit test, and the Windows test
+  target now compiles warning-free. (`src/settings/platform.rs`,
+  `src/settings/tests.rs`, `src/bookmarks/tests.rs`, `docs/SECURITY.md`,
+  `docs/ARCHITECTURE.md`.)
+
+### Security
+
+- Updated the CommonMark parser to `pulldown-cmark 0.13.6`, the first release
+  fixing RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks when
+  the `ENABLE_WIKILINKS` option is on; MDowser never enables it, but the
+  minimum now prevents a vulnerable resolution), and replaced the yanked
+  `async-executor 1.14.0` with 1.14.1. Compatible transitive dependencies
+  were refreshed in the same lockfile update; `cargo audit` and
+  `cargo deny check` pass. (`Cargo.toml`, `Cargo.lock`.)
 
 ## [0.7.3] - 2026-10-30
 
