@@ -6,10 +6,28 @@
 //! Unit tests for the parent module (kept out of the logic file so the
 //! module stays reviewable).
 
+use super::rows::placeholder_icon;
 use super::show_tabs;
-use crate::browser::tab::Tab;
+use crate::browser::tab::{Tab, TabStateKind};
 use crate::media::favicon::FaviconCache;
+use crate::ui::icons::Icon;
 use eframe::egui;
+
+/// Placeholder glyphs name the page kind instead of defaulting every
+/// non-Home tab to the globe: internal pages keep their identity and local
+/// files use the same page icon as the omnibox indicator and history rows.
+#[test]
+fn placeholder_icons_name_internal_and_local_pages() {
+    assert_eq!(placeholder_icon(TabStateKind::Home, false), Icon::Home);
+    assert_eq!(
+        placeholder_icon(TabStateKind::History, false),
+        Icon::History
+    );
+    assert_eq!(placeholder_icon(TabStateKind::Licenses, false), Icon::Info);
+    assert_eq!(placeholder_icon(TabStateKind::Loaded, true), Icon::File);
+    assert_eq!(placeholder_icon(TabStateKind::Loaded, false), Icon::Globe);
+    assert_eq!(placeholder_icon(TabStateKind::Settling, true), Icon::File);
+}
 
 /// The collapsed rail must render headlessly without panicking, start
 /// no favicon probes for Home tabs and stay collapsed with no pointer.

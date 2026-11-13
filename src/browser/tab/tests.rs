@@ -641,6 +641,7 @@ fn display_memo_refreshes_on_state_changes() {
     let mut t = Tab::new(1);
     assert_eq!(t.display().0.title, "New tab");
     assert!(t.display().0.origin.is_none(), "Home has no origin");
+    assert!(!t.display().0.local, "Home is not a local file");
 
     // A same-kind Loading → Loading transition (second navigation while
     // the first is still in flight).
@@ -679,11 +680,35 @@ fn display_memo_refreshes_on_state_changes() {
         disp.origin.as_ref().map(Url::as_str),
         Some("https://second.example/")
     );
+    assert!(!disp.local, "a web page is not a local file");
 
     // A settled frame hits the memo (no rebuild) and answers identically.
     let (disp, rebuilt) = t.display();
     assert!(!rebuilt, "an unchanged state must not rebuild");
     assert!(disp.title.contains("second.example"));
+}
+
+/// Local files have no favicon origin, but they are marked local so the tab
+/// rail can paint the page icon instead of the generic globe.
+#[test]
+fn display_marks_local_files_for_the_page_icon() {
+    let mut t = Tab::new(1);
+    t.state = TabState::Loaded {
+        fetched: fetched_for("file:///tmp/notes.md"),
+    };
+    let (disp, _) = t.display();
+    assert!(disp.origin.is_none(), "local files have no favicon origin");
+    assert!(disp.local, "local files use the file placeholder");
+}
+
+/// The local marker is also available while a local file loads, so the rail
+/// does not flash a globe before the document settles.
+#[test]
+fn display_marks_loading_local_files_for_the_page_icon() {
+    let mut t = loading_tab("file:///tmp/notes.md", None, Vec::new(), Vec::new());
+    let (disp, _) = t.display();
+    assert!(disp.origin.is_none(), "local files have no favicon origin");
+    assert!(disp.local, "a loading local file uses the file placeholder");
 }
 
 /// A fresh navigation to a new page requests the top: revisiting an

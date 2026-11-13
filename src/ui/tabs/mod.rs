@@ -61,7 +61,6 @@ use crate::browser::tab::{Tab, TabStateKind};
 use crate::media::favicon::FaviconCache;
 use crate::ui::{icons, theme};
 use eframe::egui;
-use url::Url;
 
 /// Collapsed rail width: one toolbar-sized favicon + ~8px of breathing
 /// room per side.
@@ -304,16 +303,7 @@ pub fn show_tabs(
                         // is needed (the display cache is rebuilt only when
                         // the tab's state actually changes).
                         let title = disp.title.as_str();
-                        let origin = disp.origin.as_ref();
-                        draw_favicon(
-                            ui,
-                            rect,
-                            disp.loading,
-                            disp.kind,
-                            origin,
-                            favicons,
-                            selected,
-                        );
+                        draw_favicon(ui, rect, disp, favicons, selected);
                         // Accessible name + selected state for screen readers
                         // (the row is a custom-painted widget).
                         resp.widget_info(|| {

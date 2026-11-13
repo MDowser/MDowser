@@ -428,13 +428,18 @@ its assets in place.
 | Job | Runner | Builds |
 | --- | --- | --- |
 | `verify` | ubuntu-24.04 | `scripts/build-test.sh` (sh syntax, version, fmt, clippy, tests, doc, debug) + pinned `cargo audit`/`cargo deny check`; every build job needs it |
-| `linux-x64` | ubuntu-24.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
-| `linux-arm64` | ubuntu-24.04-arm | Linux arm64 `.tar.gz` + `.deb` |
+| `linux-x64` | ubuntu-22.04 | Linux x86_64 `.tar.gz` + `.deb`, Windows x86_64 `.zip` (mingw cross) |
+| `linux-arm64` | ubuntu-22.04-arm | Linux arm64 `.tar.gz` + `.deb` |
 | `windows-arm64` | windows-11-arm | Windows arm64 `.zip` (native MSVC) |
 | `macos` | macos-15 | universal `.app.zip` (arm64 + Intel, `lipo`) |
 | `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
 | `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, `latest.txt`, draft-then-publish Release |
+
+The Linux `.tar.gz` and `.deb` are built on Ubuntu 22.04 (glibc 2.35) rather
+than 24.04 (glibc 2.39), so they install on Ubuntu 22.04+ and Debian 12+. Do
+not raise that floor silently: update the runtime notes here and in
+`README.md`, and keep the Flatpak recommendation for older distributions.
 
 A tag cannot publish a tree that fails `make test`: the `verify` job runs the
 full pipeline and every build job declares `needs: verify`. It also installs
@@ -482,10 +487,13 @@ Release assets are served directly
   then allow it in System Settings > Privacy & Security > `Open Anyway`
   (right-click > Open no longer bypasses this on current macOS).
 - **Linux:** system graphics libraries (X11/Wayland, Mesa) and
-  `ca-certificates` for TLS verification. The `.deb` depends on
-  `ca-certificates` plus the `libc6` floor derived from the binary; the `.rpm`
-  depends on `ca-certificates`. Install with
-  `sudo dpkg -i mdowser_*_amd64.deb` or `sudo rpm -i mdowser-*.rpm`.
+  `ca-certificates` for TLS verification. Release `.tar.gz` and `.deb`
+  binaries are built on Ubuntu 22.04 and require glibc 2.35+ (Ubuntu 22.04+,
+  Debian 12+); the `.deb` declares the binary's own `libc6` floor (2.35 or
+  lower on that build) plus `ca-certificates`. The x86_64 `.rpm` targets
+  Fedora 44. On an older distribution, use the Flatpak bundle, whose runtime
+  carries its own libc. Install with `sudo dpkg -i mdowser_*_amd64.deb`,
+  `sudo rpm -i mdowser-*.rpm` or `flatpak install mdowser-*.flatpak`.
 - **Windows x86_64:** the GNU `.exe` needs nothing extra. It is unsigned, so
   on the SmartScreen warning click `More info` > `Run anyway`. If some old
   Windows asks for MinGW DLLs, build with the MSVC toolchain instead.

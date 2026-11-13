@@ -896,8 +896,9 @@ Key contracts per area (the module map above names the main module areas):
   into the document area, staying open over the toolbar and outside the window;
   the overlay merges with the toolbar and only its right edge is elevated), then
   the central content panel.
-- The rail reads each tab's title, favicon origin and OS window title from the
-  per-tab display memo (`Tab::display`, keyed by `(kind, doc_generation)`): a
+- The rail reads each tab's title, favicon origin, local-file marker and OS
+  window title from the per-tab display memo (`Tab::display`, keyed by
+  `(kind, doc_generation)`): a
   settled frame allocates nothing per tab and builds no `Vec` of cloned
   origins, since the favicon loop borrows the memo and `FaviconCache` looks up
   with a borrowed key slice. `show_tabs` takes `&mut [Tab]` while mutating

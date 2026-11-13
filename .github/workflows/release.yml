@@ -129,8 +129,11 @@ jobs:
   linux-x64:
     name: Linux x86_64 + Windows x86_64
     # The x64 environment does all the x64 work; the Windows .exe keeps the
-    # very same mingw cross path a local `make dist` uses today.
-    runs-on: ubuntu-24.04
+    # very same mingw cross path a local `make dist` uses today. Stay on
+    # Ubuntu 22.04 (glibc 2.35) so the `.tar.gz`/`.deb` also install on
+    # Debian 12 and Ubuntu 22.04+, not only the newest Ubuntu. Keep this
+    # runner in sync with the runtime floor in docs/BUILDING.md.
+    runs-on: ubuntu-22.04
     needs: verify
     timeout-minutes: 75
     steps:
@@ -188,8 +191,9 @@ jobs:
 
   linux-arm64:
     name: Linux arm64
-    # aarch64 uses the system assembler: no nasm needed here.
-    runs-on: ubuntu-24.04-arm
+    # aarch64 uses the system assembler: no nasm needed here. Same Ubuntu
+    # 22.04 (glibc 2.35) floor as the x64 job.
+    runs-on: ubuntu-22.04-arm
     needs: verify
     timeout-minutes: 45
     steps:
@@ -516,7 +520,7 @@ jobs:
 
           macOS 13+: the `.app` is ad-hoc signed, not notarized. Double-click it once so Gatekeeper registers the block, then allow it in System Settings > Privacy & Security > Open Anyway.
 
-          Linux: `sudo dpkg -i mdowser_@DEB_VERSION@_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-@RPM_VERSION@-*.rpm`, or `flatpak install mdowser-@VERSION@.flatpak`; the `.tar.gz` is a portable alternative.
+          Linux: `sudo dpkg -i mdowser_@DEB_VERSION@_amd64.deb` (or `arm64`; Ubuntu 22.04+/Debian 12+, glibc 2.35+), `sudo rpm -i mdowser-@RPM_VERSION@-*.rpm` (Fedora 44 x86_64), or `flatpak install mdowser-@VERSION@.flatpak`. The `.tar.gz` is the same build without a package manager; the Flatpak bundle carries its own runtime and is the choice for older distributions.
 
           Windows: pick the `x86_64` or `aarch64` zip for your PC; the `.exe` is unsigned, so on the SmartScreen warning click More info > Run anyway.
 

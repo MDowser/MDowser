@@ -12,6 +12,7 @@
 //! that same shared column (`label_slide` is exactly 0 at rest).
 
 use super::*;
+use crate::browser::tab::TabDisplay;
 
 /// Horizontal drift of a label during the overlay's open animation: it
 /// starts `TITLE_SLIDE` px toward the growing edge and settles at its final
@@ -353,16 +354,7 @@ pub(super) fn expanded_row(
     // page through a reorder (`Alt+Up/Down`, a drag).
     let tab_id = tab.id;
     let (disp, _rebuilt) = tab.display();
-    let origin = disp.origin.as_ref();
-    draw_favicon(
-        ui,
-        row_rect,
-        disp.loading,
-        disp.kind,
-        origin,
-        favicons,
-        selected,
-    );
+    draw_favicon(ui, row_rect, disp, favicons, selected);
     let title = disp.title.as_str();
     row_resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, title));
     // Sighted hover: the title truncates, and the collapsed rail already
@@ -454,16 +446,26 @@ pub(super) fn expanded_row(
     None
 }
 
-/// Draws the tab favicon (or a placeholder) at the shared icon column.
-/// `origin` is the tab's server origin (one lookup per frame, shared);
-/// `loading` / `state_kind` come from the display memo so this never needs
-/// the whole `Tab` back.
+/// Placeholder glyph when a tab has no favicon texture: internal pages keep
+/// their own identity, local files use the page icon, and web pages use the
+/// globe. Mirrors the omnibox indicator and history rows.
+pub(super) fn placeholder_icon(state_kind: TabStateKind, local: bool) -> icons::Icon {
+    match state_kind {
+        TabStateKind::Home => icons::Icon::Home,
+        TabStateKind::History => icons::Icon::History,
+        TabStateKind::Licenses => icons::Icon::Info,
+        _ if local => icons::Icon::File,
+        _ => icons::Icon::Globe,
+    }
+}
+
+/// Draws the tab favicon (or a placeholder) at the shared icon column from
+/// the display memo: the origin is one lookup per frame, and the placeholder
+/// kind needs no whole `Tab` back.
 pub(super) fn draw_favicon(
     ui: &mut egui::Ui,
     row_rect: egui::Rect,
-    loading: bool,
-    state_kind: TabStateKind,
-    origin: Option<&Url>,
+    disp: &TabDisplay,
     favicons: &FaviconCache,
     selected: bool,
 ) {
@@ -474,12 +476,15 @@ pub(super) fn draw_favicon(
     let art_rect = egui::Rect::from_center_size(center, egui::vec2(FAVICON, FAVICON));
     let glyph_rect = egui::Rect::from_center_size(center, egui::vec2(ICON_BOX, ICON_BOX));
     // Borrowed handle: painting does not need to clone the texture.
-    let tex = origin.and_then(|origin| favicons.texture(origin));
+    let tex = disp
+        .origin
+        .as_ref()
+        .and_then(|origin| favicons.texture(origin));
     if let Some(tex) = tex {
         // Fit, never stretch: wide/tall favicons keep their aspect.
         crate::ui::paint_texture_fit(ui, art_rect, tex, 4);
         // Tiny "loading" dot over a stale favicon while a new page loads.
-        if loading {
+        if disp.loading {
             ui.painter().circle_filled(
                 egui::pos2(art_rect.max.x - 2.0, art_rect.max.y - 2.0),
                 2.0,
@@ -488,20 +493,17 @@ pub(super) fn draw_favicon(
         }
         return;
     }
-    if loading {
+    if disp.loading {
         icons::paint(ui, glyph_rect, icons::Icon::Loading, s.on_surface_variant);
         return;
     }
-    let (icon, color) = match state_kind {
-        TabStateKind::Home => (icons::Icon::Home, s.on_surface_variant),
-        _ => (
-            icons::Icon::Globe,
-            if selected {
-                s.on_surface
-            } else {
-                s.on_surface_variant
-            },
-        ),
+    let icon = placeholder_icon(disp.kind, disp.local);
+    let color = if disp.kind == TabStateKind::Home {
+        s.on_surface_variant
+    } else if selected {
+        s.on_surface
+    } else {
+        s.on_surface_variant
     };
     icons::paint(ui, glyph_rect, icon, color);
 }

@@ -63,8 +63,10 @@ slots opens what fits and reports "Tab limit reached".
 
 Favicons are probed per origin (`/favicon.ico`, `/favicon.png`, `/favicon.svg`)
 and served from the encrypted disk cache on repeat visits and persist across
-launches (`src/media/favicon.rs` holds the session per-origin textures). Origins
-without one get a home/globe icon.
+launches (`src/media/favicon.rs` holds the session per-origin textures). Web
+origins without one get the globe; Home, History and Licenses use their own
+placeholder, and local files use the page icon, so a tab names its page kind
+whether or not a favicon ever arrives.
 
 ## Home
 

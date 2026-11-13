@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tab placeholders now name the page kind: Home, History and Licenses keep
+  their own icon, and local files use the page icon, instead of every
+  non-Home tab showing a generic globe. Web pages keep the globe.
+  (`src/browser/tab/`, `src/ui/tabs/`, `docs/INTERFACE.md`,
+  `docs/ARCHITECTURE.md`.)
+- Linux release builds run on Ubuntu 22.04 instead of 24.04, lowering the
+  published glibc floor from 2.39 to at most 2.35 so the `.tar.gz` and `.deb`
+  work on Ubuntu 22.04+ and Debian 12+. Release notes and runtime docs state
+  the floor and point older distributions to the Flatpak bundle, whose
+  runtime carries its own libc. (`.github/workflows/release.yml`,
+  `README.md`, `docs/BUILDING.md`.)
 - Automatic update checks now run once a week instead of once a day; the
   Updates card caption says so. `Check now` still works at any time.
   (`src/config/mod.rs`, `src/update/`, `src/ui/preferences/`.)

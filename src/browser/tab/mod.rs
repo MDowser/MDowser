@@ -294,6 +294,9 @@ pub struct TabDisplay {
     /// Tab-strip favicon origin (`Tab::favicon_origin`); `None` for Home,
     /// local files and internal pages.
     pub origin: Option<Url>,
+    /// True for a local `file:` document: it has no favicon origin, but the
+    /// tab rail still names its page kind with the file icon.
+    pub local: bool,
     /// State discriminant (favicon placeholder family).
     pub kind: TabStateKind,
     /// `Tab::is_loading()` at memo time: favicons still probing show the
@@ -308,9 +311,19 @@ static EMPTY_DISPLAY: TabDisplay = TabDisplay {
     title: String::new(),
     window_title: String::new(),
     origin: None,
+    local: false,
     kind: TabStateKind::Home,
     loading: false,
 };
+
+/// Where a tab's favicon comes from. Local files and internal pages have no
+/// origin, but their placeholders still name the page kind.
+#[derive(Debug, PartialEq, Eq)]
+enum FaviconTarget {
+    Remote(Url),
+    Local,
+    Internal,
+}
 
 impl Tab {
     /// Creates a new tab on `Home` (`about:home`, address empty).
@@ -388,7 +401,11 @@ impl Tab {
         if stale {
             let title = self.compute_title();
             let window_title = self.compute_window_title();
-            let origin = self.compute_favicon_origin();
+            let (origin, local) = match self.compute_favicon_target() {
+                FaviconTarget::Remote(url) => (Some(url), false),
+                FaviconTarget::Local => (None, true),
+                FaviconTarget::Internal => (None, false),
+            };
             self.display_cache = Some((
                 key.0,
                 key.1,
@@ -396,6 +413,7 @@ impl Tab {
                     title,
                     window_title,
                     origin,
+                    local,
                     kind: key.0,
                     loading: self.is_loading(),
                 },
@@ -614,42 +632,45 @@ impl Tab {
     }
 
     /// Origin (`https://host[:port]/`) whose favicon represents this tab.
-    /// `None` for Home and for local files (nothing to probe over the
-    /// network). Used only by the tab strip; never navigated to.
-    ///
-    /// Allocates: the rail's per-frame path goes through [`Self::display`]'s
-    /// memo; this stays for tests.
+    /// `None` for Home, History, Licenses and local files (nothing to probe
+    /// over the network). Used only by tests; the rail reads the display
+    /// memo instead.
     #[cfg(test)]
     pub fn favicon_origin(&self) -> Option<Url> {
-        self.compute_favicon_origin()
+        match self.compute_favicon_target() {
+            FaviconTarget::Remote(url) => Some(url),
+            FaviconTarget::Local | FaviconTarget::Internal => None,
+        }
     }
 
-    /// Origin computation behind [`Self::display`].
-    fn compute_favicon_origin(&self) -> Option<Url> {
+    /// Favicon target behind [`Self::display`].
+    fn compute_favicon_target(&self) -> FaviconTarget {
         match &self.state {
             // Borrow the display URL directly (no clone): only the small
             // origin URL is allocated.
-            TabState::Loaded { fetched } => {
-                let url = &fetched.display_url;
-                if url.scheme() == "file" {
-                    return None;
-                }
-                Some(resolver::server_home_of(url))
-            }
+            TabState::Loaded { fetched } => Self::favicon_target_of(&fetched.display_url),
             TabState::Loading { asked, .. }
             | TabState::Settling { asked, .. }
             | TabState::Failed { asked, .. } => {
                 let url = match client::parse_navigable(asked) {
                     Ok(u) => u,
-                    Err(_) => self.current.clone()?,
+                    Err(_) => match &self.current {
+                        Some(url) => return Self::favicon_target_of(url),
+                        None => return FaviconTarget::Internal,
+                    },
                 };
-                if url.scheme() == "file" {
-                    return None;
-                }
-                Some(resolver::server_home_of(&url))
+                Self::favicon_target_of(&url)
             }
-            TabState::Home => None,
-            TabState::History | TabState::Licenses => None,
+            TabState::Home | TabState::History | TabState::Licenses => FaviconTarget::Internal,
+        }
+    }
+
+    /// Classifies a displayed URL for the tab placeholder.
+    fn favicon_target_of(url: &Url) -> FaviconTarget {
+        if url.scheme() == "file" {
+            FaviconTarget::Local
+        } else {
+            FaviconTarget::Remote(resolver::server_home_of(url))
         }
     }
 

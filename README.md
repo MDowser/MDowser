@@ -55,7 +55,7 @@ Choose the asset matching your system:
 | Platform | Release asset |
 | --- | --- |
 | **macOS 13 or later** | `MDowser-<ver>-macos-universal.app.zip` — Apple Silicon and Intel |
-| **Linux** | `mdowser-<ver>-linux-<arch>.tar.gz` (x86_64/arm64), the matching `.deb`, or the x86_64 `.rpm` / `mdowser-<ver>.flatpak` bundle |
+| **Linux** | `mdowser-<ver>-linux-<arch>.tar.gz` (x86_64/arm64, glibc 2.35+), the matching `.deb`, or the x86_64 Fedora 44 `.rpm` / `mdowser-<ver>.flatpak` bundle |
 | **Windows (x64)** | `mdowser-<ver>-windows-x86_64.zip` |
 | **Windows on ARM** | `mdowser-<ver>-windows-aarch64.zip` |
 
@@ -64,7 +64,7 @@ Release filenames use the version number and architecture of the build. Open [**
 ### Platform notes
 
 - **macOS:** Unzip the archive and move `MDowser.app` to **Applications** (an upgrade replaces the previous copy). The `.app` is ad-hoc signed, not notarized. Open it once so Gatekeeper registers the block, then allow it under **System Settings → Privacy & Security → Open Anyway**. On current macOS, right-clicking and choosing Open does not bypass this restriction.
-- **Linux:** Install a Debian package with `sudo dpkg -i mdowser_<ver>_amd64.deb` (or `arm64`), an RPM with `sudo rpm -i mdowser-<ver>-*.rpm`, or the Flatpak bundle with `flatpak install mdowser-<ver>.flatpak`. The package installs the desktop entry, hicolor icon and AppStream metadata, so MDowser can appear in the applications menu and software center.
+- **Linux:** The `.tar.gz` and `.deb` require glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+); the x86_64 `.rpm` targets Fedora 44. On older distributions, use the Flatpak bundle, whose runtime carries its own libc. Install with `sudo dpkg -i mdowser_<ver>_amd64.deb` (or `arm64`), `sudo rpm -i mdowser-<ver>-*.rpm`, or `flatpak install mdowser-<ver>.flatpak`. The package installs the desktop entry, hicolor icon and AppStream metadata, so MDowser can appear in the applications menu and software center.
 - **Windows:** Unzip the archive and run `mdowser.exe`. On Windows on ARM, use the `aarch64` archive; the x86_64 build can also run through emulation. The `.exe` is unsigned, so Windows SmartScreen may show a warning. If you choose to proceed, select **More info → Run anyway**. See the [navigation guide](docs/NAVIGATION.md) for registering `.md` files.
 
 ## Try it
