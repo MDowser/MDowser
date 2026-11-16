@@ -233,7 +233,9 @@ Key contracts per area (the module map above names the main module areas):
 - `Cache-Control`/`Expires` (+`Date`/`Age`) set freshness under the absolute
   1-year ceiling. `no-store` (or `Vary: *`) skips storage and evicts older
   records for that URL; `no-cache` revalidates; a 304 refreshes
-  `ETag`/`Last-Modified`. `Refresh` forces revalidation.
+  `ETag`/`Last-Modified` and the stored type, while a 304 that now declares a
+  non-Markdown type drops the record and refetches. `Refresh` forces
+  revalidation.
 - When no fresh copy can be obtained (transport failure, every route
   rejected, a failed revalidation after the cascade), the stored record is
   served MARKED instead of the error view: `Fetched::stale_copy` drives the

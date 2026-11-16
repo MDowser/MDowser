@@ -392,7 +392,9 @@ card and the bookmark/history stores.
   an expired entry is never served as current) and `immutable` (no distinct
   effect: a fresh entry is never revalidated unless Refresh asks), all inside
   the absolute 1-year ceiling. `ETag`/`Last-Modified` revalidation refreshes
-  the entry on 304 and replaces it on 200. `Vary: *` (or over anything but
+  the entry on 304 and replaces it on 200; a 304 that now declares a
+  non-Markdown `Content-Type` drops the entry instead (a missing header keeps
+  the stored type). `Vary: *` (or over anything but
   `Accept`/`Accept-Encoding`) is never stored, and `Refresh` forces a
   revalidation. When none of that yields a fresh copy (unreachable network,
   every route rejected, a failed revalidation after the cascade), a stored

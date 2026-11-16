@@ -9,7 +9,11 @@
 //! - Line-based spans that borrow nothing: returns byte ranges so the
 //!   viewer can build a single `LayoutJob` per line (one selectable widget).
 //! - Supports `rust`, `python`, `javascript`/`typescript`, `bash`, `json`,
-//!   `toml`, `yaml`. Anything else falls back to `Plain`.
+//!   `toml`, `yaml`, C/C++, Go, Java, C# and SQL. Anything else falls back
+//!   to `Plain`.
+//! - Block comments (`/* ... */`) and SQL `--` comments are recognized on
+//!   ONE line at a time: the scanner is stateless per line, so a comment
+//!   continued on later lines is not tracked across that boundary.
 //! - Heuristics are intentionally small: keywords, strings, comments,
 //!   numbers and function calls (`name(`). Lifetimes like `'a` are NOT
 //!   treated as strings (require a closing `'` on the same line).
@@ -24,6 +28,11 @@ pub enum Lang {
     Json,
     Toml,
     Yaml,
+    C,
+    Go,
+    Java,
+    CSharp,
+    Sql,
     Plain,
 }
 
@@ -73,9 +82,34 @@ pub fn norm_lang(info: &str) -> Lang {
         Lang::Toml
     } else if eq("yaml") || eq("yml") {
         Lang::Yaml
+    } else if eq("c")
+        || eq("h")
+        || eq("cc")
+        || eq("cpp")
+        || eq("cxx")
+        || eq("c++")
+        || eq("hpp")
+        || eq("hxx")
+    {
+        // C and C++ share one keyword/comment scanner; the common subset is
+        // small enough that a separate table would only add maintenance.
+        Lang::C
+    } else if eq("go") || eq("golang") {
+        Lang::Go
+    } else if eq("java") {
+        Lang::Java
+    } else if eq("cs") || eq("csharp") || eq("c#") || eq("dotnet") {
+        Lang::CSharp
+    } else if eq("sql")
+        || eq("postgres")
+        || eq("postgresql")
+        || eq("mysql")
+        || eq("sqlite")
+        || eq("plsql")
+        || eq("tsql")
+    {
+        Lang::Sql
     } else {
-        // C-family has no keyword table here: falling back to `Plain`
-        // is honest (no false JS/Rust colors on C code).
         Lang::Plain
     }
 }
@@ -167,12 +201,345 @@ fn keywords(lang: Lang) -> &'static [&'static str] {
         Lang::Json => &["true", "false", "null"],
         Lang::Toml => &["true", "false"],
         Lang::Yaml => &["true", "false", "null"],
+        Lang::C => &[
+            "alignas",
+            "alignof",
+            "asm",
+            "auto",
+            "bool",
+            "break",
+            "case",
+            "catch",
+            "char",
+            "char16_t",
+            "char32_t",
+            "char8_t",
+            "class",
+            "concept",
+            "const",
+            "const_cast",
+            "consteval",
+            "constexpr",
+            "constinit",
+            "continue",
+            "co_await",
+            "co_return",
+            "co_yield",
+            "decltype",
+            "default",
+            "delete",
+            "do",
+            "double",
+            "dynamic_cast",
+            "else",
+            "enum",
+            "explicit",
+            "export",
+            "extern",
+            "false",
+            "final",
+            "float",
+            "for",
+            "friend",
+            "goto",
+            "if",
+            "import",
+            "inline",
+            "int",
+            "long",
+            "module",
+            "mutable",
+            "namespace",
+            "new",
+            "noexcept",
+            "nullptr",
+            "operator",
+            "override",
+            "private",
+            "protected",
+            "public",
+            "register",
+            "reinterpret_cast",
+            "requires",
+            "return",
+            "short",
+            "signed",
+            "sizeof",
+            "static",
+            "static_assert",
+            "static_cast",
+            "struct",
+            "switch",
+            "template",
+            "this",
+            "thread_local",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "typeid",
+            "typename",
+            "union",
+            "unsigned",
+            "using",
+            "virtual",
+            "void",
+            "volatile",
+            "wchar_t",
+            "while",
+        ],
+        Lang::Go => &[
+            "break",
+            "case",
+            "chan",
+            "const",
+            "continue",
+            "default",
+            "defer",
+            "else",
+            "fallthrough",
+            "false",
+            "for",
+            "func",
+            "go",
+            "goto",
+            "if",
+            "import",
+            "interface",
+            "iota",
+            "map",
+            "nil",
+            "package",
+            "range",
+            "return",
+            "select",
+            "struct",
+            "switch",
+            "true",
+            "type",
+            "var",
+        ],
+        Lang::Java => &[
+            "abstract",
+            "assert",
+            "boolean",
+            "break",
+            "byte",
+            "case",
+            "catch",
+            "char",
+            "class",
+            "const",
+            "continue",
+            "default",
+            "do",
+            "double",
+            "else",
+            "enum",
+            "extends",
+            "false",
+            "final",
+            "finally",
+            "float",
+            "for",
+            "goto",
+            "if",
+            "implements",
+            "import",
+            "instanceof",
+            "int",
+            "interface",
+            "long",
+            "native",
+            "new",
+            "null",
+            "package",
+            "private",
+            "protected",
+            "public",
+            "record",
+            "return",
+            "sealed",
+            "short",
+            "static",
+            "strictfp",
+            "super",
+            "switch",
+            "synchronized",
+            "this",
+            "throw",
+            "throws",
+            "transient",
+            "true",
+            "try",
+            "var",
+            "void",
+            "volatile",
+            "while",
+            "yield",
+        ],
+        Lang::CSharp => &[
+            "abstract",
+            "as",
+            "async",
+            "await",
+            "base",
+            "bool",
+            "break",
+            "byte",
+            "case",
+            "catch",
+            "char",
+            "checked",
+            "class",
+            "const",
+            "continue",
+            "decimal",
+            "default",
+            "delegate",
+            "do",
+            "double",
+            "else",
+            "enum",
+            "event",
+            "explicit",
+            "extern",
+            "false",
+            "finally",
+            "fixed",
+            "float",
+            "for",
+            "foreach",
+            "get",
+            "goto",
+            "if",
+            "implicit",
+            "in",
+            "init",
+            "int",
+            "interface",
+            "internal",
+            "is",
+            "lock",
+            "long",
+            "namespace",
+            "new",
+            "null",
+            "object",
+            "operator",
+            "out",
+            "override",
+            "params",
+            "private",
+            "protected",
+            "public",
+            "readonly",
+            "record",
+            "ref",
+            "return",
+            "sbyte",
+            "sealed",
+            "set",
+            "short",
+            "sizeof",
+            "stackalloc",
+            "static",
+            "string",
+            "struct",
+            "switch",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typeof",
+            "uint",
+            "ulong",
+            "unchecked",
+            "unsafe",
+            "ushort",
+            "using",
+            "var",
+            "virtual",
+            "void",
+            "volatile",
+            "while",
+        ],
+        Lang::Sql => &[
+            "add",
+            "all",
+            "alter",
+            "and",
+            "as",
+            "asc",
+            "begin",
+            "between",
+            "by",
+            "case",
+            "column",
+            "commit",
+            "create",
+            "delete",
+            "desc",
+            "distinct",
+            "drop",
+            "else",
+            "end",
+            "exists",
+            "foreign",
+            "from",
+            "full",
+            "group",
+            "having",
+            "in",
+            "index",
+            "inner",
+            "insert",
+            "into",
+            "is",
+            "join",
+            "key",
+            "left",
+            "like",
+            "limit",
+            "not",
+            "null",
+            "offset",
+            "on",
+            "or",
+            "order",
+            "outer",
+            "primary",
+            "references",
+            "recursive",
+            "returning",
+            "right",
+            "rollback",
+            "select",
+            "set",
+            "table",
+            "then",
+            "transaction",
+            "union",
+            "update",
+            "values",
+            "view",
+            "when",
+            "where",
+            "with",
+        ],
         Lang::Plain => &[],
     }
 }
 
 fn is_kw(lang: Lang, word: &str) -> bool {
-    keywords(lang).contains(&word)
+    match lang {
+        // SQL is conventionally written in either case; every other language
+        // here is case-sensitive, so `Class` must stay plain in JavaScript.
+        Lang::Sql => keywords(lang)
+            .iter()
+            .any(|keyword| word.eq_ignore_ascii_case(keyword)),
+        _ => keywords(lang).contains(&word),
+    }
 }
 
 fn push_span(spans: &mut Vec<Span>, kind: TokenKind, start: usize, end: usize) {
@@ -196,6 +563,50 @@ fn push_span(spans: &mut Vec<Span>, kind: TokenKind, start: usize, end: usize) {
 /// and `i` is a char boundary; falls back to 1 so the scanner always advances.
 fn char_len_at(line: &str, i: usize) -> usize {
     line[i..].chars().next().map_or(1, |c| c.len_utf8())
+}
+
+/// Lexical rules that vary by language. Keeping them in one place means the
+/// scanner has no long `matches!` chains per token and a new language only
+/// has to fill this table plus its keyword list.
+#[derive(Clone, Copy)]
+struct Syntax {
+    /// `#` starts a line comment.
+    hash_comment: bool,
+    /// `//` starts a line comment.
+    slash_comment: bool,
+    /// `/* ... */` marks a (single-line) block comment.
+    block_comment: bool,
+    /// `--` starts a line comment.
+    sql_line_comment: bool,
+    /// A single quote names a short char literal, not a string.
+    char_literal: bool,
+}
+
+impl Syntax {
+    fn for_lang(lang: Lang) -> Self {
+        Self {
+            hash_comment: matches!(lang, Lang::Python | Lang::Bash | Lang::Toml | Lang::Yaml),
+            slash_comment: matches!(
+                lang,
+                Lang::Rust | Lang::JavaScript | Lang::C | Lang::Go | Lang::Java | Lang::CSharp
+            ),
+            block_comment: matches!(
+                lang,
+                Lang::Rust
+                    | Lang::JavaScript
+                    | Lang::C
+                    | Lang::Go
+                    | Lang::Java
+                    | Lang::CSharp
+                    | Lang::Sql
+            ),
+            sql_line_comment: matches!(lang, Lang::Sql),
+            char_literal: matches!(
+                lang,
+                Lang::Rust | Lang::C | Lang::Go | Lang::Java | Lang::CSharp
+            ),
+        }
+    }
 }
 
 /// Highlights one line. Returned ranges always cover `0..line.len()`
@@ -224,19 +635,32 @@ pub fn spans(lang: Lang, line: &str) -> Vec<Span> {
         }
     };
 
-    let hash_comment = matches!(lang, Lang::Python | Lang::Bash | Lang::Toml | Lang::Yaml);
-    let slash_comment = matches!(lang, Lang::Rust | Lang::JavaScript);
+    let syntax = Syntax::for_lang(lang);
 
     while i < n {
         let b = bytes[i];
-        // `//` line comment (rust/js).
-        if slash_comment && b == b'/' && i + 1 < n && bytes[i + 1] == b'/' {
+        // `/* ... */` block comment (single-line heuristic; see module docs).
+        if syntax.block_comment && b == b'/' && i + 1 < n && bytes[i + 1] == b'*' {
+            flush_plain(&mut out, &mut plain_start, i);
+            let end = line[i + 2..].find("*/").map_or(n, |rel| i + 2 + rel + 2);
+            push_span(&mut out, TokenKind::Comment, i, end);
+            i = end;
+            continue;
+        }
+        // `//` line comment (Rust/JS/C/C++/Go/Java/C#).
+        if syntax.slash_comment && b == b'/' && i + 1 < n && bytes[i + 1] == b'/' {
             flush_plain(&mut out, &mut plain_start, i);
             push_span(&mut out, TokenKind::Comment, i, n);
             break;
         }
         // `#` line comment (python/bash/toml/yaml).
-        if hash_comment && b == b'#' {
+        if syntax.hash_comment && b == b'#' {
+            flush_plain(&mut out, &mut plain_start, i);
+            push_span(&mut out, TokenKind::Comment, i, n);
+            break;
+        }
+        // `--` line comment (SQL).
+        if syntax.sql_line_comment && b == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
             flush_plain(&mut out, &mut plain_start, i);
             push_span(&mut out, TokenKind::Comment, i, n);
             break;
@@ -244,10 +668,11 @@ pub fn spans(lang: Lang, line: &str) -> Vec<Span> {
         // Strings: `"..."`, `` `...` ``, and `'...'` (per-language).
         if b == b'"' || b == b'`' || b == b'\'' {
             let quote = bytes[i];
-            // `'`: Rust uses char literals (`'a'`) and lifetimes (`'a`);
-            // Python/JS/Bash use `'...'` strings of any length.
-            // Keep Rust strict (short literal only), others like `"`.
-            if quote == b'\'' && lang == Lang::Rust {
+            // `'`: Rust, C, Go, Java and C# use char literals (`'a'`), while
+            // Python/JS/Bash/SQL use `'...'` strings of any length.
+            // Keep the char-literal languages strict (short literal only),
+            // others like `"`.
+            if quote == b'\'' && syntax.char_literal {
                 let mut j = i + 1;
                 // Optional escape: `'\n'`, `'\\'`.
                 if j < n && bytes[j] == b'\\' {
@@ -387,9 +812,75 @@ mod tests {
         assert_eq!(norm_lang("sh"), Lang::Bash);
         assert_eq!(norm_lang("yml"), Lang::Yaml);
         assert_eq!(norm_lang("unknown"), Lang::Plain);
-        // C-family has no table: honest Plain instead of false colors.
-        assert_eq!(norm_lang("c"), Lang::Plain);
-        assert_eq!(norm_lang("cpp"), Lang::Plain);
+        // C/C++, Go, Java, C# and SQL have their own keyword tables.
+        assert_eq!(norm_lang("c"), Lang::C);
+        assert_eq!(norm_lang("cpp"), Lang::C);
+        assert_eq!(norm_lang("c++"), Lang::C);
+        assert_eq!(norm_lang("go"), Lang::Go);
+        assert_eq!(norm_lang("java"), Lang::Java);
+        assert_eq!(norm_lang("cs"), Lang::CSharp);
+        assert_eq!(norm_lang("sql"), Lang::Sql);
+    }
+
+    #[test]
+    fn c_family_block_comment_char_and_strings() {
+        let line = "const char c = 'x'; /* note */ char *s = \"hi\";";
+        let sp = spans(Lang::C, line);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &line[s.start..s.end] == "const"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Str && &line[s.start..s.end] == "'x'"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment && &line[s.start..s.end] == "/* note */"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Str && &line[s.start..s.end] == "\"hi\""));
+        assert_eq!(sp.first().map(|s| s.start), Some(0));
+        assert_eq!(sp.last().map(|s| s.end), Some(line.len()));
+    }
+
+    #[test]
+    fn go_java_csharp_and_sql_tokens() {
+        let go = "func main() { s := `raw` }";
+        let sp = spans(Lang::Go, go);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &go[s.start..s.end] == "func"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Str && &go[s.start..s.end] == "`raw`"));
+
+        let java = "public final class A { int value; }";
+        let sp = spans(Lang::Java, java);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &java[s.start..s.end] == "class"));
+
+        let cs = "public string Name { get; set; }";
+        let sp = spans(Lang::CSharp, cs);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &cs[s.start..s.end] == "string"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &cs[s.start..s.end] == "get"));
+
+        // SQL keywords are case-insensitive, unlike identifiers in the other
+        // highlighted languages.
+        let sql = "SELECT id FROM t -- note";
+        let sp = spans(Lang::Sql, sql);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &sql[s.start..s.end] == "SELECT"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &sql[s.start..s.end] == "FROM"));
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment && &sql[s.start..s.end] == "-- note"));
     }
 
     #[test]

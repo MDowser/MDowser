@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pre-releases; stable `X.Y.Z` releases still write it.
   (`scripts/build-dist.sh`, `.github/workflows/release.yml`,
   `docs/BUILDING.md`.)
+- Fenced code blocks now highlight C, C++, Go, Java, C# and SQL alongside the
+  existing languages, with `/* ... */` and SQL `--` comments recognized by the
+  same lightweight per-line scanner.
+  (`src/markdown/highlight.rs`, `docs/INTERFACE.md`.)
 
 ### Fixed
 
@@ -67,6 +71,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure's week-long retry gate: the new setting follows the normal due time
   (an explicit re-enable checks right away when a check is due).
   (`src/update/`, `src/app/run.rs`, `docs/ARCHITECTURE.md`.)
+- A `304 Not Modified` revalidation that now declares a non-Markdown
+  `Content-Type` drops the stored entry and fetches the page again instead of
+  continuing to serve the old body as current; a 304 without the header keeps
+  the stored type. (`src/protocol/client/fetch.rs`, `docs/SECURITY.md`,
+  `docs/ARCHITECTURE.md`.)
 - Blocked-scheme error details and "Copy log" no longer echo a pasted password
   that contains `/`, `?`, `#`, `\` or even `://` (for example
   `mailto:user:pa/ss@host`, `user:pa/ss@host` or

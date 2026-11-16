@@ -616,6 +616,25 @@ fn rebuild_cached(record: DocRecord, error_url: &Url) -> Result<Fetched, String>
     finish_document(body, landed, error_url).map_err(|_| key)
 }
 
+/// `true` when a `304 Not Modified` answer now declares a `Content-Type`
+/// that is not Markdown. RFC 9111 updates the stored headers from the 304,
+/// so an origin that switched the representation to HTML must not keep the
+/// old Markdown body serving as current. A missing header keeps the stored
+/// type (many servers do not repeat it on a 304).
+///
+/// The capture joins repeated values with `", "`; treating each comma part
+/// as its own type is conservative: a quoted parameter containing a comma
+/// only forces one extra full fetch, never serves a wrong body.
+fn revalidation_content_type_mismatch(headers: &CapturedHeaders) -> bool {
+    headers.content_type.as_deref().is_some_and(|joined| {
+        joined
+            .split(',')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .any(|value| !is_markdown_content_type(Some(value)))
+    })
+}
+
 /// One conditional request for a stale record. 304 refreshes the record
 /// and serves the stored body; 200 replaces it (same store path as the
 /// cascade); anything else falls back to the full cascade (`None`), whose
@@ -684,10 +703,12 @@ fn revalidate_cached(
             if cancel.load(Ordering::Relaxed) {
                 return Some(Err(BrowserError::Cancelled));
             }
-            if must_not_store(&headers, headers.pragma_no_cache) {
-                // The origin changed its mind (`no-store` on revalidation):
-                // drop the record (and the redirect alias) and refetch
-                // unconditionally.
+            if must_not_store(&headers, headers.pragma_no_cache)
+                || revalidation_content_type_mismatch(&headers)
+            {
+                // The origin changed its mind (`no-store` or a non-Markdown
+                // Content-Type on revalidation): drop the record (and the
+                // redirect alias) and refetch unconditionally.
                 if let Some(cache) = global() {
                     cache.clear_docs_for_key(&record.key);
                     if let Ok(landed) = record.final_url.parse::<Url>() {
@@ -819,5 +840,23 @@ mod tests {
     fn stale_marker_never_claims_offline_when_the_server_answered() {
         assert_eq!(stale_cause(false), StaleCopy::Offline);
         assert_eq!(stale_cause(true), StaleCopy::Saved);
+    }
+
+    /// A 304 may repeat the Content-Type; when it now names a non-Markdown
+    /// type the stored body must not continue to serve as current.
+    #[test]
+    fn revalidation_rejects_a_non_markdown_content_type() {
+        let mut headers = CapturedHeaders::default();
+        assert!(!revalidation_content_type_mismatch(&headers));
+        headers.content_type = Some(String::new());
+        assert!(!revalidation_content_type_mismatch(&headers));
+        headers.content_type = Some("text/markdown; charset=utf-8".to_string());
+        assert!(!revalidation_content_type_mismatch(&headers));
+        headers.content_type = Some("text/markdown, application/x-markdown".to_string());
+        assert!(!revalidation_content_type_mismatch(&headers));
+        headers.content_type = Some("text/markdown, text/html".to_string());
+        assert!(revalidation_content_type_mismatch(&headers));
+        headers.content_type = Some("text/html".to_string());
+        assert!(revalidation_content_type_mismatch(&headers));
     }
 }
