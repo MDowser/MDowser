@@ -125,12 +125,9 @@ impl CachedBlock {
         tokenize: bool,
     ) -> std::cell::Ref<'_, Option<SpanLines>> {
         if tokenize && self.lines.borrow().is_none() && self.tokenizable && hl::is_supported(lang) {
-            let spans = self
-                .body
-                .split('\n')
-                .map(|line| hl::spans(lang, line))
-                .collect::<SpanLines>();
-            *self.lines.borrow_mut() = Some(spans);
+            // `tokenize` carries block-comment state across lines; mapping
+            // `spans` per line would restart every line outside a comment.
+            *self.lines.borrow_mut() = Some(hl::tokenize(lang, &self.body));
         }
         self.lines.borrow()
     }
@@ -263,11 +260,7 @@ fn block_for(
         let too_big = raw.len() > MAX_BYTES || line_count > MAX_LINES;
         let tokenizable = !too_big && hl::is_supported(lang);
         let lines = if tokenize && tokenizable {
-            Some(
-                body.split('\n')
-                    .map(|line| hl::spans(lang, line))
-                    .collect::<SpanLines>(),
-            )
+            Some(hl::tokenize(lang, &body))
         } else {
             None
         };

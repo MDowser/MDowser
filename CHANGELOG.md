@@ -55,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing languages, with `/* ... */` and SQL `--` comments recognized by the
   same lightweight per-line scanner.
   (`src/markdown/highlight.rs`, `docs/INTERFACE.md`.)
+- Fenced code blocks keep `/* ... */` block comments open across line
+  boundaries, so a multi-line comment colors every line through its closing
+  `*/` (or the end of the block) instead of only the line that opened it.
+  Strings and line comments remain per-line heuristics.
+  (`src/markdown/highlight.rs`, `src/viewer/code/`, `docs/INTERFACE.md`.)
 
 ### Fixed
 

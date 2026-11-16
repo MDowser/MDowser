@@ -322,8 +322,9 @@ wrapping paragraphs at README line height.
 - Code cards (language chip + Copy button that confirms with a brief `Copied`
   state + lightweight per-line highlighting, no line numbers) at the same body
   size as the prose. The highlighter covers Rust, Python, JavaScript/TypeScript,
-  Bash, JSON, TOML, YAML, C/C++, Go, Java, C# and SQL; block comments are
-  recognized within a line, not carried across lines.
+  Bash, JSON, TOML, YAML, C/C++, Go, Java, C# and SQL; `/* ... */` block
+  comments carry across lines through their closing `*/` (or the end of the
+  block), while strings and line comments stay per-line heuristics.
 - Striped bordered tables fill the drawn card (leftover width distributed
   proportionally); long cells (links included) shrink and wrap instead of
   forcing a horizontal scrollbar (a scrolling table keeps readable column

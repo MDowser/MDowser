@@ -57,6 +57,37 @@ fn block_for_caches_and_still_consumes_events() {
     );
 }
 
+/// The cached block tokenizes as a whole, so a `/* ... */` comment opened on
+/// one line colors the following lines until its closing `*/`.
+#[test]
+fn block_for_keeps_block_comments_open_across_lines() {
+    let events: Vec<Event<'static>> =
+        Parser::new("```c\nint a; /* open\nstill comment\nclose */ int b;\n```\n")
+            .map(|e| e.into_static())
+            .collect();
+    let start = events
+        .iter()
+        .position(|e| matches!(e, Event::Start(Tag::CodeBlock(_))))
+        .expect("code block");
+    let mut i = start + 1;
+    let block = block_for(&events, &mut i, hl::Lang::C, 0xfeed_00c0, 0, true);
+    let lines = block.lines.borrow();
+    let lines = lines.as_ref().expect("C block is tokenized");
+    assert_eq!(lines.len(), 3);
+    assert_eq!(
+        lines[1].len(),
+        1,
+        "a line inside the comment is one comment span"
+    );
+    assert_eq!(lines[1][0].kind, hl::TokenKind::Comment);
+    assert!(
+        lines[2]
+            .first()
+            .is_some_and(|s| s.kind == hl::TokenKind::Comment),
+        "the closing line resumes as comment, then code"
+    );
+}
+
 /// Regression: the old fixed 64-entry LRU evicted each block before the
 /// next frame asked for it again (sequential-scan thrash), so a document
 /// with more blocks re-copied and re-tokenized everything every frame.
