@@ -544,7 +544,9 @@ honored), the XDG downloads folder when one is configured and present
 (`XDG_DOWNLOAD_DIR` in `user-dirs.dirs`, so a localized name like `Descargas` is
 honored on Linux/BSD), else `~/Downloads` when that exists, else the home
 directory. The name is the page title's slug, else the URL's last path
-segment, else `document`.
+segment, else `document`. An overlong name is trimmed to its character cap
+without an ellipsis, so the saved file name keeps the same slug-safe shape
+(alphanumerics, `-` and `_`) as a short one.
 
 An existing file is never overwritten. A repeated save of the same page picks
 the first free browser-style copy name (`notes.md`, `notes (1).md`, …), so

@@ -60,6 +60,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `*/` (or the end of the block) instead of only the line that opened it.
   Strings and line comments remain per-line heuristics.
   (`src/markdown/highlight.rs`, `src/viewer/code/`, `docs/INTERFACE.md`.)
+- Release packaging derives `SOURCE_DATE_EPOCH` from the packaged commit when
+  it is not set explicitly, so a rebuild of the same source stamps the same
+  AppStream release date and man-page gzip header. A tree without git history
+  keeps the previous "today" behavior. (`scripts/build-dist.sh`,
+  `docs/BUILDING.md`.)
+- `make dist` is documented as "every target this host can build" instead of
+  "EVERY platform": Windows arm64 needs a native ARM runner and the RPM needs
+  `rpmbuild` on Linux. (`Makefile`, `docs/BUILDING.md`.)
 
 ### Fixed
 
@@ -118,9 +126,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target now compiles warning-free. (`src/settings/platform.rs`,
   `src/settings/tests.rs`, `src/bookmarks/tests.rs`, `docs/SECURITY.md`,
   `docs/ARCHITECTURE.md`.)
+- Saved-page file names no longer gain a `...` when the page title exceeds the
+  80-character cap: a grapheme-safe plain truncation keeps the documented
+  alphanumeric/`-`/`_` name shape. (`src/util.rs`, `src/app/save.rs`,
+  `docs/INTERFACE.md`.)
+- The RPM spec now builds `CARGO_ENCODED_RUSTFLAGS` instead of a
+  whitespace-separated `RUSTFLAGS`, so a builder's `$HOME` containing spaces
+  cannot split the path-remapping flags and leak the real home path into the
+  binary. (`packaging/rpm/mdowser.spec`.)
+- `make deps DEPS=cross` on x86_64 Linux now installs zig and cargo-zigbuild,
+  which `make dist-linux` needs for the aarch64 slice; the group used to skip
+  every non-macOS host and silently omit that artifact. (`scripts/deps.sh`.)
+- A failed `ditto` no longer drops the macOS `.app.zip`: packaging falls back
+  to the generic zip chain, and a build container without `file` detects an
+  ELF by its magic bytes before choosing a stripper. (`scripts/build-dist.sh`.)
+- The man page no longer says "every word beginning with a hyphen is ignored"
+  (which contradicted `-h`/`-V`/`--help`/`--version`) and drops a redundant
+  single-instance sentence. (`packaging/linux/mdowser.1`.)
 
 ### Security
 
+- Credentials are no longer echoed when a pasted schemeless password contains
+  raw whitespace (`user:pa ss@[invalid`): both the log sanitizer and the
+  display echo now fail closed and keep only the host. The userinfo removal in
+  `parse_https` is fail-closed too, so a setter failure rejects the URL
+  instead of letting a secret reach the network or the address bar.
+  (`src/util.rs`, `src/protocol/client/mod.rs`, `docs/SECURITY.md`.)
 - Updated the CommonMark parser to `pulldown-cmark 0.13.6`, the first release
   fixing RUSTSEC-2026-0433 (quadratic parsing of nested image wikilinks when
   the `ENABLE_WIKILINKS` option is on; MDowser never enables it, but the

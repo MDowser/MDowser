@@ -141,6 +141,21 @@ pub fn strip_scheme_everywhere(value: &str) -> std::borrow::Cow<'_, str> {
 ///   family or a flag stays whole (or is dropped whole when it cannot fit),
 ///   so the cap cannot produce a dangling joiner or a bare combining mark.
 pub fn truncate_chars(value: &str, max_chars: usize) -> std::borrow::Cow<'_, str> {
+    truncate_chars_impl(value, max_chars, true)
+}
+
+/// Like [`truncate_chars`] but WITHOUT the ellipsis: the result is at most
+/// `max_chars` scalar values, never cuts inside a grapheme cluster, and
+/// contains only characters already present in `value`.
+///
+/// File-name stems use this: `...` would break their documented
+/// "alphanumerics, `-` and `_` only" contract, and a trailing `...` is a
+/// ugly export name even where dots are harmless.
+pub fn truncate_chars_plain(value: &str, max_chars: usize) -> std::borrow::Cow<'_, str> {
+    truncate_chars_impl(value, max_chars, false)
+}
+
+fn truncate_chars_impl(value: &str, max_chars: usize, ellipsis: bool) -> std::borrow::Cow<'_, str> {
     // Single walk: detect whether the string exceeds the cap.
     let mut exceeds = false;
     for (count, _) in value.char_indices().enumerate() {
@@ -152,12 +167,17 @@ pub fn truncate_chars(value: &str, max_chars: usize) -> std::borrow::Cow<'_, str
     if !exceeds {
         return std::borrow::Cow::Borrowed(value);
     }
-    // Cut to `max_chars - 3` SCALARS, but only at a cluster boundary, then
-    // append the ellipsis, so the result is at most `max_chars` chars (the
-    // doc/config contract). Clusters are taken whole: the first one alone can
-    // exceed the budget (`👨‍👩‍👧‍👦` is 7 scalars), in which case nothing is
-    // kept — a partial cluster would render as a different character.
-    let keep = max_chars.saturating_sub(3);
+    // With an ellipsis, cut to `max_chars - 3` SCALARS; without one, keep up
+    // to `max_chars`. Either way cut only at a cluster boundary so the result
+    // is at most `max_chars` chars (the doc/config contract). Clusters are
+    // taken whole: the first one alone can exceed the budget
+    // (`👨‍👩‍👧‍👦` is 7 scalars), in which case nothing is kept — a partial
+    // cluster would render as a different character.
+    let keep = if ellipsis {
+        max_chars.saturating_sub(3)
+    } else {
+        max_chars
+    };
     let mut out = String::with_capacity(value.len().min(max_chars.saturating_mul(4)));
     let mut scalars = 0usize;
     for cluster in unicode_segmentation::UnicodeSegmentation::graphemes(value, true) {
@@ -168,7 +188,9 @@ pub fn truncate_chars(value: &str, max_chars: usize) -> std::borrow::Cow<'_, str
         scalars += n;
         out.push_str(cluster);
     }
-    out.extend(std::iter::repeat_n('.', max_chars.min(3)));
+    if ellipsis {
+        out.extend(std::iter::repeat_n('.', max_chars.min(3)));
+    }
     std::borrow::Cow::Owned(out)
 }
 
@@ -214,7 +236,9 @@ pub(crate) fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
 ///   tokens and for the separator-bearing schemeless spelling, so a
 ///   blocked-scheme error line cannot echo it. Plain schemeless
 ///   `user:pass@host` remains with the display sanitizer, where the
-///   host:port shape is decided.
+///   host:port shape is decided. A schemeless password split by raw
+///   whitespace (`user:pa ss@host`) IS redacted here: the `@` is not in the
+///   first token, so no later pass can recover the credential boundary.
 /// - Works token by token (whitespace-delimited) and copies every other
 ///   byte untouched; all slice indices are ASCII delimiter boundaries, so
 ///   slicing never panics on UTF-8.
@@ -319,12 +343,66 @@ fn strip_split_userinfo(line: &str) -> std::borrow::Cow<'_, str> {
         }
         search = sep + "://".len();
     }
+
+    // Pass 2: a SCHEMELESS address whose password was split by whitespace,
+    // e.g. `user:pa ss@host`. There is no `://` to anchor on, so pass 1
+    // cannot see it. Scan token starts (start of line or just after ASCII
+    // whitespace): a `user:non-numeric-tail` head with no `@` is the first
+    // fragment of a credential, and the `@` in a later token is its
+    // separator. Fail closed and drop the whole run, including the `user:`
+    // prefix (there is no scheme to preserve in this spelling). A head
+    // containing `://` or a path/query/fragment separator was already
+    // handled by pass 1 or has ended the authority, so it is skipped; a
+    // plain `user:pass@host` has its `@` in the head and stays with the
+    // display sanitizer, as documented.
+    let mut start = 0usize;
+    while start < bytes.len() {
+        if start > 0 && !bytes[start - 1].is_ascii_whitespace() {
+            start += 1;
+            continue;
+        }
+        let mut head_end = start;
+        while head_end < bytes.len()
+            && !bytes[head_end].is_ascii_whitespace()
+            && !matches!(bytes[head_end], b'/' | b'\\' | b'?' | b'#')
+        {
+            head_end += 1;
+        }
+        let head = &line[start..head_end];
+        if !head.contains("://") && !head.contains('@') {
+            if let Some(colon) = head.find(':') {
+                let tail = &head[colon + 1..];
+                if is_scheme_syntax(&head[..colon])
+                    && !tail.is_empty()
+                    && !tail.bytes().all(|b| b.is_ascii_digit())
+                {
+                    if let Some(rel) = line[head_end..].find(['@', '/', '\\', '?', '#', '\n', '\r'])
+                    {
+                        let at = head_end + rel;
+                        if bytes[at] == b'@' && !spans.iter().any(|&(s, e)| at >= s && at < e) {
+                            spans.push((start, at));
+                            start = at + 1;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        start = head_end.max(start + 1);
+    }
+
     if spans.is_empty() {
         return std::borrow::Cow::Borrowed(line);
     }
+    spans.sort_unstable();
     let mut out = String::with_capacity(line.len());
     let mut last = 0usize;
     for (start, at) in spans {
+        // Pass 2 rejects spans already covered by pass 1, but keep the
+        // guard so overlapping spans can never underflow `last..start`.
+        if start < last {
+            continue;
+        }
         out.push_str(&line[last..start]);
         last = at + 1;
     }
@@ -776,7 +854,7 @@ mod tests {
     use super::{
         guard_panics, is_recordable_url, normalize_stored_url, now_secs, safe_input_echo,
         sanitize_title, strip_credentials_for_log, strip_scheme_everywhere, strip_scheme_prefix,
-        truncate_chars,
+        truncate_chars, truncate_chars_plain,
     };
 
     #[test]
@@ -891,6 +969,19 @@ mod tests {
         assert_eq!(truncate_chars("👨‍👩‍👧‍👦 x y", 10), "👨‍👩‍👧‍👦...");
         // Combining marks stay attached to their base character.
         assert_eq!(truncate_chars("e\u{301}wxyz", 5), "e\u{301}...");
+    }
+
+    #[test]
+    fn truncates_plain_without_an_ellipsis() {
+        assert_eq!(truncate_chars_plain("hello", 10), "hello");
+        assert_eq!(truncate_chars_plain("hello world", 5), "hello");
+        assert_eq!(truncate_chars_plain("héllo wörld", 5), "héllo");
+        assert_eq!(truncate_chars_plain("hello", 0), "");
+        // Same grapheme-cluster guarantees as `truncate_chars`, but the
+        // result only ever contains characters from the input (no dots).
+        assert_eq!(truncate_chars_plain("👨‍👩‍👧‍👦x", 5), "");
+        assert_eq!(truncate_chars_plain("👨‍👩‍👧‍👦 x y", 7), "👨‍👩‍👧‍👦");
+        assert_eq!(truncate_chars_plain("e\u{301}wxyz", 5), "e\u{301}wxy");
     }
 
     #[test]
@@ -1071,6 +1162,14 @@ mod tests {
         assert_eq!(
             strip_credentials_for_log("https://example.com:not-a-port/x"),
             "https://example.com:not-a-port/x"
+        );
+        // Schemeless authority: `user:` is a username, `pa ss` a password
+        // split by whitespace, and `host` the authority. The shared log
+        // sanitizer must fail closed here too, not just the display path.
+        assert_eq!(strip_credentials_for_log("user:pa ss@host"), "host");
+        assert_eq!(
+            strip_credentials_for_log("blocked: user:pa ss@host"),
+            "blocked: host"
         );
         // A path already ended the authority: an email further down the
         // line must not pull that path into the redacted span.

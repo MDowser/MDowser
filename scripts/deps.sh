@@ -9,7 +9,7 @@
 # Usage:
 #   ./scripts/deps.sh              # everything this host can use   (= make deps)
 #   ./scripts/deps.sh toolchain    # Rust/cargo, nasm, python3
-#   ./scripts/deps.sh cross        # macOS: zig, cargo-zigbuild, mingw-w64, rustup targets
+#   ./scripts/deps.sh cross        # zig + cargo-zigbuild (macOS, or x86_64 Linux for aarch64); macOS also mingw-w64 + rustup targets
 #   ./scripts/deps.sh packaging    # desktop-file-utils, appstream(-glib), mandoc, rpm, flatpak-builder, lintian, PyYAML
 #   SKIP_SETUP=1 ./scripts/deps.sh # dry run: report only, install nothing
 #
@@ -307,15 +307,25 @@ group_toolchain() {
 
 group_cross() {
     step 'cross-build tools (multi-OS `make dist`)'
-    if [ "$OS" != "Darwin" ]; then
-        skip "cross tools" "only needed when crossing FROM macOS; build natively instead"
-        return 0
+    _arch="$(uname -m)"
+    if [ "$OS" = "Darwin" ]; then
+        # zig as the Linux linker (with cargo-zigbuild) and mingw-w64 for Windows.
+        ensure_pkg zig zig "" "" "" 'Linux cross linker for `make dist-linux`'
+        ensure_pkg x86_64-w64-mingw32-gcc mingw-w64 "" "" "" 'Windows cross linker for `make dist-windows`'
+        ensure_cargo_zigbuild
+        ensure_rustup_targets
+    elif [ "$_arch" = "x86_64" ] || [ "$_arch" = "amd64" ]; then
+        # On an x86_64 Linux host `build-dist.sh --linux` still cross-compiles
+        # the aarch64 slice with zig + cargo-zigbuild (see `do_linux`). The
+        # old unconditional skip left the documented `deps -> dist-linux`
+        # flow broken: the arm64 artifact was silently omitted as a SKIP.
+        ensure_pkg zig zig zig zig zig 'aarch64 cross linker for `make dist-linux`'
+        ensure_cargo_zigbuild
+        ensure_rustup_targets
+    else
+        skip "cross tools" "native $_arch Linux build needs no cross linker"
     fi
-    # zig as the Linux linker (with cargo-zigbuild) and mingw-w64 for Windows.
-    ensure_pkg zig zig "" "" "" 'Linux cross linker for `make dist-linux`'
-    ensure_pkg x86_64-w64-mingw32-gcc mingw-w64 "" "" "" 'Windows cross linker for `make dist-windows`'
-    ensure_cargo_zigbuild
-    ensure_rustup_targets
+    unset _arch
 }
 
 group_packaging() {

@@ -414,10 +414,7 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
                     )));
                 }
                 // Strip credentials: never send `user:pass@` on the network.
-                if !url.username().is_empty() || url.password().is_some() {
-                    let _ = url.set_username("");
-                    let _ = url.set_password(None);
-                }
+                strip_url_credentials(&mut url)?;
                 return Ok(url);
             }
             if authority_sep {
@@ -487,12 +484,28 @@ pub fn parse_https(input: &str) -> Result<Url, BrowserError> {
         )));
     }
     // Strip credentials coming from `user:pass@host` forms.
-    if !url.username().is_empty() || url.password().is_some() {
-        let _ = url.set_username("");
-        let _ = url.set_password(None);
-    }
+    strip_url_credentials(&mut url)?;
     // A non-numeric port (`localhost:abc`) fails at `Url::parse` => BadUrl. Good.
     Ok(url)
+}
+
+/// Removes any userinfo from a parsed URL, failing CLOSED so a secret can
+/// never ride the network, the address bar or a log line (`get_bytes` applies
+/// the same contract with its own typed error). Both `Url::set_*` setters are
+/// infallible for the `https` URLs this module produces, but silently
+/// ignoring a future failure would defeat the HTTPS-only security model.
+fn strip_url_credentials(url: &mut Url) -> Result<(), BrowserError> {
+    if url.username().is_empty() && url.password().is_none() {
+        return Ok(());
+    }
+    url.set_username("")
+        .and_then(|()| url.set_password(None))
+        .map_err(|()| {
+            BrowserError::BadUrl(format!(
+                "credentials in {}",
+                crate::util::strip_credentials_for_log(url.as_str())
+            ))
+        })
 }
 
 /// Validates a user-entered address as either an `https://` URL or a local

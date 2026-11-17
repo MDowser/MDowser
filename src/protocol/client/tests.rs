@@ -254,6 +254,21 @@ fn display_sanitizer_never_echoes_credentials() {
     );
     assert_eq!(sanitize_for_display("a:b/c@d\nhello"), "d");
     assert_eq!(sanitize_for_display("user:pa/ss@ex.com\nhello"), "ex.com");
+    // A raw space inside a SCHEMELESS password splits the userinfo across
+    // whitespace tokens (`user:pa ss@host`). The `@` is not in the first
+    // token, so the normal display path never sees a credential shape and
+    // echoed the whole paste, password included. Fail closed: only the host
+    // survives.
+    assert_eq!(
+        sanitize_for_display("user:pa ss@[invalid"),
+        "[invalid",
+        "a whitespace-split schemeless password must never be echoed"
+    );
+    assert_eq!(
+        sanitize_for_display("blocked: user:pa ss@host"),
+        "blocked: host",
+        "the same spelling inside a whole error line must lose the password"
+    );
     // Path/query `@`s and host:port segments are not credentials: the
     // token stays readable.
     assert_eq!(sanitize_for_display("https://host/a@b"), "https://host/a@b");

@@ -4,10 +4,12 @@
 #                     macOS -> the universal .app.zip ONLY; Linux -> .tar.gz +
 #                     .deb/.rpm + Flatpak; Windows -> the .exe zip.
 # - `make debug`    : host debug binary (target/debug/mdowser).
-# - `make test`     : full pipeline (sh syntax, fmt, clippy, test, doc, debug).
+# - `make test`     : full pipeline (sh syntax, version consistency, fmt, clippy, test, doc, debug).
 # - `make audit`    : supply-chain audit (cargo-audit + cargo-deny, best-effort).
-# - `make dist`     : installs deps + EVERY platform packaged into dist/
-#                     (--all, building each binary it packages), as wide as possible.
+# - `make dist`     : installs deps + all targets buildable on this host into
+#                     dist/ (--all, building each binary it packages). Windows
+#                     arm64 needs a native ARM runner and the RPM needs rpmbuild,
+#                     so those are produced by CI / a Fedora host, not here.
 # - `make dist-*`   : one group (host, mac, linux, windows, rpm, flatpak).
 # - `make install`  : runtime files under PREFIX (DESTDIR honored; RPM %install).
 # - `make flatpak`  : Flatpak bundle (needs flatpak-builder).
@@ -115,9 +117,11 @@ debug:
 test:
 	./scripts/build-test.sh
 
-# Install deps + the WIDEST multi-OS dist into dist/ (macOS universal .app,
-# Linux tar.gz/.deb/.rpm/Flatpak, Windows .exe). The script builds every
-# binary it packages, so no separate `build` dependency is needed.
+# Install deps + every target this host can build into dist/ (macOS universal
+# .app, Linux tar.gz/.deb/Flatpak and .rpm where rpmbuild exists, Windows .exe
+# x86_64). Windows arm64 needs a native ARM runner and is only built by CI.
+# The script builds every binary it packages, so no separate `build` dependency
+# is needed.
 dist: deps
 	./scripts/build-dist.sh --all
 

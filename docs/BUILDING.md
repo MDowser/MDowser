@@ -287,8 +287,10 @@ Linux packaging is generated from ONE shared set of files
 - `packaging/linux/dev.mdowser.app.metainfo.xml` — AppStream metadata: the
   page GNOME Software and KDE Discover render (name, summary, description,
   links, icon, release). `scripts/packaging.sh` pins its newest `<release>` to
-  the `Cargo.toml` version and today's date (or the date of
-  `SOURCE_DATE_EPOCH` for a reproducible build) at package time.
+  the `Cargo.toml` version and a date from `SOURCE_DATE_EPOCH`: `make dist`
+  defaults that variable to the packaged commit's timestamp, so rebuilding the
+  same source renders the same date; a tree without git history uses today's
+  date. An explicit `SOURCE_DATE_EPOCH` always wins.
 - `packaging/linux/mdowser.1` — man page.
 - the hicolor icon ladder (`assets/icons/icon-*.png`) plus the scalable
   `assets/icon.svg`.

@@ -117,6 +117,24 @@ MODE="${1:-"--all"}"
 # NOTE: `${1:-word}` (default when unset/empty), not a substring expansion.
 SKIP_SETUP="${SKIP_SETUP:-0}"
 
+# Reproducible metadata: when the caller has not pinned a timestamp, derive it
+# from the commit being packaged so `render_metainfo` uses a stable AppStream
+# release date and the man page's gzip header is stable across rebuilds of the
+# same source. An explicit SOURCE_DATE_EPOCH (e.g. from CI) always wins. A
+# source tree without git history keeps the current "today" behavior instead
+# of emitting a bogus 1970 date.
+if [ -z "${SOURCE_DATE_EPOCH:-}" ]; then
+    _sde="$(git -C "$ROOT" log -1 --format=%ct 2>/dev/null || true)"
+    case "$_sde" in
+        ''|*[!0-9]*) unset _sde ;;
+        *)
+            SOURCE_DATE_EPOCH="$_sde"
+            export SOURCE_DATE_EPOCH
+            unset _sde
+            ;;
+    esac
+fi
+
 BUILT=""    # achieved artifacts
 SKIPPED=""  # skipped groups (with reason)
 
@@ -215,7 +233,19 @@ pick_strip_for() {
             ;;
     esac
     _kind=""
-    if have file; then _kind="$(file -b "$_f" 2>/dev/null || true)"; fi
+    if have file; then
+        _kind="$(file -b "$_f" 2>/dev/null || true)"
+    elif [ -r "$_f" ]; then
+        # Minimal build containers (e.g. the Fedora RPM job) may not ship
+        # `file`. Read the 4-byte magic directly so an ELF is not mistaken
+        # for a Mach-O binary and handed to Apple's `strip`: 7f 45 4c 46 is
+        # "\x7fELF"; anything else keeps the historical Mach-O assumption.
+        _magic="$(od -An -tx1 -N4 "$_f" 2>/dev/null | tr -d ' \n')"
+        case "$_magic" in
+            7f454c46) _kind="ELF" ;;
+        esac
+        unset _magic
+    fi
     case "$_kind" in
         *ELF*)
             _ls="$(find_llvm_strip 2>/dev/null || true)"
@@ -756,17 +786,20 @@ do_mac() {
     # flags keep the AppleDouble sidecars out even if an xattr escapes the
     # sweep.
     rm -f "$mac_zip"
-    if have ditto; then
-        if (cd "$mac_stage" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI.app" "$mac_zip") \
-            && [ -s "$mac_zip" ]; then
+    if have ditto \
+        && (cd "$mac_stage" && ditto -c -k --keepParent --norsrc --noqtn --noextattr "$APP_UI.app" "$mac_zip") \
+        && [ -s "$mac_zip" ]; then
+        BUILT="$BUILT mac-app-universal"
+    else
+        # ditto missing OR failed: fall back to the generic zip chain instead
+        # of dropping the artifact. A failed ditto can leave a partial zip, so
+        # remove it first and let `zip_of` verify its own result.
+        rm -f "$mac_zip"
+        if zip_of "$mac_app" "$mac_zip"; then
             BUILT="$BUILT mac-app-universal"
         else
             warn "mac-app-universal (zip failed)"
         fi
-    elif zip_of "$mac_app" "$mac_zip"; then
-        BUILT="$BUILT mac-app-universal"
-    else
-        warn "mac-app-universal (zip failed)"
     fi
     rm -rf "$mac_stage"
     unset arm_bin x64_bin mac_stage mac_app mac_zip

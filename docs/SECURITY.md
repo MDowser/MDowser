@@ -450,9 +450,11 @@ card and the bookmark/history stores.
   `mailto:user:pa/ss@host`, `user:pa/ss@host` or
   `https://user:pa://ss@host`). It tries every authority spelling left to
   right, so a `://` inside the password is not mistaken for a second
-  authority and stripped only at its tail. The plain schemeless
-  `user:pass@host` spelling remains with the display sanitizer below, where
-  the host:port shape is decided.
+  authority and stripped only at its tail. A schemeless password split by
+  raw whitespace (`user:pa ss@host`) is redacted too: the `@` is not in the
+  first token, so no later pass could recover the credential boundary. The
+  plain schemeless `user:pass@host` spelling (no whitespace) remains with the
+  display sanitizer below, where the host:port shape is decided.
 - The display echo is bounded at the first ASCII-whitespace character (one
   address token: a second-line paste cannot ride along), and a
   host-port-shaped token (`nas:5000/x@y`) is kept verbatim only when it parses
@@ -463,10 +465,13 @@ card and the bookmark/history stores.
   UTF-8 included) echoes the `file:` URL through it as well. The local path
   resolver also rejects credentials and ports at the point of use, not only
   at parse time (`protocol::local::echo_url`, `protocol::local::local_path`).
-- The stripping does not depend on the caller: the shared network entry point
+- The stripping does not depend on the caller: the address parser
+  (`protocol::client::parse_https`) removes userinfo fail-closed at parse time
+  (a setter failure rejects the URL instead of letting a secret reach the
+  address bar), and the shared network entry point
   (`protocol::client::get_bytes`) removes authority credentials from the
-  request URL itself, fail-closed, before anything is sent, and its own
-  rejection message reuses the shared sanitizer. Server-controlled redirect
+  request URL itself, fail-closed, before anything is sent. Both rejection
+  messages reuse the shared sanitizer. Server-controlled redirect
   URLs embedded in transport error text are sanitized the same way before
   the error view AND image failure tooltips, and a final URL off
   `https` is rejected before the body is read (defense in

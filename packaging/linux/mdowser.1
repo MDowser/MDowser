@@ -36,8 +36,8 @@ below, plus
 .B \-\-
 to end option parsing; every other argument is an open target.
 .PP
-When the application is already running, a new launch opens its targets in a
-new instance; MDowser does not use a single-instance guard.
+MDowser does not use a single-instance guard, so each launch opens its targets
+in a new instance.
 .SH OPTIONS
 .TP
 .B \-h, \-\-help
@@ -52,8 +52,8 @@ End option parsing: every following argument is an open target, even one
 that begins with a hyphen
 .RB ( "mdowser \-\- \-notes.md" ).
 .PP
-Every other argument is an open target. A word that begins with a hyphen is
-ignored, so a macOS Finder launch's
+Every other argument is an open target. Any other unrecognized word that
+begins with a hyphen is ignored, so a macOS Finder launch's
 .B \-psn_
 argument is never treated as a document, unless it follows
 .B \-\-

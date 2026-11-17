@@ -379,7 +379,9 @@ fn url_stem(url: &url::Url) -> String {
 /// one page saves under the same name everywhere.
 fn capped_stem(slug: &str) -> String {
     let trimmed = slug.trim_matches('-');
-    let capped = crate::util::truncate_chars(trimmed, config::MAX_EXPORT_NAME_CHARS);
+    // No ellipsis: a capped stem must keep the "alphanumerics, `-` and `_`
+    // only" contract promised by `default_stem`.
+    let capped = crate::util::truncate_chars_plain(trimmed, config::MAX_EXPORT_NAME_CHARS);
     let capped = capped.trim_matches('-');
     if capped.is_empty() {
         return String::new();
@@ -560,9 +562,14 @@ mod tests {
             "document"
         );
         // The stem is bounded: a title cannot build a file name the
-        // filesystem would refuse.
+        // filesystem would refuse. Truncation adds no ellipsis, so the stem
+        // keeps the documented "alphanumerics, `-` and `_` only" shape.
         let long = default_stem(Some(&"a".repeat(500)), &url);
         assert_eq!(long.chars().count(), config::MAX_EXPORT_NAME_CHARS);
+        assert!(long
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+        assert!(!long.contains('.'));
     }
 
     #[test]

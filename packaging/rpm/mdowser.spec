@@ -86,11 +86,24 @@ TLS verification uses the system trust store (rustls-platform-verifier).
 # binary. Panic locations embed dependency source paths, and `strip` cannot
 # remove them (they are runtime data). Mirrors `scripts/lib.sh`
 # `export_remap_rustflags`; guard $HOME so an unset variable can never turn
-# into an empty (catch-all) remap prefix.
+# into an empty (catch-all) remap prefix. Use CARGO_ENCODED_RUSTFLAGS
+# (0x1f-separated, preferred by cargo over RUSTFLAGS) so a $HOME containing
+# spaces survives: a whitespace-separated RUSTFLAGS would be split into two
+# broken `--remap-path-prefix` flags and leak the real home path.
 if [ -n "${HOME:-}" ]; then
-    RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=/build"
-    RUSTFLAGS="$RUSTFLAGS --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
-    export RUSTFLAGS
+    _sep="$(printf '\037')"
+    _enc="${CARGO_ENCODED_RUSTFLAGS:-}"
+    if [ -z "$_enc" ] && [ -n "${RUSTFLAGS:-}" ]; then
+        for _f in $RUSTFLAGS; do
+            _enc="${_enc:+$_enc$_sep}$_f"
+        done
+    fi
+    _cargo="${CARGO_HOME:-$HOME/.cargo}"
+    _enc="${_enc:+$_enc$_sep}--remap-path-prefix=$HOME=/build"
+    [ "$_cargo" = "$HOME" ] || _enc="$_enc$_sep--remap-path-prefix=$_cargo=/cargo"
+    CARGO_ENCODED_RUSTFLAGS="$_enc"
+    export CARGO_ENCODED_RUSTFLAGS
+    unset _sep _enc _f _cargo
 fi
 cargo build --release --locked
 
