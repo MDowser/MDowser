@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-18
+
+Weekly update checks with automatic retries, broader code highlighting,
+credential-redaction hardening and release packaging fixes.
+
 ### Changed
 
 - Tab placeholders now name the page kind: Home, History and Licenses keep
