@@ -69,6 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "EVERY platform": Windows arm64 needs a native ARM runner and the RPM needs
   `rpmbuild` on Linux. (`Makefile`, `docs/BUILDING.md`.)
 
+- Find-in-page no longer lowercases and collects a match range list for
+  fragments that contain color emoji: those are painted by the emoji path, so
+  the expensive pass is skipped up front. (`src/viewer/inline/mod.rs`.)
+- Keyboard focus rings on hand-painted icon buttons keep their pill shape: the
+  radius is now derived from the rect the ring is stroked on (one hairline
+  smaller on each side), not the unshrunk hover fill. (`src/ui/icons/mod.rs`.)
+
 ### Fixed
 
 - An update check that cannot reach GitHub (typically the first automatic
@@ -144,6 +151,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (which contradicted `-h`/`-V`/`--help`/`--version`) and drops a redundant
   single-instance sentence. (`packaging/linux/mdowser.1`.)
 
+- A block whose text exactly filled the per-block render cap no longer kept
+  one extra character from the next fragment (`remaining.max(1)`), so the
+  documented cap now holds exactly. The bounded `[truncated]` notice marks the
+  cut-off as before. (`src/viewer/markdown/frags.rs`, `docs/ARCHITECTURE.md`.)
+- Non-ASCII Rust/C char literals such as `'é'` and `'😀'` are now colored as
+  strings: the per-line scanner advances by whole UTF-8 chars, so it reaches
+  the closing quote. ASCII escapes and lifetimes are unaffected.
+  (`src/markdown/highlight.rs`, `docs/INTERFACE.md`.)
+- `make dist` on a native Windows host no longer deletes the valid MSVC
+  `.exe` zip produced for the host before checking whether the mingw cross
+  toolchain is available: a skipped cross rebuild now leaves that artifact in
+  place. (`scripts/build-dist.sh`.)
+- `make deps DEPS=cross` on x86_64 Linux now also installs `mingw-w64`, so the
+  documented `deps → dist` flow can package the Windows `.exe` outside CI.
+  (`scripts/deps.sh`, `docs/BUILDING.md`.)
+- The last two "EVERY platform" claims — the `make help` output and the
+  `make dist` line in the build guide — now say "every target this host can
+  build", matching the Makefile header and the changelog. The save-folder
+  docs also list the final fallback (the current directory when no home can
+  be determined). (`Makefile`, `docs/BUILDING.md`, `docs/INTERFACE.md`.)
+
 ### Security
 
 - Credentials are no longer echoed when a pasted schemeless password contains
@@ -159,6 +187,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `async-executor 1.14.0` with 1.14.1. Compatible transitive dependencies
   were refreshed in the same lockfile update; `cargo audit` and
   `cargo deny check` pass. (`Cargo.toml`, `Cargo.lock`.)
+
+- The dist privacy gate now labels `.rpm` and `.flatpak` artifacts as
+  `HEADER-ONLY` in its result: their compressed payloads (cpio / OSTree) cannot
+  be unpacked with the Python standard library, so a green result no longer
+  implies a full payload inspection for those two formats. Their plaintext
+  headers are still scanned for builder paths and hostname, and the release
+  workflow's merge job runs the same gate. (`scripts/check-dist.sh`,
+  `docs/SECURITY.md`.)
 
 ## [0.7.3] - 2026-10-30
 

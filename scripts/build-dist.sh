@@ -1031,8 +1031,12 @@ do_flatpak() {
 do_windows() {
     log "Windows: x86_64 (.exe via mingw-w64)"
     triple="x86_64-pc-windows-gnu"
-    # Replace this group's previous archive before rebuilding (see do_mac).
-    rm -f "$DIST/$APP_LC-$VER-windows-x86_64.zip"
+    # Check ALL prerequisites first. This group's archive is removed only
+    # once a rebuild is actually going to be attempted: on a native Windows
+    # host `--all` already packaged the MSVC binary at this exact path in
+    # do_host, and deleting it before a mingw/target SKIP left no Windows
+    # artifact at all. A failed build still clears the old archive below, so
+    # a stale package can never be checksummed (see do_mac).
     need_target "$triple" || { warn "windows (no $triple target)"; return 0; }
     if ! have x86_64-w64-mingw32-gcc; then
         if [ "$SKIP_SETUP" = "1" ] || ! have brew; then
@@ -1047,6 +1051,8 @@ do_windows() {
         warn "windows (nasm missing; brew install nasm)"
         return 0
     fi
+    # Prerequisites passed: only now replace the previous archive.
+    rm -f "$DIST/$APP_LC-$VER-windows-x86_64.zip"
     # cc/link for the GNU target (covers aws-lc-sys).
     export CC_x86_64_pc_windows_gnu="x86_64-w64-mingw32-gcc"
     export AR_x86_64_pc_windows_gnu="x86_64-w64-mingw32-ar"

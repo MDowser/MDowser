@@ -767,6 +767,22 @@ fn oversized_blocks_are_truncated_with_a_notice() {
     assert_eq!(kept[0].text, "hello");
 }
 
+/// A block whose first fragment fills the cap EXACTLY must not leak a second
+/// character from the next fragment (`remaining.max(1)` used to keep one
+/// crumb, exceeding the documented cap).
+#[test]
+fn cap_exactly_filled_does_not_keep_an_extra_character() {
+    use crate::config::MAX_RENDERED_BLOCK_CHARS as CAP;
+    let full = "a".repeat(CAP);
+    let capped = super::cap_block_text(vec![plain(&full), plain("b")]);
+    let text: String = capped.iter().map(|f| f.text.as_ref()).collect();
+    assert!(!text.contains('b'), "overflow character leaked: {text:.80}");
+    assert!(text.contains("[truncated]"), "missing cut-off notice");
+    // The notice is the only text beyond the cap.
+    let kept_without_notice = text.split(" … [truncated]").next().unwrap_or("");
+    assert_eq!(kept_without_notice.chars().count(), CAP);
+}
+
 /// "Skip to content" chrome leaked by `.md` variants is dropped, not
 /// rendered as the first line of every page.
 #[test]

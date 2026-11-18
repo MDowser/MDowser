@@ -679,7 +679,9 @@ Key contracts per area (the module map above names the main module areas):
   out), so it cannot cover the first visible line.
 - Every rendered prose/HTML/table block is capped (`MAX_RENDERED_BLOCK_CHARS`):
   one multi-MB paragraph, heading or cell cannot become a single giant label (a
-  bounded `… [truncated]` notice ends it; Copy keeps the full body). An HTML
+  bounded `… [truncated]` notice ends it; Copy keeps the full body). The cap is
+  exact: a fragment that starts with no budget left is dropped rather than
+  kept as a one-character crumb. An HTML
   block's buffer is collected under the SAME cap (one char past it, so the
   notice still fires), not up to 4x it in bytes.
 - Inline fragments borrow text from the events (`Frag<'a>` with `Cow`), so

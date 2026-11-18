@@ -64,8 +64,8 @@ their tools there, best-effort:
 `make deps` installs what the host can use, best-effort and idempotent: Rust
 (Homebrew's `rustup` + stable toolchain on macOS; on Linux the official
 installer only with `ALLOW_RUSTUP=1`, never silently), `nasm`, `python3`, the
-macOS cross tools (`zig`, `cargo-zigbuild`, `mingw-w64`, the rustup targets)
-and the packaging tools (`desktop-file-utils`, `appstream`, `appstream-glib`,
+cross tools on macOS and x86_64 Linux (`zig`, `cargo-zigbuild`, `mingw-w64`,
+the rustup targets) and the packaging tools (`desktop-file-utils`, `appstream`, `appstream-glib`,
 `mandoc`, `rpm`, `lintian`, PyYAML). It uses Homebrew on macOS and
 `apt-get`/`dnf`/`pacman` on Linux (via `sudo`).
 
@@ -80,10 +80,12 @@ A tool already on `PATH` is left alone; anything uninstallable is a `SKIP`
 with the reason, never a failure. The Xcode Command Line Tools (the macOS C
 compiler) cannot come from Homebrew, so the target prints
 `xcode-select --install`. `make dist` installs the cross tools through
-`make deps` on macOS (`SKIP_SETUP=1` opts out); on Linux install `zig` and
-`mingw-w64` with the package manager and `cargo-zigbuild` with
-`cargo install`. `make deps` matters mostly for Rust itself and the
-packaging/validation tools.
+`make deps` on macOS and x86_64 Linux (`SKIP_SETUP=1` opts out): that includes
+`mingw-w64` for the Windows `.exe`, so the Linux `deps → dist` flow packages
+Windows too. `cargo-zigbuild` is installed with `cargo install` on both hosts.
+On other Linux architectures `make deps` skips cross tools (native builds need
+none). `make deps` matters mostly for Rust itself and the packaging/validation
+tools.
 
 ## Build, test and package
 
@@ -98,7 +100,7 @@ make build        # host release binary only (target/release/mdowser)
 make debug        # host debug (target/debug/mdowser)
 make test         # pipeline: sh syntax + version consistency + fmt --check + clippy -D warnings + test + doc + debug
 make audit        # supply-chain audit (cargo audit + cargo deny, best-effort)
-make dist         # deps + EVERY platform into dist/ (+ SHA256SUMS.txt, latest.txt)
+make dist         # deps + every target this host can build into dist/ (+ SHA256SUMS.txt, latest.txt)
 make dist-host | make dist-mac | make dist-linux | make dist-windows
 make dist-rpm     # RPM from the full source tree (Linux host with rpmbuild)
 make dist-flatpak # Flatpak bundle (needs flatpak-builder; see packaging/flatpak/)

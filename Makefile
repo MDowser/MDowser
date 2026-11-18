@@ -238,7 +238,7 @@ help:
 	@echo "              (mac: universal .app | linux: tar.gz/.deb/.rpm/flatpak | win: .exe)"
 	@echo "  build = host release binary"
 	@echo "  debug = host debug"
-	@echo "  test = sh+fmt+clippy+test+doc+debug   |  dist = deps + EVERY platform (builds each)"
+	@echo "  test = sh+fmt+clippy+test+doc+debug   |  dist = deps + every target this host can build"
 	@echo "  dist-host = current-OS dist only   |  dist-<mac|linux|windows> = one group"
 	@echo "  dist-rpm = RPM from source (needs rpmbuild)   |  flatpak/dist-flatpak = Flatpak bundle"
 	@echo "  install  = runtime files under PREFIX (needs make build; DESTDIR/PREFIX honored; RPM %install)"

@@ -398,14 +398,21 @@ pub(super) fn cap_block_text<'a>(frags: Vec<Frag<'a>>) -> Vec<Frag<'a>> {
             continue;
         }
         let remaining = cap.saturating_sub(used);
+        if remaining == 0 {
+            // The budget is already full: do not keep a one-character crumb
+            // via `truncate_chars(.., remaining.max(1))` (that made the kept
+            // text `cap + 1` chars). Drop the fragment and let the bounded
+            // notice below mark the cut-off.
+            truncated = true;
+            continue;
+        }
         let chars = count_chars_up_to(f.text.as_ref(), remaining);
         if chars <= remaining {
             used += chars;
             out.push(f);
             continue;
         }
-        f.text =
-            std::borrow::Cow::Owned(truncate_chars(f.text.as_ref(), remaining.max(1)).into_owned());
+        f.text = std::borrow::Cow::Owned(truncate_chars(f.text.as_ref(), remaining).into_owned());
         out.push(f);
         truncated = true;
     }

@@ -324,7 +324,9 @@ wrapping paragraphs at README line height.
   size as the prose. The highlighter covers Rust, Python, JavaScript/TypeScript,
   Bash, JSON, TOML, YAML, C/C++, Go, Java, C# and SQL; `/* ... */` block
   comments carry across lines through their closing `*/` (or the end of the
-  block), while strings and line comments stay per-line heuristics.
+  block), while strings and line comments stay per-line heuristics. Char
+  literals with non-ASCII characters (`'é'`, `'😀'`) color as strings too;
+  lifetimes (`'a`) do not.
 - Striped bordered tables fill the drawn card (leftover width distributed
   proportionally); long cells (links included) shrink and wrap instead of
   forcing a horizontal scrollbar (a scrolling table keeps readable column
@@ -543,7 +545,8 @@ Downloads known folder on Windows (so a location relocated in Explorer is
 honored), the XDG downloads folder when one is configured and present
 (`XDG_DOWNLOAD_DIR` in `user-dirs.dirs`, so a localized name like `Descargas` is
 honored on Linux/BSD), else `~/Downloads` when that exists, else the home
-directory. The name is the page title's slug, else the URL's last path
+directory, else the current directory on a machine with no home. The name is
+the page title's slug, else the URL's last path
 segment, else `document`. An overlong name is trimmed to its character cap
 without an ellipsis, so the saved file name keeps the same slug-safe shape
 (alphanumerics, `-` and `_`) as a short one.

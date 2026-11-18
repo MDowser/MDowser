@@ -549,10 +549,14 @@ gate (a release must not point outside it or ship a stale tree). `latest.txt`
 and `SHA256SUMS.txt` are metadata: they are scanned but never count as a
 downloadable build. `make check-dist`, `make dist` and CI pass `--require`, so
 a missing `dist/`, no downloadable build at all, or a missing inspector (no
-python3) is a hard failure, not a silent SKIP. `make validate` runs the same
-scan best-effort when `dist/` exists, matching its never-fail-on-missing-tools
-contract. Generic hostnames that collide with the `/build` and `/cargo` remap
-targets are never used as needles.
+python3) is a hard failure, not a silent SKIP. The gate unpacks `.zip`, `.deb`
+and tar archives, but cannot unpack an RPM's cpio or a Flatpak's OSTree commit
+with the Python standard library: those two formats get the raw byte scan
+(their plaintext headers are covered) and the result line reports them as
+`HEADER-ONLY` instead of claiming a full payload inspection. `make validate`
+runs the same scan best-effort when `dist/` exists, matching its
+never-fail-on-missing-tools contract. Generic hostnames that collide with the
+`/build` and `/cargo` remap targets are never used as needles.
 See [`BUILDING.md#build-artifact-privacy`](BUILDING.md#build-artifact-privacy).
 
 Release builds run in CI (`.github/workflows/release.yml`) on fresh

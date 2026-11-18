@@ -107,6 +107,11 @@ if (len(host) >= 5
 
 problems = []
 scanned = 0
+# Compressed package payloads (RPM's cpio, Flatpak's OSTree commit) cannot be
+# unpacked with the Python stdlib. The raw byte scan still catches plaintext
+# needles in their headers, but we must not REPORT those artifacts as fully
+# inspected: track them so the final line says so explicitly.
+header_only = set()
 
 
 def scan_bytes(label, data):
@@ -201,6 +206,10 @@ def scan_path(path):
     elif path.endswith((".tar.gz", ".tgz", ".tar")):
         with tarfile.open(path, "r:*") as tf:
             scan_tar(label, tf)
+    elif path.endswith((".rpm", ".flatpak")):
+        header_only.add(os.path.splitext(path)[1])
+        with open(path, "rb") as handle:
+            scan_bytes(label, handle.read())
     else:
         with open(path, "rb") as handle:
             scan_bytes(label, handle.read())
@@ -250,8 +259,15 @@ if require and checked == 0:
 
 ignored_note = f", {ignored} hidden file(s) ignored" if ignored else ""
 metadata_note = f", {metadata} metadata file(s)" if metadata else ""
+# Be explicit about what the stdlib cannot inspect: a green result must never
+# be read as a claim that a compressed .rpm/.flatpak payload was unpacked.
+header_note = (
+    f"; HEADER-ONLY (payload not unpacked): {' '.join(sorted(header_only))}"
+    if header_only
+    else ""
+)
 print(
     f"OK: {dist} clean ({checked} artifact(s) scanned, "
-    f"{scanned} payload file(s) checked{metadata_note}{ignored_note})"
+    f"{scanned} payload file(s) checked{metadata_note}{ignored_note}){header_note}"
 )
 PY

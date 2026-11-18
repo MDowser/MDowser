@@ -317,16 +317,18 @@ fn render_plain_split(
     if !crate::viewer::find::contains_match(text, &fr.query_lower) {
         return false;
     }
+    // Color emoji: the caller's emoji path paints the textures (with the
+    // wash behind them); a galley cannot. Bail BEFORE the range walk below,
+    // which lowercases and allocates a Vec for a fragment this path never
+    // paints.
+    if crate::media::emoji::may_contain_emoji(text) {
+        return false;
+    }
     let (ranges, fragment_capped) = crate::viewer::find::find_ranges_capped(text, &fr.query_lower);
     if ranges.is_empty() {
         return false;
     }
     if !crate::viewer::find::ranges_resolve(text, &ranges, &fr.query_lower) {
-        return false;
-    }
-    // Color emoji: the caller's emoji path paints the textures (with the
-    // wash behind them); a galley cannot.
-    if crate::media::emoji::may_contain_emoji(text) {
         return false;
     }
     // Select-all washes the whole page anyway: the caller's fallback paints

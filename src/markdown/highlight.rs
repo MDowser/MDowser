@@ -750,12 +750,18 @@ pub fn spans_with_state(lang: Lang, line: &str, state: State) -> (Vec<Span>, Sta
                         j += 1;
                     }
                 } else {
-                    // One plain char (ASCII safe: lifetimes/idents are ASCII).
+                    // One plain char, which may be multi-byte (`'é'`,
+                    // `'😀'`). Advance to the next CHAR boundary, not to the
+                    // next byte: landing on a UTF-8 continuation byte made
+                    // the closing-quote check fail, so valid non-ASCII char
+                    // literals were never colored.
                     if j < n {
-                        j += 1;
+                        j += char_len_at(line, j);
                     }
                 }
-                let ok = j < n && bytes[j] == b'\'' && j - i <= 4;
+                // `j - i` spans the opening quote + the char (up to 4 bytes)
+                // + the closing quote, so 6 still excludes long strings.
+                let ok = j < n && bytes[j] == b'\'' && j - i <= 6;
                 if ok {
                     flush_plain(&mut out, &mut plain_start, i);
                     push_span(&mut out, TokenKind::Str, i, j + 1);
@@ -1070,6 +1076,35 @@ mod tests {
         let line = "fn f<'a>(x: &'a str)";
         let sp = spans(Lang::Rust, line);
         assert!(!sp.iter().any(|s| s.kind == TokenKind::Str));
+    }
+
+    #[test]
+    fn multibyte_char_literals_are_strings() {
+        // A non-ASCII char literal must advance by whole chars: stopping on a
+        // UTF-8 continuation byte used to hide the closing quote and emit the
+        // literal as plain text.
+        for (lang, line) in [
+            (Lang::Rust, "let c = 'é';"),
+            (Lang::C, "char c = 'é';"),
+            (Lang::Rust, "let c = '😀';"),
+        ] {
+            let sp = spans(lang, line);
+            assert!(
+                sp.iter().any(|s| {
+                    s.kind == TokenKind::Str && line[s.start..s.end].starts_with('\'')
+                }),
+                "{line}: no string span in {sp:?}"
+            );
+        }
+        // Escapes and lifetimes still behave as before.
+        let escaped = "let c = '\\n';";
+        assert!(spans(Lang::Rust, escaped)
+            .iter()
+            .any(|s| s.kind == TokenKind::Str && &escaped[s.start..s.end] == "'\\n'"));
+        let line = "fn f<'a>(x: &'a str)";
+        assert!(!spans(Lang::Rust, line)
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
     }
 
     #[test]

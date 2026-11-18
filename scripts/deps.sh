@@ -320,6 +320,12 @@ group_cross() {
         # old unconditional skip left the documented `deps -> dist-linux`
         # flow broken: the arm64 artifact was silently omitted as a SKIP.
         ensure_pkg zig zig zig zig zig 'aarch64 cross linker for `make dist-linux`'
+        # `make dist` also packages the x86_64 Windows .exe on this host; the
+        # GNU cross compiler is required (needs nasm too, installed by
+        # group_toolchain). Without it do_windows SKIPs and the documented
+        # `deps -> dist` flow silently omits Windows outside CI.
+        ensure_pkg x86_64-w64-mingw32-gcc "" mingw-w64 mingw64-gcc mingw-w64-toolchain \
+            'Windows cross linker for `make dist-windows`'
         ensure_cargo_zigbuild
         ensure_rustup_targets
     else

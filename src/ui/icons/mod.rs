@@ -686,7 +686,14 @@ fn finish_icon_button(
         // Keyboard focus is otherwise invisible on hand-painted buttons.
         // Painted IN ADDITION to the hover/press fill: `else if` hid the
         // ring as soon as the pointer rested on a focused control.
-        theme::focus_ring(ui, rect, theme::pill_radius(rect.height()).nw);
+        // `focus_ring` shrinks the rect by one hairline on every side before
+        // stroking it; derive the radius from that INNER rect so the ring
+        // stays a true pill over the (unshrunk) hover fill it outlines.
+        theme::focus_ring(
+            ui,
+            rect,
+            theme::pill_radius(rect.height() - 2.0 * theme::stroke::HAIRLINE).nw,
+        );
     }
     // Hover/focus effect: the glyph eases from the muted tone to the accent
     // and lifts a touch; pressing pulls it back. Both tweens are keyed to
