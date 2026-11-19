@@ -156,8 +156,9 @@ flatpak:
 	./scripts/build-flatpak.sh
 
 # Best-effort packaging validation (desktop entry, AppStream metadata, RPM
-# spec, Flatpak YAML) plus the dist/ privacy gate (builder paths, uid/gid,
-# xattrs). Missing tools are SKIPs, never failures.
+# spec, Flatpak YAML) plus the dist/ release gate (versions, checksums,
+# update marker, builder paths, uid/gid, xattrs). Missing tools are SKIPs,
+# never failures.
 validate:
 	./scripts/validate.sh
 
@@ -167,12 +168,14 @@ validate:
 check-version:
 	./scripts/check-version.sh
 
-# Privacy gate for built artifacts: fails when any dist/ archive carries the
-# builder's absolute paths or build-host metadata, and when dist/ is absent
-# (`--require`: a silent SKIP must never look like a passed release gate).
-# Also run by `make dist`.
+# Release gate for built artifacts: fails when any dist/ archive carries the
+# builder's absolute paths or build-host metadata, when an artifact's version
+# does not match Cargo.toml, when SHA256SUMS.txt does not cover and match every
+# artifact, when latest.txt is wrong, and when dist/ is absent (`--final
+# --require`: a silent SKIP or unfinished metadata must never look like a
+# passed release gate). Also run by `make dist`.
 check-dist:
-	./scripts/check-dist.sh --require
+	./scripts/check-dist.sh --require --final
 
 # Install build/packaging dependencies, best-effort and idempotent (Homebrew on
 # macOS; apt-get/dnf/pacman on Linux). `SKIP_SETUP=1 make deps` reports only;
@@ -244,7 +247,7 @@ help:
 	@echo "  install  = runtime files under PREFIX (needs make build; DESTDIR/PREFIX honored; RPM %install)"
 	@echo "  validate = best-effort packaging metadata checks (SKIPs when tools missing)"
 	@echo "  check-version = Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md"
-	@echo "  check-dist = privacy gate: fail if dist/ is absent or carries builder paths/metadata"
+	@echo "  check-dist = release gate: versions + SHA256SUMS + latest.txt + privacy (fails if dist/ is absent)"
 	@echo "  deps     = install build/packaging deps (SKIP_SETUP=1 dry run; DEPS=<group>)"
 	@echo "  audit = cargo audit + cargo deny (best-effort when installed)"
 	@echo "  icons = force-regenerate assets/icons from assets/icon.svg"

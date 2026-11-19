@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `check-dist.sh` now verifies release integrity in addition to the privacy
+  scan: every artifact must be a package name `build-dist.sh` generates and
+  carry the `Cargo.toml` version (Deb/RPM in their normalized `~` form),
+  `SHA256SUMS.txt` must cover every artifact exactly once with matching
+  hashes, `latest.txt` must match a stable version (and a pre-release must not
+  carry it), and a corrupt archive fails closed instead of crashing the
+  inspector. `--final` makes the finished metadata mandatory; `--allow-mixed`
+  keeps an additive single-group `dist/` usable without skipping the
+  checksum/privacy checks. (`scripts/check-dist.sh`,
+  `scripts/build-dist.sh`, `Makefile`, `.github/workflows/release.yml`,
+  `docs/BUILDING.md`, `docs/SECURITY.md`, `docs/CONTRIBUTING.md`.)
+
+### Fixed
+
+- A stale `dist/` from an earlier version, a mixed set left by additive
+  single-group runs, a `SHA256SUMS.txt` that misses or mis-hashes an artifact,
+  or a wrong/missing `latest.txt` no longer passes `make check-dist` as a
+  ready release. `build-dist.sh` gates before the metadata and again after
+  writing it (`--final` for complete builds), and the publish job runs the
+  same final gate after refreshing the marker.
+  (`scripts/check-dist.sh`, `scripts/build-dist.sh`,
+  `.github/workflows/release.yml`, `Makefile`, `docs/BUILDING.md`,
+  `docs/SECURITY.md`.)
+
 ## [0.7.4] - 2026-11-18
 
 Weekly update checks with automatic retries, broader code highlighting,

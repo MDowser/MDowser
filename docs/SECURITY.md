@@ -540,30 +540,44 @@ extra field, and tar staging sweeps extended attributes / passes
 `--no-xattrs`, so `com.apple.provenance` stays out of Linux packages. The RPM
 spec pins `%_buildhost` and `%defattr(-, root, root, -)`.
 
-`scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist`) fails
-the build if any `dist/` artifact carries the builder's paths, hostname,
-uid/gid, xattrs or an AppleDouble `._*`/`__MACOSX/` member. Only regular,
-non-hidden files are considered: Finder's `.DS_Store` is ignored, while a
-symlink (hidden or not) or a leftover staging directory in `dist/` fails the
-gate (a release must not point outside it or ship a stale tree). `latest.txt`
-and `SHA256SUMS.txt` are metadata: they are scanned but never count as a
-downloadable build. `make check-dist`, `make dist` and CI pass `--require`, so
-a missing `dist/`, no downloadable build at all, or a missing inspector (no
-python3) is a hard failure, not a silent SKIP. The gate unpacks `.zip`, `.deb`
-and tar archives, but cannot unpack an RPM's cpio or a Flatpak's OSTree commit
-with the Python standard library: those two formats get the raw byte scan
-(their plaintext headers are covered) and the result line reports them as
-`HEADER-ONLY` instead of claiming a full payload inspection. `make validate`
-runs the same scan best-effort when `dist/` exists, matching its
-never-fail-on-missing-tools contract. Generic hostnames that collide with the
-`/build` and `/cargo` remap targets are never used as needles.
+`scripts/check-dist.sh` (`make check-dist`, also enforced by `make dist`) is
+the release gate. It fails the build if any `dist/` artifact carries the
+builder's paths, hostname, uid/gid, xattrs or an AppleDouble
+`._*`/`__MACOSX/` member. Only regular, non-hidden files are considered:
+Finder's `.DS_Store` is ignored, while a symlink (hidden or not) or a leftover
+staging directory in `dist/` fails the gate (a release must not point outside
+it or ship a stale tree). `latest.txt` and `SHA256SUMS.txt` are metadata: they
+are scanned but never count as a downloadable build.
+
+The same pass checks release integrity. Every artifact must be a name
+`build-dist.sh` generates and, unless `--allow-mixed` is given for an additive
+`dist/`, carry the `Cargo.toml` version (Deb/RPM use the normalized `~`
+pre-release form). `SHA256SUMS.txt` must parse, list every artifact exactly
+once, exclude the metadata files and match every actual hash. `latest.txt`
+must contain exactly the stable version plus one newline, and a pre-release
+must not carry a marker. `--final` makes the metadata mandatory (checksum
+coverage plus the marker); it implies `--require`, so `make check-dist`, `make
+dist` and CI fail on a missing `dist/`, no downloadable build at all, no
+metadata, or a missing inspector (no python3) instead of reporting a silent
+SKIP.
+
+The gate unpacks `.zip`, `.deb` and tar archives, but cannot unpack an RPM's
+cpio or a Flatpak's OSTree commit with the Python standard library: those two
+formats get the raw byte scan (their plaintext headers are covered) and the
+result line reports them as `HEADER-ONLY` instead of claiming a full payload
+inspection. A corrupt archive is reported as uninspectable, never a crash.
+`make validate` runs the same scan best-effort when `dist/` exists, matching
+its never-fail-on-missing-tools contract. Generic hostnames that collide with
+the `/build` and `/cargo` remap targets are never used as needles.
 See [`BUILDING.md#build-artifact-privacy`](BUILDING.md#build-artifact-privacy).
 
 Release builds run in CI (`.github/workflows/release.yml`) on fresh
 GitHub-hosted runners from the tagged commit: macOS universal, Linux
 x86_64/arm64, Windows x86_64 (MinGW cross) and Windows arm64 (native MSVC),
 plus RPM and Flatpak. The publish job re-runs `check-dist.sh` over the merged
-artifact set, so no target can bypass the gate before a release exists.
+artifact set, writes the checksums and marker, then runs
+`check-dist.sh --require --final` before creating or uploading the draft, so
+no target can bypass the gate before a release exists.
 
 ## Reporting a vulnerability
 

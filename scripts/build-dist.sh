@@ -174,7 +174,7 @@ trap stage_dirs EXIT
 
 # python3 packs the .deb (stdlib `ar` writer) and is the zip fallback.
 # Checked at each use (not up front): `--rpm`, `--flatpak`, `--mac` and
-# `--windows` never need it. The FINAL privacy gate (check-dist.sh --require)
+# `--windows` never need it. The FINAL release gate (check-dist.sh --require)
 # does need it on every mode, including the Fedora RPM container — the CI job
 # installs python3 for exactly that reason (a silent SKIP there would report
 # an unchecked release as ready).
@@ -1245,6 +1245,25 @@ do_host() {
 
 # --- main --------------------------------------------------------------------
 : "${DIST:?DIST must be set}"
+
+# Release gate shared by the pre-metadata and post-metadata checks below.
+# Status 2 means the gate itself could not run (missing python3/dist), which
+# must never be confused with a leak/integrity failure.
+run_dist_gate() {
+    _gate_status=0
+    "$ROOT/scripts/check-dist.sh" "$@" "$DIST" || _gate_status=$?
+    if [ "$_gate_status" -ne 0 ]; then
+        if [ "$_gate_status" -eq 2 ]; then
+            echo "ERROR: the dist release gate could not run (see above)" >&2
+        else
+            echo "ERROR: dist/ failed the release gate (privacy or integrity; see above)" >&2
+        fi
+        unset _gate_status
+        return 1
+    fi
+    unset _gate_status
+}
+
 mkdir -p "$DIST"
 # dist/ semantics: the COMPLETE modes rebuild it from scratch; a single-group
 # flag ADDS its artifacts to whatever is already there. The old unconditional
@@ -1257,6 +1276,16 @@ case "$MODE" in
         ;;
 esac
 mkdir -p "$DIST"
+case "$MODE" in
+    --mac|--linux|--windows|--rpm|--flatpak)
+        # Additive build: drop the previous checksum file NOW. It described the
+        # set before this run and the build is about to change that set; if the
+        # run fails, stale checksums must not keep describing a mixed tree as
+        # ready. The gate here is mixed-version aware, and build-dist writes a
+        # fresh file over every artifact at the end.
+        rm -f "$DIST/SHA256SUMS.txt"
+        ;;
+esac
 
 case "$MODE" in
     --host-only) do_host ;;
@@ -1296,22 +1325,16 @@ for _stale in "$DIST"/*; do
 done
 unset _stale _stale_name
 
-# Privacy gate: no artifact may carry the builder's absolute paths or
-# build-host metadata (uid/gid, xattrs). Fail BEFORE writing checksums so a
-# leaking build is never reported as ready (see scripts/check-dist.sh).
+# Release gate: no artifact may carry the builder's absolute paths or
+# build-host metadata (uid/gid, xattrs), and no stale artifact may pretend to
+# be this version. Complete modes are strict; additive single-group modes
+# intentionally allow the other versions already in dist/.
 # `--require`: a missing python3 is a FAILURE here (exit 2), never a silent
 # SKIP that would report an unchecked build as ready.
-"$ROOT/scripts/check-dist.sh" --require "$DIST" || {
-    _gate=$?
-    if [ "$_gate" = "2" ]; then
-        echo "ERROR: the dist privacy gate could not run (see above)" >&2
-    else
-        echo "ERROR: dist/ artifacts leak build-host information (see above)" >&2
-    fi
-    unset _gate
-    exit 1
-}
-unset _gate
+case "$MODE" in
+    --all|--host-only) run_dist_gate --require ;;
+    *) run_dist_gate --require --allow-mixed ;;
+esac
 
 # Checksums of FINAL files only (no dirs, no dotfiles, no self-inclusion).
 # Space-safe: no `xargs` splitting (filenames with spaces stay intact).
@@ -1358,6 +1381,15 @@ else
     rm -f "$DIST/latest.txt"
     printf '··· SKIP: latest.txt (version %s is not a stable X.Y.Z; the app rejects pre-release markers)\n' "$VER"
 fi
+
+# Final gate now that SHA256SUMS.txt and latest.txt exist. A complete mode
+# requires the full metadata (checksum coverage, stable marker) and rejects
+# any artifact from another version; an additive single-group run verifies
+# the checksums over the mixed set but cannot demand one version.
+case "$MODE" in
+    --all|--host-only) run_dist_gate --require --final ;;
+    *) run_dist_gate --require --allow-mixed ;;
+esac
 
 echo ""
 echo "dist/ ready (ver=$VER):"

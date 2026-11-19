@@ -173,6 +173,10 @@ jobs:
             case "$f" in latest.txt|SHA256SUMS.txt) continue ;; esac
             sha256sum "$f"
           done > SHA256SUMS.txt)
+          # The merged set is assembled by hand in this job, so verify the
+          # checksum/marker metadata again after writing it (build-dist did
+          # this for its own intermediate dist/ before the merge).
+          ./scripts/check-dist.sh --require --final dist
       # build.rs only WARNS when windres is missing: prove the icon,
       # VERSIONINFO and manifest survived the mingw link (the arm64 job has
       # the equivalent VersionInfo check for the native MSVC build).
@@ -501,6 +505,14 @@ jobs:
               test "$(cat dist/latest.txt)" = "$VER"
               ;;
           esac
+      - name: Final release gate (version, checksums, marker, privacy)
+        run: |
+          set -eu
+          # The publish job is the last place a stale mixed set or an
+          # incomplete SHA256SUMS.txt could still reach users: prove the
+          # finished metadata and every artifact before creating/uploading the
+          # draft (--final implies --require).
+          ./scripts/check-dist.sh --require --final dist
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

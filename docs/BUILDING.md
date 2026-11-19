@@ -108,7 +108,7 @@ make install      # binary + Linux desktop tree under PREFIX (DESTDIR honored; R
 make flatpak      # alias of the Flatpak bundle build (needs flatpak-builder)
 make validate     # best-effort packaging metadata checks (SKIPs when tools missing)
 make check-version # Cargo.toml vs metainfo/RPM changelog/CHANGELOG.md/SECURITY.md
-make check-dist   # privacy gate over dist/ (fails when dist/ is absent; after packaging)
+make check-dist   # release gate over dist/ (versions, SHA256SUMS, latest.txt, privacy; fails when dist/ is absent)
 make deps         # install build/packaging dependencies (SKIP_SETUP=1 dry run)
 make fmt | make clippy | make run | make clean | make help | make icons | make doctor
 make sync-sites   # sync curated omnibox list from MDowser-Sites (manual, network)
@@ -176,7 +176,9 @@ bootstrap; pass `SKIP_SETUP=1` to keep auto-install off):
 ./scripts/build-dist.sh --all      # same as make dist (every platform the host can build)
 ./scripts/build-dist.sh --host-only   # current-OS package (fast, no cross)
 ./scripts/build-dist.sh --mac | --linux | --windows | --rpm | --flatpak  # one group
-./scripts/check-dist.sh --require  # privacy gate over dist/ (= make check-dist)
+./scripts/check-dist.sh --require --final  # release gate over dist/ (= make check-dist)
+./scripts/check-dist.sh --require        # strict version/privacy check before metadata exists
+./scripts/check-dist.sh --allow-mixed    # additive dist/ holding several versions
 ./scripts/validate.sh              # packaging metadata checks (= make validate)
 ./scripts/install.sh               # binary + Linux desktop tree under PREFIX (= make install)
 ./scripts/deps.sh                  # build/packaging deps (= make deps)
@@ -206,6 +208,17 @@ root). For host packaging, `CARGO_BUILD_TARGET` must name the host triple;
 use the platform flags for cross targets. The Flatpak wrapper regenerates
 `cargo-sources.json` when `Cargo.lock` is newer and removes/verifies the
 bundle path, so a stale dependency set or old bundle is never reused.
+
+Whichever mode runs, `scripts/build-dist.sh` verifies the result twice: before
+the release metadata, with `check-dist.sh --require` (complete modes) or
+`--require --allow-mixed` (a single added group), and again after
+`SHA256SUMS.txt`/`latest.txt` are written, with `--require --final` for a
+complete set. The strict pass rejects an artifact whose name does not encode
+the `Cargo.toml` version, so a package left by an earlier run cannot be
+checksummed and published as this release. `--allow-mixed` exists only for an
+additive `dist/`: it skips the version and update-marker comparison while
+still verifying every listed checksum, and `build-dist.sh` drops the old
+checksum file when an additive run starts.
 
 `--all` generates all of the above plus (the version comes from `Cargo.toml`;
 shown here as `<ver>`):
@@ -239,8 +252,12 @@ and license under `Contents/Resources/`, the `.deb` under
 `/usr/share/doc/mdowser/` (notices as `copyright`). A `SHA256SUMS.txt` sits
 next to the artifacts. `latest.txt` (bare `<ver>` plus newline) is the
 notification-only update marker; it is release metadata, so the checksums
-deliberately omit it. Before the checksums, `scripts/check-dist.sh --require`
-enforces the privacy rules below.
+deliberately omit it. `SHA256SUMS.txt` must cover every downloadable artifact
+exactly once, and every listed hash must match. `scripts/build-dist.sh` runs
+`check-dist.sh --require` before the metadata (strict for `--all`/`--host-only`,
+mixed-version aware for a single added group) and runs it again after writing
+the checksums and marker (`--require --final` for a complete set), so an
+unfinished or stale `dist/` is never reported as ready.
 
 A pre-release version such as `0.7.0-alpha.1` keeps its full spelling in the
 artifact names and AppStream metadata, while each package format gets the form
@@ -350,22 +367,39 @@ swept before packing, and `ditto` runs with `--norsrc --noqtn --noextattr`, so
 no AppleDouble `._*` member enters the zip. The RPM spec pins `%_buildhost`
 and `%defattr(-, root, root, -)`.
 
-`make check-dist` is the gate: it scans every file in `dist/` for the real
-`$HOME`/`CARGO_HOME`/hostname and for archive owner/xattr metadata, and exits
-non-zero on any hit (or when `dist/` is missing, so a SKIP can never pass for
-a release gate). Generic hostnames that collide with the `/build` and `/cargo`
-remap targets are not used as needles. `.tar.gz`, `.deb` and `.zip` are
-unpacked and their payload files inspected; AppleDouble `._*`/`__MACOSX/`
-members are a breach.
-The `.rpm`'s xz cpio payload and the ostree `.flatpak` bundle are byte-scanned
-only (best-effort). `scripts/build-dist.sh` runs the gate with `--require`
-before writing `SHA256SUMS.txt`, so `make dist` fails instead of publishing,
-and no python3 fails instead of skipping. The app's example paths
-such as `/Users/you/notes.md` are not matched, and the two failure kinds are
-reported separately. The `publish` job re-runs the gate over the merged
-set from Linux (needle-based on ITS `$HOME`/hostname): macOS-only
-`/Users/runner` or Windows-only `C:\Users\…` leaks are caught by each job's
-own gate, not the merged one.
+`make check-dist` is the release gate, covering privacy and release integrity.
+It scans every file in `dist/` for the real `$HOME`/`CARGO_HOME`/hostname and
+for archive owner/xattr metadata, and exits non-zero on any hit (or when
+`dist/` is missing, so a SKIP can never pass for a release gate). Generic
+hostnames that collide with the `/build` and `/cargo` remap targets are not
+used as needles. `.tar.gz`, `.deb` and `.zip` are unpacked and their payload
+files inspected; AppleDouble `._*`/`__MACOSX/` members are a breach. A corrupt
+or truncated archive is reported as uninspectable instead of crashing the
+gate. The `.rpm`'s xz cpio payload and the ostree `.flatpak` bundle are
+byte-scanned only (best-effort). The app's example paths such as
+`/Users/you/notes.md` are not matched, and the failure kinds are reported
+separately.
+
+Integrity checks share the same pass:
+
+- every regular artifact must be one of the names `build-dist.sh` generates,
+  and its filename version must match `Cargo.toml` (Deb/RPM use their
+  normalized `~` pre-release form);
+- `SHA256SUMS.txt`, when present, must parse, list each artifact once, exclude
+  the metadata files, and match every file's actual hash; when it exists it
+  must also cover every artifact;
+- `latest.txt`, when present, must contain exactly the stable version plus one
+  newline, and a pre-release must not carry the marker at all.
+
+`--final` makes the metadata mandatory (implies `--require`); `--allow-mixed`
+skips only the version/marker comparisons for an additive `dist/` that
+intentionally holds several versions. `scripts/build-dist.sh` runs the gate
+before writing `SHA256SUMS.txt` and again after the metadata is final; the CI
+`publish` job re-runs `--require --final` over the merged set, so `make dist`
+fails instead of publishing a stale or incomplete release, and no python3
+fails instead of skipping. The `publish` job's privacy pass is needle-based on
+ITS `$HOME`/hostname: macOS-only `/Users/runner` or Windows-only `C:\Users\…`
+leaks are caught by each job's own gate, not the merged one.
 
 ### Validating the packaging metadata
 
@@ -377,7 +411,7 @@ released `CHANGELOG.md` section and the supported line in `SECURITY.md`
 the AppStream metadata and of the version-rendered copy the packages install,
 `appstreamcli` or `appstream-util`, `desktop-file-validate`, a man-page lint
 (`mandoc -T lint -W error`) when available, `rpmspec -P` and `rpmlint` when
-present, a YAML parse of the Flatpak manifest, and the `dist/` privacy gate
+present, a YAML parse of the Flatpak manifest, and the `dist/` release gate
 when a build is present.
 
 On macOS everything except a real `.deb`/`.rpm` build and `flatpak-builder` is
@@ -423,8 +457,10 @@ scratch, and only packaged files travel between jobs (Actions artifacts,
 1-day retention). The scripts build, so privacy matches `make dist`: the
 publishing job re-runs `scripts/check-dist.sh` over the merged build set,
 writes the single `SHA256SUMS.txt` (the marker is metadata and is not listed
-there), and refreshes `latest.txt` (bare `X.Y.Z`, no `v`) for the
-notification-only in-app update check. A new release is created as a DRAFT, every asset is
+there), refreshes `latest.txt` (bare `X.Y.Z`, no `v`) for the
+notification-only in-app update check, and runs a final
+`check-dist.sh --require --final` before creating or uploading the draft.
+A new release is created as a DRAFT, every asset is
 uploaded, and only then is it published, so a new marker can never be visible
 before the binaries it names; a re-run of an already published release updates
 its assets in place.
@@ -438,7 +474,7 @@ its assets in place.
 | `macos` | macos-15 | universal `.app.zip` (arm64 + Intel, `lipo`) |
 | `rpm` | Fedora container | `.rpm` from source (`rpmbuild`) |
 | `flatpak` | ubuntu-24.04 | `.flatpak` bundle |
-| `publish` | ubuntu-24.04 | merged privacy gate, `SHA256SUMS.txt`, `latest.txt`, draft-then-publish Release |
+| `publish` | ubuntu-24.04 | merged release gate, `SHA256SUMS.txt`, `latest.txt`, final `--final` gate, draft-then-publish Release |
 
 The Linux `.tar.gz` and `.deb` are built on Ubuntu 22.04 (glibc 2.35) rather
 than 24.04 (glibc 2.39), so they install on Ubuntu 22.04+ and Debian 12+. Do

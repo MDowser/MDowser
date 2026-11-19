@@ -226,26 +226,28 @@ else
     skip "Flatpak manifest" "PyYAML not available (pip install pyyaml)"
 fi
 
-# --- dist artifacts (privacy) ------------------------------------------------
-# A built dist/ must not carry the builder's absolute paths or build-host
-# metadata; the check is best-effort only in that dist/ need not exist yet.
-# When the inspector itself cannot run (no python3), the result is a SKIP
-# with its reason, never a green `ok`.
-step "dist artifacts (privacy)"
+# --- dist artifacts (release gate) -------------------------------------------
+# A built dist/ must pass the same version/checksum/privacy gate as a release;
+# the check is best-effort only in that dist/ need not exist yet. When the
+# inspector itself cannot run (no python3), the result is a SKIP with its
+# reason, never a green `ok`.
+step "dist artifacts (release gate)"
 if [ -d "$ROOT/dist" ] && [ -n "$(ls -A "$ROOT/dist" 2>/dev/null)" ]; then
     _cd_out="$("$ROOT/scripts/check-dist.sh" "$ROOT/dist" 2>&1)"
     _cd_status=$?
     printf '%s\n' "$_cd_out"
-    if [ "$_cd_status" -ne 0 ]; then
-        bad "check-dist found build-host information in dist/"
+    if [ "$_cd_status" -eq 2 ]; then
+        skip "dist artifacts (release gate)" "the gate could not run (see above)"
+    elif [ "$_cd_status" -ne 0 ]; then
+        bad "check-dist found release-gate issues in dist/ (versions, checksums, marker or builder metadata)"
     elif printf '%s\n' "$_cd_out" | grep -q '^SKIP'; then
-        skip "dist artifacts (privacy)" "the inspector could not run (see above)"
+        skip "dist artifacts (release gate)" "the inspector could not run (see above)"
     else
-        ok "check-dist (no builder paths / build-host metadata)"
+        ok "check-dist (versions, checksums, marker, no builder metadata)"
     fi
     unset _cd_out _cd_status
 else
-    skip "dist artifacts (privacy)" "no dist/ yet (run make dist)"
+    skip "dist artifacts (release gate)" "no dist/ yet (run make dist)"
 fi
 
 # --- summary -----------------------------------------------------------------

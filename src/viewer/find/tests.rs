@@ -96,6 +96,18 @@ fn ranges_report_the_per_fragment_cap() {
     assert!(!capped);
 }
 
+/// Regression coverage for the cap boundary: exactly `MAX_FIND_MATCHES`
+/// hits followed by non-matching text must NOT report the cap. A future
+/// fast path that checks the cap before searching would show `N+` for an
+/// exact count; the loop must search first, then decide.
+#[test]
+fn exact_cap_with_trailing_text_is_not_capped() {
+    let text = format!("{} trailing", "x".repeat(crate::config::MAX_FIND_MATCHES));
+    let (ranges, capped) = find_ranges_capped(&text, "x");
+    assert_eq!(ranges.len(), crate::config::MAX_FIND_MATCHES);
+    assert!(!capped, "the trailing text has no further match");
+}
+
 #[test]
 fn find_state_reset_drops_query() {
     let mut state = FindState {
