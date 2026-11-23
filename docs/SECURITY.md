@@ -59,8 +59,11 @@ minimal.
   (`MAX_FIND_QUERY_CHARS`) and 2000 matches (`MAX_FIND_MATCHES`; extra hits
   render normally with an `N+` count), the outline at 2000 items / 120 title
   chars (`MAX_OUTLINE_ITEMS`/`MAX_OUTLINE_TITLE_CHARS`), the saved file's
-  default name capped at 80 chars (`MAX_EXPORT_NAME_CHARS`), and the history
-  filter at 512 chars (`MAX_HISTORY_FILTER_CHARS`).
+  default name capped at 80 chars (`MAX_EXPORT_NAME_CHARS`), the code-card
+  language chip at 64 chars (`MAX_LANG_CHARS`), component labels (including a
+  CodeGroup fence's `title=` at parse time) at 120 chars
+  (`MAX_COMPONENT_LABEL_CHARS`), and the history filter at 512 chars
+  (`MAX_HISTORY_FILTER_CHARS`).
 - Redirects stop at 8 (`MAX_REDIRECTS`). Network concurrency is 6 fetches + 6
   local reads over 4 worker threads, with a 20s request timeout (60s per
   image, 15s per favicon, 5s image gate) and a 20s slot wait. The update check

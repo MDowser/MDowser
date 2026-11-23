@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Code highlighting now covers PHP, Ruby, Swift, Kotlin, Lua, Dart, CSS,
+  PowerShell, Zig, Nix, Haskell, Dockerfile, Makefile, Scala, Elixir and R
+  alongside the existing languages. Fenced blocks written as `{.rust}` or
+  `{.rust .numberLines}` (Pandoc/Quarto) and `rust,ignore` (rustdoc) resolve
+  to the same language as a bare fence tag.
+  (`src/markdown/highlight.rs`, `docs/INTERFACE.md`.)
 - `check-dist.sh` now verifies release integrity in addition to the privacy
   scan: every artifact must be a package name `build-dist.sh` generates and
   carry the `Cargo.toml` version (Deb/RPM in their normalized `~` form),
@@ -23,6 +29,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `#` comment highlighting follows each language's placement rule: Bash and
+  YAML no longer treat a `#` inside a word or a URL fragment as a comment, a
+  Dockerfile only starts one at line start, and PHP 8 attributes (`#[...]`)
+  stay code. PowerShell backticks are escapes, not string delimiters.
+  (`src/markdown/highlight.rs`.)
+- Character literals with long escapes (`'\u{1F600}'`, `'\x41'`,
+  `'\U0001F600'`) now color as strings, and a lifetime such as `'static`
+  stays plain instead of exposing its identifier as a keyword.
+  (`src/markdown/highlight.rs`.)
+- The language token of a fenced block is bounded to the 64-character chip
+  cap, a quoted CodeGroup fence title (`title="My Example"`) keeps its spaces,
+  and its label is capped at the 120-character component-label bound at parse
+  time, so hostile metadata cannot inflate the stored label or slow every
+  repaint. (`src/markdown/highlight.rs`, `docs/RENDERING.md`,
+  `docs/SECURITY.md`.)
 - A stale `dist/` from an earlier version, a mixed set left by additive
   single-group runs, a `SHA256SUMS.txt` that misses or mis-hashes an artifact,
   or a wrong/missing `latest.txt` no longer passes `make check-dist` as a

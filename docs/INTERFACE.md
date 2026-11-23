@@ -322,11 +322,18 @@ wrapping paragraphs at README line height.
 - Code cards (language chip + Copy button that confirms with a brief `Copied`
   state + lightweight per-line highlighting, no line numbers) at the same body
   size as the prose. The highlighter covers Rust, Python, JavaScript/TypeScript,
-  Bash, JSON, TOML, YAML, C/C++, Go, Java, C# and SQL; `/* ... */` block
-  comments carry across lines through their closing `*/` (or the end of the
-  block), while strings and line comments stay per-line heuristics. Char
-  literals with non-ASCII characters (`'é'`, `'😀'`) color as strings too;
-  lifetimes (`'a`) do not.
+  Bash, JSON, TOML, YAML, C/C++, Go, Java, C#, SQL, PHP, Ruby, Swift, Kotlin,
+  Lua, Dart, CSS, PowerShell, Zig, Nix, Haskell, Dockerfile, Makefile, Scala,
+  Elixir and R; Pandoc/Quarto class fences (`{.rust}`, `{.rust .numberLines}`)
+  and rustdoc attributes (`rust,ignore`) select the same language as a bare
+  fence tag, and the chip token is capped at 64 characters. `/* ... */`
+  block comments carry across lines through their closing
+  `*/` (or the end of the block), while strings and line comments stay per-line
+  heuristics. A `#` comment follows the language's placement rule (Bash and
+  YAML need a word boundary; a Dockerfile needs line start), and PHP 8
+  attributes (`#[...]`) stay code. Char literals with escapes or non-ASCII
+  characters (`'\u{1F600}'`, `'é'`, `'😀'`) color as strings; lifetimes
+  (`'static`) do not.
 - Striped bordered tables fill the drawn card (leftover width distributed
   proportionally); long cells (links included) shrink and wrap instead of
   forcing a horizontal scrollbar (a scrolling table keeps readable column

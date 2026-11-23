@@ -9,16 +9,21 @@
 //! - Line-based spans that borrow nothing: returns byte ranges so the
 //!   viewer can build a single `LayoutJob` per line (one selectable widget).
 //! - Supports `rust`, `python`, `javascript`/`typescript`, `bash`, `json`,
-//!   `toml`, `yaml`, C/C++, Go, Java, C# and SQL. Anything else falls back
-//!   to `Plain`.
+//!   `toml`, `yaml`, C/C++, Go, Java, C#, SQL, PHP, Ruby, Swift, Kotlin, Lua,
+//!   Dart, CSS, PowerShell, Zig, Nix, Haskell, Dockerfile, Makefile, Scala,
+//!   Elixir and R. Anything else falls back to `Plain`.
 //! - Block comments (`/* ... */`) are tracked across lines through
 //!   [`State`]: [`tokenize`] scans a whole block so a comment opened on one
 //!   line colors the following lines until its `*/` (or the end of the
 //!   block). The scanner itself stays line-based, so strings and line
 //!   comments still end with their line.
 //! - Heuristics are intentionally small: keywords, strings, comments,
-//!   numbers and function calls (`name(`). Lifetimes like `'a` are NOT
-//!   treated as strings (require a closing `'` on the same line).
+//!   numbers and function calls (`name(`). A single quote is a character
+//!   literal only in languages that have them (`'a'`, `'\u{1F600}'`); a
+//!   lifetime like `'a` stays plain instead of becoming a string.
+//! - Fenced info strings accept the common Markdown spellings:
+//!   ` ```rust `, ` ```{.rust} `, ` ```{.rust .numberLines} ` and rustdoc's
+//!   ` ```rust,ignore ` all select the same language.
 
 /// Language detected from a fenced info string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -35,6 +40,22 @@ pub enum Lang {
     Java,
     CSharp,
     Sql,
+    Php,
+    Ruby,
+    Swift,
+    Kotlin,
+    Lua,
+    Dart,
+    Css,
+    PowerShell,
+    Zig,
+    Nix,
+    Haskell,
+    Dockerfile,
+    Makefile,
+    Scala,
+    Elixir,
+    R,
     Plain,
 }
 
@@ -75,10 +96,7 @@ pub struct State {
 /// per code block per frame; the language chip already avoids the same
 /// allocation).
 pub fn norm_lang(info: &str) -> Lang {
-    let first = info
-        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '+' || c == '#'))
-        .next()
-        .unwrap_or("");
+    let first = info_lang(info);
     let eq = |alias: &str| first.eq_ignore_ascii_case(alias);
     if eq("rust") || eq("rs") {
         Lang::Rust
@@ -87,7 +105,13 @@ pub fn norm_lang(info: &str) -> Lang {
     } else if eq("javascript") || eq("js") || eq("typescript") || eq("ts") || eq("jsx") || eq("tsx")
     {
         Lang::JavaScript
-    } else if eq("bash") || eq("sh") || eq("zsh") || eq("shell") {
+    } else if eq("bash")
+        || eq("sh")
+        || eq("zsh")
+        || eq("shell")
+        || eq("console")
+        || eq("shellsession")
+    {
         Lang::Bash
     } else if eq("json") {
         Lang::Json
@@ -122,29 +146,112 @@ pub fn norm_lang(info: &str) -> Lang {
         || eq("tsql")
     {
         Lang::Sql
+    } else if eq("php") {
+        Lang::Php
+    } else if eq("ruby") || eq("rb") {
+        Lang::Ruby
+    } else if eq("swift") {
+        Lang::Swift
+    } else if eq("kotlin") || eq("kt") || eq("kts") {
+        Lang::Kotlin
+    } else if eq("lua") {
+        Lang::Lua
+    } else if eq("dart") {
+        Lang::Dart
+    } else if eq("css") {
+        Lang::Css
+    } else if eq("powershell") || eq("pwsh") || eq("ps1") {
+        Lang::PowerShell
+    } else if eq("zig") {
+        Lang::Zig
+    } else if eq("nix") {
+        Lang::Nix
+    } else if eq("haskell") || eq("hs") {
+        Lang::Haskell
+    } else if eq("dockerfile") || eq("docker") || eq("containerfile") {
+        Lang::Dockerfile
+    } else if eq("makefile") || eq("make") || eq("gnumake") || eq("mk") {
+        Lang::Makefile
+    } else if eq("scala") || eq("sc") {
+        Lang::Scala
+    } else if eq("elixir") || eq("ex") || eq("exs") {
+        Lang::Elixir
+    } else if eq("r") {
+        Lang::R
     } else {
         Lang::Plain
     }
 }
 
 /// The language token of a fenced info string: its first whitespace-delimited
-/// word (`"js title=\"app.js\""` -> `"js"`). This is what the code card shows
-/// as its chip, so docs-generator `title=` metadata never leaks into it.
+/// word (at most `MAX_LANG_CHARS` chars), with the wrappers common Markdown
+/// dialects add removed (`"js title=\"app.js\""` -> `"js"`,
+/// `"{.rust .numberLines}"` -> `"rust"`, `"rust,ignore"` -> `"rust"`). This is
+/// what the code card shows as its chip and what [`norm_lang`] resolves, so
+/// docs-generator metadata never leaks in.
 pub fn info_lang(info: &str) -> &str {
-    let end = info.find(char::is_whitespace).unwrap_or(info.len());
-    &info[..end]
+    // Bound the scan: the useful tag is short, and a hostile fence info
+    // string must not be walked in full on every repaint. The wider prefix
+    // leaves room for indentation without letting it grow with the body.
+    let prefix_end = info
+        .char_indices()
+        .nth(crate::config::MAX_LANG_CHARS.saturating_mul(4))
+        .map_or(info.len(), |(i, _)| i);
+    let trimmed = info[..prefix_end].trim_start();
+    let mut end = trimmed.len();
+    for (n, (i, c)) in trimmed.char_indices().enumerate() {
+        if c.is_whitespace() || n >= crate::config::MAX_LANG_CHARS {
+            end = i;
+            break;
+        }
+    }
+    let token = &trimmed[..end];
+    // Only a `{...}` class list gets its braces/dot stripped: a bare
+    // `.gitignore` or `.env` is a file name, not a Pandoc class.
+    let token = match token.strip_prefix('{') {
+        Some(rest) => rest.trim_start_matches('.').trim_end_matches('}'),
+        None => token,
+    };
+    token.split(',').next().unwrap_or("")
 }
 
 /// `title="…"` (also unquoted) from a fenced info string, if present: the tab
-/// label a `<CodeGroup>` child shows.
+/// label a `<CodeGroup>` child shows. The label is capped at
+/// `MAX_COMPONENT_LABEL_CHARS`, the same bound the viewer applies to labels,
+/// so a hostile title cannot inflate the normalized document.
 pub fn info_title(info: &str) -> Option<String> {
-    for tok in info.split_whitespace() {
-        if let Some(v) = tok.strip_prefix("title=") {
-            let v = v.trim_matches(|c| c == '"' || c == '\'');
-            if !v.is_empty() {
-                return Some(v.to_string());
+    let key = "title=";
+    let mut at = 0;
+    while let Some(rel) = info[at..].find(key) {
+        let start = at + rel;
+        let starts_token = info[..start]
+            .chars()
+            .next_back()
+            .is_none_or(char::is_whitespace);
+        if starts_token {
+            let after = &info[start + key.len()..];
+            let value = match after.chars().next() {
+                Some(quote @ ('"' | '\'')) => {
+                    let body = &after[quote.len_utf8()..];
+                    match body.find(quote) {
+                        Some(end) => &body[..end],
+                        None => body,
+                    }
+                }
+                _ => {
+                    let end = after.find(char::is_whitespace).unwrap_or(after.len());
+                    &after[..end]
+                }
+            };
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(
+                    crate::util::truncate_chars(value, crate::config::MAX_COMPONENT_LABEL_CHARS)
+                        .into_owned(),
+                );
             }
         }
+        at = start + key.len();
     }
     None
 }
@@ -540,15 +647,681 @@ fn keywords(lang: Lang) -> &'static [&'static str] {
             "where",
             "with",
         ],
+        Lang::Php => &[
+            "abstract",
+            "and",
+            "array",
+            "as",
+            "break",
+            "callable",
+            "case",
+            "catch",
+            "class",
+            "clone",
+            "const",
+            "continue",
+            "declare",
+            "default",
+            "do",
+            "echo",
+            "else",
+            "elseif",
+            "empty",
+            "enddeclare",
+            "endfor",
+            "endforeach",
+            "endif",
+            "endswitch",
+            "endwhile",
+            "enum",
+            "eval",
+            "exit",
+            "extends",
+            "false",
+            "final",
+            "finally",
+            "fn",
+            "for",
+            "foreach",
+            "function",
+            "global",
+            "goto",
+            "if",
+            "implements",
+            "include",
+            "include_once",
+            "instanceof",
+            "insteadof",
+            "interface",
+            "isset",
+            "list",
+            "match",
+            "namespace",
+            "new",
+            "null",
+            "or",
+            "print",
+            "private",
+            "protected",
+            "public",
+            "readonly",
+            "require",
+            "require_once",
+            "return",
+            "static",
+            "switch",
+            "throw",
+            "trait",
+            "true",
+            "try",
+            "unset",
+            "use",
+            "var",
+            "while",
+            "xor",
+            "yield",
+        ],
+        Lang::Ruby => &[
+            "alias",
+            "and",
+            "attr_accessor",
+            "attr_reader",
+            "attr_writer",
+            "begin",
+            "break",
+            "case",
+            "class",
+            "def",
+            "do",
+            "else",
+            "elsif",
+            "end",
+            "ensure",
+            "false",
+            "for",
+            "if",
+            "in",
+            "lambda",
+            "module",
+            "next",
+            "nil",
+            "not",
+            "or",
+            "private",
+            "proc",
+            "protected",
+            "public",
+            "puts",
+            "raise",
+            "redo",
+            "require",
+            "require_relative",
+            "rescue",
+            "retry",
+            "return",
+            "self",
+            "super",
+            "then",
+            "true",
+            "undef",
+            "unless",
+            "until",
+            "when",
+            "while",
+            "yield",
+        ],
+        Lang::Swift => &[
+            "Any",
+            "Self",
+            "actor",
+            "any",
+            "as",
+            "associatedtype",
+            "async",
+            "await",
+            "break",
+            "case",
+            "catch",
+            "class",
+            "continue",
+            "default",
+            "defer",
+            "deinit",
+            "do",
+            "else",
+            "enum",
+            "extension",
+            "fallthrough",
+            "false",
+            "fileprivate",
+            "for",
+            "func",
+            "guard",
+            "if",
+            "import",
+            "in",
+            "init",
+            "inout",
+            "internal",
+            "is",
+            "let",
+            "nil",
+            "nonisolated",
+            "open",
+            "operator",
+            "private",
+            "protocol",
+            "public",
+            "repeat",
+            "rethrows",
+            "return",
+            "self",
+            "some",
+            "static",
+            "struct",
+            "subscript",
+            "super",
+            "switch",
+            "throw",
+            "throws",
+            "true",
+            "try",
+            "typealias",
+            "var",
+            "where",
+            "while",
+        ],
+        Lang::Kotlin => &[
+            "abstract",
+            "actual",
+            "annotation",
+            "as",
+            "break",
+            "by",
+            "catch",
+            "class",
+            "companion",
+            "const",
+            "constructor",
+            "continue",
+            "crossinline",
+            "data",
+            "delegate",
+            "do",
+            "dynamic",
+            "else",
+            "enum",
+            "expect",
+            "external",
+            "false",
+            "field",
+            "file",
+            "final",
+            "finally",
+            "for",
+            "fun",
+            "get",
+            "if",
+            "import",
+            "in",
+            "infix",
+            "init",
+            "inline",
+            "inner",
+            "interface",
+            "internal",
+            "is",
+            "lateinit",
+            "noinline",
+            "null",
+            "object",
+            "open",
+            "operator",
+            "out",
+            "override",
+            "package",
+            "param",
+            "private",
+            "property",
+            "protected",
+            "public",
+            "receiver",
+            "reified",
+            "return",
+            "sealed",
+            "set",
+            "setparam",
+            "super",
+            "suspend",
+            "tailrec",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typealias",
+            "typeof",
+            "val",
+            "value",
+            "var",
+            "vararg",
+            "when",
+            "where",
+            "while",
+        ],
+        Lang::Lua => &[
+            "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
+            "if", "in", "local", "nil", "not", "or", "repeat", "require", "return", "self", "then",
+            "true", "until", "while",
+        ],
+        Lang::Dart => &[
+            "Function",
+            "abstract",
+            "as",
+            "assert",
+            "async",
+            "await",
+            "break",
+            "case",
+            "catch",
+            "class",
+            "const",
+            "continue",
+            "covariant",
+            "default",
+            "deferred",
+            "do",
+            "dynamic",
+            "else",
+            "enum",
+            "export",
+            "extends",
+            "extension",
+            "external",
+            "factory",
+            "false",
+            "final",
+            "finally",
+            "for",
+            "get",
+            "hide",
+            "if",
+            "implements",
+            "import",
+            "in",
+            "interface",
+            "is",
+            "late",
+            "library",
+            "mixin",
+            "new",
+            "null",
+            "on",
+            "operator",
+            "part",
+            "required",
+            "rethrow",
+            "return",
+            "sealed",
+            "set",
+            "show",
+            "static",
+            "super",
+            "switch",
+            "sync",
+            "this",
+            "throw",
+            "true",
+            "try",
+            "typedef",
+            "var",
+            "void",
+            "when",
+            "while",
+            "with",
+            "yield",
+        ],
+        Lang::Css => &[
+            "charset",
+            "container",
+            "counter-style",
+            "document",
+            "font-face",
+            "font-feature-values",
+            "important",
+            "import",
+            "keyframes",
+            "layer",
+            "media",
+            "namespace",
+            "page",
+            "property",
+            "scope",
+            "starting-style",
+            "supports",
+            "view-transition",
+        ],
+        Lang::PowerShell => &[
+            "begin",
+            "break",
+            "catch",
+            "class",
+            "configuration",
+            "continue",
+            "data",
+            "define",
+            "do",
+            "dynamicparam",
+            "else",
+            "elseif",
+            "end",
+            "enum",
+            "exit",
+            "filter",
+            "finally",
+            "for",
+            "foreach",
+            "from",
+            "function",
+            "hidden",
+            "if",
+            "in",
+            "inlinescript",
+            "param",
+            "parallel",
+            "process",
+            "return",
+            "sequence",
+            "static",
+            "switch",
+            "throw",
+            "trap",
+            "try",
+            "until",
+            "using",
+            "var",
+            "while",
+            "workflow",
+        ],
+        Lang::Zig => &[
+            "addrspace",
+            "align",
+            "allowzero",
+            "and",
+            "anyframe",
+            "anytype",
+            "asm",
+            "async",
+            "await",
+            "break",
+            "callconv",
+            "catch",
+            "comptime",
+            "const",
+            "continue",
+            "defer",
+            "else",
+            "enum",
+            "errdefer",
+            "error",
+            "export",
+            "extern",
+            "fn",
+            "for",
+            "if",
+            "inline",
+            "linksection",
+            "noalias",
+            "noinline",
+            "nosuspend",
+            "opaque",
+            "or",
+            "orelse",
+            "packed",
+            "pub",
+            "resume",
+            "return",
+            "struct",
+            "switch",
+            "test",
+            "threadlocal",
+            "try",
+            "union",
+            "unreachable",
+            "usingnamespace",
+            "var",
+            "volatile",
+            "while",
+        ],
+        Lang::Nix => &[
+            "assert", "builtins", "else", "if", "import", "in", "inherit", "let", "map", "or",
+            "rec", "then", "toString", "with",
+        ],
+        Lang::Haskell => &[
+            "as",
+            "case",
+            "class",
+            "data",
+            "default",
+            "deriving",
+            "do",
+            "else",
+            "export",
+            "foreign",
+            "hiding",
+            "if",
+            "import",
+            "in",
+            "infix",
+            "infixl",
+            "infixr",
+            "instance",
+            "let",
+            "mdo",
+            "module",
+            "newtype",
+            "of",
+            "proc",
+            "qualified",
+            "rec",
+            "safe",
+            "then",
+            "type",
+            "unsafe",
+            "where",
+        ],
+        Lang::Dockerfile => &[
+            "add",
+            "arg",
+            "as",
+            "cmd",
+            "copy",
+            "entrypoint",
+            "env",
+            "expose",
+            "from",
+            "healthcheck",
+            "label",
+            "maintainer",
+            "onbuild",
+            "run",
+            "shell",
+            "stopsignal",
+            "user",
+            "volume",
+            "workdir",
+        ],
+        Lang::Makefile => &[
+            "addprefix",
+            "addsuffix",
+            "basename",
+            "call",
+            "define",
+            "dir",
+            "else",
+            "endef",
+            "endif",
+            "error",
+            "eval",
+            "export",
+            "filter",
+            "findstring",
+            "firstword",
+            "flavor",
+            "foreach",
+            "ifdef",
+            "ifeq",
+            "ifndef",
+            "ifneq",
+            "include",
+            "info",
+            "join",
+            "lastword",
+            "notdir",
+            "origin",
+            "override",
+            "patsubst",
+            "private",
+            "shell",
+            "sort",
+            "strip",
+            "subst",
+            "suffix",
+            "undefine",
+            "unexport",
+            "vpath",
+            "warning",
+            "wildcard",
+            "word",
+            "words",
+        ],
+        Lang::Scala => &[
+            "abstract",
+            "case",
+            "catch",
+            "class",
+            "def",
+            "derives",
+            "do",
+            "else",
+            "end",
+            "enum",
+            "export",
+            "extension",
+            "extends",
+            "false",
+            "final",
+            "finally",
+            "for",
+            "forSome",
+            "given",
+            "if",
+            "implicit",
+            "import",
+            "inline",
+            "lazy",
+            "match",
+            "new",
+            "null",
+            "object",
+            "opaque",
+            "open",
+            "override",
+            "package",
+            "private",
+            "protected",
+            "return",
+            "sealed",
+            "super",
+            "then",
+            "this",
+            "throw",
+            "trait",
+            "transparent",
+            "true",
+            "try",
+            "type",
+            "using",
+            "val",
+            "var",
+            "while",
+            "with",
+            "yield",
+        ],
+        Lang::Elixir => &[
+            "after",
+            "alias",
+            "and",
+            "case",
+            "catch",
+            "cond",
+            "def",
+            "defdelegate",
+            "defguard",
+            "defguardp",
+            "defimpl",
+            "defmacro",
+            "defmodule",
+            "defp",
+            "defprotocol",
+            "defstruct",
+            "do",
+            "else",
+            "end",
+            "false",
+            "fn",
+            "for",
+            "if",
+            "import",
+            "in",
+            "nil",
+            "not",
+            "or",
+            "quote",
+            "receive",
+            "require",
+            "rescue",
+            "super",
+            "true",
+            "try",
+            "unless",
+            "unquote",
+            "use",
+            "when",
+        ],
+        // Reserved words and constants only: base-R functions such as
+        // `mean(` are recognized by the function-call heuristic, and dotted
+        // names (`data.frame`) are not a single identifier for this scanner.
+        Lang::R => &[
+            "FALSE",
+            "Inf",
+            "NA",
+            "NA_character_",
+            "NA_integer_",
+            "NA_real_",
+            "NaN",
+            "NULL",
+            "TRUE",
+            "break",
+            "else",
+            "for",
+            "function",
+            "if",
+            "in",
+            "next",
+            "repeat",
+            "return",
+            "while",
+        ],
         Lang::Plain => &[],
     }
 }
 
 fn is_kw(lang: Lang, word: &str) -> bool {
     match lang {
-        // SQL is conventionally written in either case; every other language
-        // here is case-sensitive, so `Class` must stay plain in JavaScript.
-        Lang::Sql => keywords(lang)
+        // SQL and Dockerfile write their keywords in either case; every other
+        // language here is case-sensitive, so `Class` must stay plain in
+        // JavaScript.
+        Lang::Sql | Lang::Dockerfile => keywords(lang)
             .iter()
             .any(|keyword| word.eq_ignore_ascii_case(keyword)),
         _ => keywords(lang).contains(&word),
@@ -578,30 +1351,86 @@ fn char_len_at(line: &str, i: usize) -> usize {
     line[i..].chars().next().map_or(1, |c| c.len_utf8())
 }
 
+/// How `#` starts a line comment in a language.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum HashComment {
+    /// `#` has no comment meaning (CSS IDs, Haskell operators).
+    None,
+    /// Anywhere outside a string (`# note`).
+    Anywhere,
+    /// Only at the start of a word (Bash `a#b`, YAML `value#suffix`).
+    WordStart,
+    /// Only at the start of a line, after indentation (Dockerfile).
+    LineStart,
+}
+
+/// What a single quote means in a language.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SingleQuote {
+    /// A single quote is not a delimiter (JSON, Swift, Nix).
+    None,
+    /// `'...'` is a string (Python, Ruby, SQL, ...).
+    String,
+    /// `'a'` is a character literal (Rust, C, Go, ...).
+    Char,
+}
+
 /// Lexical rules that vary by language. Keeping them in one place means the
 /// scanner has no long `matches!` chains per token and a new language only
 /// has to fill this table plus its keyword list.
 #[derive(Clone, Copy)]
 struct Syntax {
-    /// `#` starts a line comment.
-    hash_comment: bool,
+    hash_comment: HashComment,
     /// `//` starts a line comment.
     slash_comment: bool,
     /// `/* ... */` marks a block comment (state carried across lines).
     block_comment: bool,
     /// `--` starts a line comment.
-    sql_line_comment: bool,
-    /// A single quote names a short char literal, not a string.
-    char_literal: bool,
+    dash_comment: bool,
+    single_quote: SingleQuote,
+    /// A backtick starts a string (JS templates, Go raw strings, Bash
+    /// command substitution, Ruby command execution).
+    backtick_string: bool,
+    /// A backtick escapes the next char inside a double-quoted string
+    /// (PowerShell), rather than closing it.
+    backtick_escape: bool,
+    /// PHP 8 attributes (`#[...]`) are syntax, not `#` comments.
+    php_attribute: bool,
 }
 
 impl Syntax {
     fn for_lang(lang: Lang) -> Self {
+        use HashComment::{Anywhere, LineStart, None as NoHash, WordStart};
+        use SingleQuote::{Char, None as NoQuote, String as StrQuote};
         Self {
-            hash_comment: matches!(lang, Lang::Python | Lang::Bash | Lang::Toml | Lang::Yaml),
+            hash_comment: match lang {
+                Lang::Bash | Lang::Yaml => WordStart,
+                Lang::Python
+                | Lang::Toml
+                | Lang::Php
+                | Lang::Ruby
+                | Lang::PowerShell
+                | Lang::Nix
+                | Lang::Makefile
+                | Lang::Elixir
+                | Lang::R => Anywhere,
+                Lang::Dockerfile => LineStart,
+                _ => NoHash,
+            },
             slash_comment: matches!(
                 lang,
-                Lang::Rust | Lang::JavaScript | Lang::C | Lang::Go | Lang::Java | Lang::CSharp
+                Lang::Rust
+                    | Lang::JavaScript
+                    | Lang::C
+                    | Lang::Go
+                    | Lang::Java
+                    | Lang::CSharp
+                    | Lang::Php
+                    | Lang::Swift
+                    | Lang::Kotlin
+                    | Lang::Dart
+                    | Lang::Scala
+                    | Lang::Zig
             ),
             block_comment: matches!(
                 lang,
@@ -612,14 +1441,123 @@ impl Syntax {
                     | Lang::Java
                     | Lang::CSharp
                     | Lang::Sql
+                    | Lang::Php
+                    | Lang::Swift
+                    | Lang::Kotlin
+                    | Lang::Dart
+                    | Lang::Css
+                    | Lang::Nix
+                    | Lang::Scala
             ),
-            sql_line_comment: matches!(lang, Lang::Sql),
-            char_literal: matches!(
-                lang,
-                Lang::Rust | Lang::C | Lang::Go | Lang::Java | Lang::CSharp
-            ),
+            dash_comment: matches!(lang, Lang::Sql | Lang::Lua | Lang::Haskell),
+            single_quote: match lang {
+                Lang::Json | Lang::Swift | Lang::Nix => NoQuote,
+                Lang::Rust
+                | Lang::C
+                | Lang::Go
+                | Lang::Java
+                | Lang::CSharp
+                | Lang::Kotlin
+                | Lang::Zig
+                | Lang::Scala
+                | Lang::Haskell => Char,
+                _ => StrQuote,
+            },
+            backtick_string: matches!(lang, Lang::JavaScript | Lang::Go | Lang::Bash | Lang::Ruby),
+            backtick_escape: lang == Lang::PowerShell,
+            php_attribute: lang == Lang::Php,
         }
     }
+}
+
+/// Does `#` at `i` start a line comment for this language? `bytes` is the
+/// current line, so the decision can look at what precedes the marker.
+fn hash_starts_comment(kind: HashComment, bytes: &[u8], i: usize) -> bool {
+    match kind {
+        HashComment::None => false,
+        HashComment::Anywhere => true,
+        HashComment::WordStart => {
+            i == 0
+                || bytes[i - 1].is_ascii_whitespace()
+                || matches!(bytes[i - 1], b';' | b'|' | b'&' | b'(' | b')' | b'<' | b'>')
+        }
+        HashComment::LineStart => bytes[..i].iter().all(|b| b.is_ascii_whitespace()),
+    }
+}
+
+/// End (one past the closing quote) of a character literal starting at
+/// `start`, or `None` when this is not one (`'a` lifetime, `'ab'`, an
+/// unterminated quote).
+///
+/// Handles the escape forms char literals actually use: one escaped char
+/// (`'\n'`, `'\''`), `\xNN` (C/Go/PHP), 4-digit `\uNNNN` (Java/C++/Go),
+/// `\U00000000` (Go/C++) and Rust's `\u{...}`. Longer escapes were the reason
+/// `'\u{1F600}'` used to render as plain text.
+fn char_literal_end(line: &str, start: usize) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let n = bytes.len();
+    let mut j = start + 1;
+    if j >= n || bytes[j] == b'\'' {
+        return None;
+    }
+    if bytes[j] == b'\\' {
+        j += 1;
+        if j >= n {
+            return None;
+        }
+        match bytes[j] {
+            b'u' => {
+                j += 1;
+                if j < n && bytes[j] == b'{' {
+                    // `\u{...}`: at most 8 hex digits plus the closing brace.
+                    let limit = (j + 10).min(n);
+                    let mut k = j + 1;
+                    while k < limit && bytes[k] != b'}' {
+                        k += 1;
+                    }
+                    if k >= limit || bytes[k] != b'}' {
+                        return None;
+                    }
+                    j = k + 1;
+                } else {
+                    for _ in 0..4 {
+                        if j >= n || !bytes[j].is_ascii_hexdigit() {
+                            return None;
+                        }
+                        j += 1;
+                    }
+                }
+            }
+            b'U' => {
+                j += 1;
+                for _ in 0..8 {
+                    if j >= n || !bytes[j].is_ascii_hexdigit() {
+                        return None;
+                    }
+                    j += 1;
+                }
+            }
+            b'x' => {
+                // C/C++ consume as many hex digits as are present (at least
+                // one); Go and PHP require two. Accepting one or two keeps
+                // `'\x4'` valid without rejecting the stricter forms.
+                j += 1;
+                let mut digits = 0;
+                while digits < 2 && j < n && bytes[j].is_ascii_hexdigit() {
+                    j += 1;
+                    digits += 1;
+                }
+                if digits == 0 {
+                    return None;
+                }
+            }
+            _ => j += char_len_at(line, j),
+        }
+    } else {
+        // One plain char, which may be multi-byte (`'é'`, `'😀'`).
+        j += char_len_at(line, j);
+    }
+    (j < n && bytes[j] == b'\'').then_some(j + 1)
 }
 
 /// Highlights one line from a fresh scanner state. Returned ranges always
@@ -722,62 +1660,64 @@ pub fn spans_with_state(lang: Lang, line: &str, state: State) -> (Vec<Span>, Sta
             push_span(&mut out, TokenKind::Comment, i, n);
             break;
         }
-        // `#` line comment (python/bash/toml/yaml).
-        if syntax.hash_comment && b == b'#' {
+        // `#` line comment (placement varies: Python/Ruby anywhere, Bash at
+        // a word start, Dockerfile at line start). PHP 8's `#[...]` attribute
+        // syntax is not a comment.
+        if b == b'#'
+            && hash_starts_comment(syntax.hash_comment, bytes, i)
+            && !(syntax.php_attribute && i + 1 < n && bytes[i + 1] == b'[')
+        {
             flush_plain(&mut out, &mut plain_start, i);
             push_span(&mut out, TokenKind::Comment, i, n);
             break;
         }
-        // `--` line comment (SQL).
-        if syntax.sql_line_comment && b == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
+        // `--` line comment (SQL, Lua, Haskell).
+        if syntax.dash_comment && b == b'-' && i + 1 < n && bytes[i + 1] == b'-' {
             flush_plain(&mut out, &mut plain_start, i);
             push_span(&mut out, TokenKind::Comment, i, n);
             break;
         }
         // Strings: `"..."`, `` `...` ``, and `'...'` (per-language).
-        if b == b'"' || b == b'`' || b == b'\'' {
-            let quote = bytes[i];
-            // `'`: Rust, C, Go, Java and C# use char literals (`'a'`), while
-            // Python/JS/Bash/SQL use `'...'` strings of any length.
-            // Keep the char-literal languages strict (short literal only),
-            // others like `"`.
-            if quote == b'\'' && syntax.char_literal {
-                let mut j = i + 1;
-                // Optional escape: `'\n'`, `'\\'`.
-                if j < n && bytes[j] == b'\\' {
-                    j += 1;
-                    if j < n {
-                        j += 1;
-                    }
-                } else {
-                    // One plain char, which may be multi-byte (`'é'`,
-                    // `'😀'`). Advance to the next CHAR boundary, not to the
-                    // next byte: landing on a UTF-8 continuation byte made
-                    // the closing-quote check fail, so valid non-ASCII char
-                    // literals were never colored.
-                    if j < n {
-                        j += char_len_at(line, j);
-                    }
-                }
-                // `j - i` spans the opening quote + the char (up to 4 bytes)
-                // + the closing quote, so 6 still excludes long strings.
-                let ok = j < n && bytes[j] == b'\'' && j - i <= 6;
-                if ok {
+        let quote_is_open = b == b'"'
+            || (b == b'\'' && syntax.single_quote != SingleQuote::None)
+            || (b == b'`' && syntax.backtick_string);
+        if quote_is_open {
+            // Character literals (`'a'`, `'\u{1F600}'`) exist only in some
+            // languages. A failed check is a lifetime (`'a`, `'static`) or an
+            // invalid literal: keep the quote and the identifier it
+            // introduces plain, so `'static` cannot turn `static` into a
+            // keyword.
+            if b == b'\'' && syntax.single_quote == SingleQuote::Char {
+                if let Some(end) = char_literal_end(line, i) {
                     flush_plain(&mut out, &mut plain_start, i);
-                    push_span(&mut out, TokenKind::Str, i, j + 1);
-                    i = j + 1;
-                } else {
-                    if plain_start.is_none() {
-                        plain_start = Some(i);
-                    }
-                    i += 1;
+                    push_span(&mut out, TokenKind::Str, i, end);
+                    i = end;
+                    continue;
                 }
+                let mut j = i + 1;
+                while j < n && (bytes[j].is_ascii_alphanumeric() || bytes[j] == b'_') {
+                    j += 1;
+                }
+                flush_plain(&mut out, &mut plain_start, i);
+                push_span(&mut out, TokenKind::Plain, i, j.max(i + 1));
+                i = j.max(i + 1);
                 continue;
             }
+            let quote = bytes[i];
             let mut j = i + 1;
             while j < n {
                 if bytes[j] == b'\\' && j + 1 < n {
                     // Skip the escaped char wholly (it may be multi-byte).
+                    j += 1;
+                    j += char_len_at(line, j);
+                    if j > n {
+                        j = n;
+                    }
+                    continue;
+                }
+                // PowerShell escapes a double quote with a backtick, not a
+                // backslash (`"a `"quoted`" b"`).
+                if syntax.backtick_escape && quote == b'"' && bytes[j] == b'`' && j + 1 < n {
                     j += 1;
                     j += char_len_at(line, j);
                     if j > n {
@@ -797,7 +1737,7 @@ pub fn spans_with_state(lang: Lang, line: &str, state: State) -> (Vec<Span>, Sta
                     j += char_len_at(line, j);
                 }
             }
-            // Unclosed `"`/backtick: highlight to end of line.
+            // Unclosed string: highlight to end of line.
             flush_plain(&mut out, &mut plain_start, i);
             push_span(&mut out, TokenKind::Str, i, j.min(n).max(i + 1));
             i = j.min(n);
@@ -876,7 +1816,9 @@ pub fn spans_with_state(lang: Lang, line: &str, state: State) -> (Vec<Span>, Sta
 
 #[cfg(test)]
 mod tests {
-    use super::{norm_lang, spans, spans_with_state, tokenize, Lang, State, TokenKind};
+    use super::{
+        info_lang, info_title, norm_lang, spans, spans_with_state, tokenize, Lang, State, TokenKind,
+    };
 
     #[test]
     fn normalizes_aliases() {
@@ -1164,6 +2106,321 @@ mod tests {
                 assert!(
                     line.is_char_boundary(s.start) && line.is_char_boundary(s.end),
                     "split boundary in {line:?}: {s:?}"
+                );
+                let _ = &line[s.start..s.end];
+            }
+        }
+    }
+
+    #[test]
+    fn normalizes_expanded_language_aliases() {
+        for (alias, lang) in [
+            ("php", Lang::Php),
+            ("rb", Lang::Ruby),
+            ("swift", Lang::Swift),
+            ("kt", Lang::Kotlin),
+            ("lua", Lang::Lua),
+            ("dart", Lang::Dart),
+            ("css", Lang::Css),
+            ("pwsh", Lang::PowerShell),
+            ("zig", Lang::Zig),
+            ("nix", Lang::Nix),
+            ("hs", Lang::Haskell),
+            ("dockerfile", Lang::Dockerfile),
+            ("make", Lang::Makefile),
+            ("scala", Lang::Scala),
+            ("exs", Lang::Elixir),
+            ("r", Lang::R),
+        ] {
+            assert_eq!(norm_lang(alias), lang, "{alias}");
+        }
+        // Pandoc/Quarto class wrappers and rustdoc attributes resolve to the
+        // same language as a bare fence tag.
+        assert_eq!(norm_lang("{.rust}"), Lang::Rust);
+        assert_eq!(norm_lang("{.rust .numberLines}"), Lang::Rust);
+        assert_eq!(norm_lang("rust,ignore"), Lang::Rust);
+        assert_eq!(norm_lang("{.c++}"), Lang::C);
+        assert_eq!(info_lang("{.rust .numberLines}"), "rust");
+        assert_eq!(info_lang("rust,ignore"), "rust");
+        assert_eq!(info_lang("js title=\"app.js\""), "js");
+        // A quoted fence title keeps its spaces; an unquoted one stops at the
+        // first whitespace, and `subtitle=` is not a title.
+        assert_eq!(
+            info_title("js title=\"My Example\"").as_deref(),
+            Some("My Example")
+        );
+        assert_eq!(
+            info_title("js title='My Example'").as_deref(),
+            Some("My Example")
+        );
+        assert_eq!(info_title("js title=app.js").as_deref(), Some("app.js"));
+        assert_eq!(info_title("js subtitle=app.js"), None);
+        // Bare dotfiles are file names, not class wrappers.
+        assert_eq!(info_lang(".gitignore"), ".gitignore");
+        assert_eq!(norm_lang(".gitignore"), Lang::Plain);
+        // The chip token is bounded, and leading whitespace is ignored.
+        assert_eq!(info_lang("  rust"), "rust");
+        // A pathological leading gap is bounded too (it fails closed rather
+        // than scanning the whole body on every repaint).
+        let padded = format!("{}rust", " ".repeat(300));
+        assert_eq!(info_lang(&padded), "");
+        let long = "a".repeat(4_000);
+        assert_eq!(
+            info_lang(&long).chars().count(),
+            crate::config::MAX_LANG_CHARS
+        );
+        // The cap lands on a char boundary for multi-byte tags too.
+        let unicode = "é".repeat(100);
+        assert_eq!(
+            info_lang(&unicode).chars().count(),
+            crate::config::MAX_LANG_CHARS
+        );
+        // A fence title is bounded at the component-label cap.
+        let long_title = format!("js title=\"{}\"", "x".repeat(4_000));
+        assert_eq!(
+            info_title(&long_title).unwrap().chars().count(),
+            crate::config::MAX_COMPONENT_LABEL_CHARS
+        );
+    }
+
+    #[test]
+    fn new_language_tokens() {
+        fn has(lang: Lang, line: &str, kind: TokenKind, text: &str) -> bool {
+            spans(lang, line)
+                .iter()
+                .any(|s| s.kind == kind && &line[s.start..s.end] == text)
+        }
+
+        let php = "function greet($name) { return \"hi\"; } // note";
+        assert!(has(Lang::Php, php, TokenKind::Keyword, "function"));
+        assert!(has(Lang::Php, php, TokenKind::Str, "\"hi\""));
+        assert!(has(Lang::Php, php, TokenKind::Comment, "// note"));
+        // PHP 8 attributes are not `#` comments.
+        assert!(!spans(Lang::Php, "#[Attribute] class A {}")
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment));
+
+        let ruby = "def greet(name) # note";
+        assert!(has(Lang::Ruby, ruby, TokenKind::Keyword, "def"));
+        assert!(has(Lang::Ruby, ruby, TokenKind::Comment, "# note"));
+
+        let swift = "func greet() -> String { return \"hi\" }";
+        assert!(has(Lang::Swift, swift, TokenKind::Keyword, "func"));
+        assert!(has(Lang::Swift, swift, TokenKind::Keyword, "return"));
+        assert!(has(Lang::Swift, swift, TokenKind::Str, "\"hi\""));
+
+        let kotlin = "fun main() { val x = 'a' }";
+        assert!(has(Lang::Kotlin, kotlin, TokenKind::Keyword, "fun"));
+        assert!(has(Lang::Kotlin, kotlin, TokenKind::Keyword, "val"));
+        assert!(has(Lang::Kotlin, kotlin, TokenKind::Str, "'a'"));
+
+        let lua = "local x = 42 -- note";
+        assert!(has(Lang::Lua, lua, TokenKind::Keyword, "local"));
+        assert!(has(Lang::Lua, lua, TokenKind::Number, "42"));
+        assert!(has(Lang::Lua, lua, TokenKind::Comment, "-- note"));
+
+        let dart = "void main() { final x = 1; }";
+        assert!(has(Lang::Dart, dart, TokenKind::Keyword, "void"));
+        assert!(has(Lang::Dart, dart, TokenKind::Keyword, "final"));
+
+        let css = "@media (min-width: 600px) { .a { color: #fff; } } /* note */";
+        assert!(has(Lang::Css, css, TokenKind::Keyword, "media"));
+        assert!(has(Lang::Css, css, TokenKind::Comment, "/* note */"));
+        // `#fff` is a color, not a `#` comment.
+        assert!(!spans(Lang::Css, css)
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment && css[s.start..s.end].contains("#fff")));
+
+        let ps = "Write-Host \"hi\" # note";
+        assert!(has(Lang::PowerShell, ps, TokenKind::Str, "\"hi\""));
+        assert!(has(Lang::PowerShell, ps, TokenKind::Comment, "# note"));
+        // A PowerShell backtick escapes the next char; it does not open a
+        // string.
+        assert!(!spans(Lang::PowerShell, "Write-Host `n")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+        // Inside double quotes, a backtick escapes the quote instead of
+        // ending the string early.
+        let ps_escaped = r#"Write-Host "a `"quoted`" b""#;
+        assert!(has(
+            Lang::PowerShell,
+            ps_escaped,
+            TokenKind::Str,
+            r#""a `"quoted`" b""#
+        ));
+
+        let zig = "const x = 'a'; // note";
+        assert!(has(Lang::Zig, zig, TokenKind::Keyword, "const"));
+        assert!(has(Lang::Zig, zig, TokenKind::Str, "'a'"));
+        assert!(has(Lang::Zig, zig, TokenKind::Comment, "// note"));
+
+        let nix = "let x = 1; # note";
+        assert!(has(Lang::Nix, nix, TokenKind::Keyword, "let"));
+        assert!(has(Lang::Nix, nix, TokenKind::Comment, "# note"));
+
+        let haskell = "main = let x = 1 in x -- note";
+        assert!(has(Lang::Haskell, haskell, TokenKind::Keyword, "let"));
+        assert!(has(Lang::Haskell, haskell, TokenKind::Keyword, "in"));
+        assert!(has(Lang::Haskell, haskell, TokenKind::Comment, "-- note"));
+
+        let docker = "FROM rust:1 AS build";
+        assert!(has(Lang::Dockerfile, docker, TokenKind::Keyword, "FROM"));
+        assert!(has(Lang::Dockerfile, docker, TokenKind::Keyword, "AS"));
+        assert!(has(
+            Lang::Dockerfile,
+            "# note",
+            TokenKind::Comment,
+            "# note"
+        ));
+        // A `#` after an instruction is shell input, not a Dockerfile
+        // comment.
+        assert!(!has(
+            Lang::Dockerfile,
+            "RUN echo # shell",
+            TokenKind::Comment,
+            "# shell"
+        ));
+
+        let make = "all: build # note";
+        assert!(has(Lang::Makefile, make, TokenKind::Comment, "# note"));
+
+        let scala = "object Main extends App { val x = 1 }";
+        assert!(has(Lang::Scala, scala, TokenKind::Keyword, "object"));
+        assert!(has(Lang::Scala, scala, TokenKind::Keyword, "extends"));
+        assert!(has(Lang::Scala, scala, TokenKind::Keyword, "val"));
+
+        let elixir = "defmodule Foo do # note";
+        assert!(has(Lang::Elixir, elixir, TokenKind::Keyword, "defmodule"));
+        assert!(has(Lang::Elixir, elixir, TokenKind::Comment, "# note"));
+
+        let r = "f <- function(x) { if (x > 0) mean(x) else NA }";
+        assert!(has(Lang::R, r, TokenKind::Keyword, "function"));
+        assert!(has(Lang::R, r, TokenKind::Keyword, "if"));
+        assert!(has(Lang::R, r, TokenKind::Keyword, "NA"));
+        // Base-R functions are calls, not reserved words.
+        assert!(has(Lang::R, r, TokenKind::Func, "mean"));
+    }
+
+    #[test]
+    fn hash_comments_respect_language_placement() {
+        // Bash and YAML only start a comment at a word boundary.
+        assert!(!spans(Lang::Bash, "echo a#b")
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment));
+        assert!(spans(Lang::Bash, "echo a #b")
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment));
+        let yaml = "url: https://example.com/#fragment";
+        assert!(!spans(Lang::Yaml, yaml)
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment));
+        let yaml_note = "key: value # note";
+        assert!(spans(Lang::Yaml, yaml_note)
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment));
+
+        // TOML follows its spec: `#` starts a comment anywhere outside a
+        // string.
+        let toml = "url = \"https://example.com/#fragment\" # note";
+        let sp = spans(Lang::Toml, toml);
+        assert!(sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment && &toml[s.start..s.end] == "# note"));
+        let toml_inline = "key = x#y";
+        assert!(spans(Lang::Toml, toml_inline)
+            .iter()
+            .any(|s| s.kind == TokenKind::Comment && &toml_inline[s.start..s.end] == "#y"));
+    }
+
+    #[test]
+    fn char_literal_escapes_and_lifetimes() {
+        // Rust's brace escape is longer than the old byte cap.
+        let rust = "let c = '\\u{1F600}';";
+        assert!(spans(Lang::Rust, rust)
+            .iter()
+            .any(|s| { s.kind == TokenKind::Str && &rust[s.start..s.end] == "'\\u{1F600}'" }));
+        // C/Go hex escapes.
+        let c = "char c = '\\x41';";
+        assert!(spans(Lang::C, c)
+            .iter()
+            .any(|s| s.kind == TokenKind::Str && &c[s.start..s.end] == "'\\x41'"));
+        // An invalid multi-char literal is not colored as a string.
+        assert!(!spans(Lang::C, "'ab'")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+        // A lifetime stays plain and does not expose its keyword.
+        let lifetime = "fn f(x: &'static str) {}";
+        let sp = spans(Lang::Rust, lifetime);
+        assert!(!sp.iter().any(|s| s.kind == TokenKind::Str));
+        assert!(!sp
+            .iter()
+            .any(|s| s.kind == TokenKind::Keyword && &lifetime[s.start..s.end] == "static"));
+    }
+
+    #[test]
+    fn quote_modes_match_the_language() {
+        // JSON has no single-quoted strings.
+        assert!(spans(Lang::Json, "\"ok\"")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+        assert!(!spans(Lang::Json, "'no'")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+        // Swift and Nix do not use single quotes for strings.
+        for lang in [Lang::Swift, Lang::Nix] {
+            assert!(!spans(lang, "'no'").iter().any(|s| s.kind == TokenKind::Str));
+        }
+        // Ruby does, and Bash backticks still mark command substitution.
+        assert!(spans(Lang::Ruby, "'ok'")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+        assert!(spans(Lang::Bash, "echo `date`")
+            .iter()
+            .any(|s| s.kind == TokenKind::Str));
+    }
+
+    #[test]
+    fn every_language_covers_the_line() {
+        let langs = [
+            Lang::Rust,
+            Lang::Python,
+            Lang::JavaScript,
+            Lang::Bash,
+            Lang::Json,
+            Lang::Toml,
+            Lang::Yaml,
+            Lang::C,
+            Lang::Go,
+            Lang::Java,
+            Lang::CSharp,
+            Lang::Sql,
+            Lang::Php,
+            Lang::Ruby,
+            Lang::Swift,
+            Lang::Kotlin,
+            Lang::Lua,
+            Lang::Dart,
+            Lang::Css,
+            Lang::PowerShell,
+            Lang::Zig,
+            Lang::Nix,
+            Lang::Haskell,
+            Lang::Dockerfile,
+            Lang::Makefile,
+            Lang::Scala,
+            Lang::Elixir,
+            Lang::R,
+            Lang::Plain,
+        ];
+        let line = "if x == \"s\" 'c' # h // s -- d /* b */ `t` 123 caf\u{e9}";
+        for lang in langs {
+            let sp = spans(lang, line);
+            assert_eq!(sp.first().map(|s| s.start), Some(0), "{lang:?}");
+            assert_eq!(sp.last().map(|s| s.end), Some(line.len()), "{lang:?}");
+            for s in &sp {
+                assert!(
+                    line.is_char_boundary(s.start) && line.is_char_boundary(s.end),
+                    "{lang:?} split a char boundary: {s:?}"
                 );
                 let _ = &line[s.start..s.end];
             }
