@@ -272,6 +272,18 @@ fn display_sanitizer_never_echoes_credentials() {
     // Path/query `@`s and host:port segments are not credentials: the
     // token stays readable.
     assert_eq!(sanitize_for_display("https://host/a@b"), "https://host/a@b");
+    // A port colon in the authority used to defeat the "scheme colon" guard,
+    // so `https://host:8080/a@b` was stripped down to the path suffix.
+    assert_eq!(
+        sanitize_for_display("https://host:8080/a@b"),
+        "https://host:8080/a@b"
+    );
+    assert_eq!(
+        sanitize_for_display("https://host/path?x=a@b"),
+        "https://host/path?x=a@b"
+    );
+    let echoed = sanitize_for_display("https://user:pa:ss@host:8080/a");
+    assert!(!echoed.contains("pa:ss"), "password survived: {echoed}");
     assert_eq!(
         sanitize_for_display("C:\\Users\\me\\a@b.md"),
         "C:\\Users\\me\\a@b.md"
@@ -389,4 +401,51 @@ fn network_redirect_off_https_is_rejected() {
     )
     .unwrap_err();
     assert!(err.contains("error following redirect"), "{err}");
+}
+
+/// A Pragma header past the bounded capture is a PARTIAL view: a `no-cache`
+/// hidden beyond the cap must not turn into a stored, later-fresh entry.
+/// The fail-closed flag is what makes `must_not_store` reject the response.
+#[test]
+fn pragma_beyond_the_capture_cap_is_never_stored() {
+    use reqwest::header::{HeaderMap, HeaderValue, PRAGMA};
+
+    let mut headers = HeaderMap::new();
+    for _ in 0..config::MAX_CACHE_HEADER_VALUES {
+        headers.append(PRAGMA, HeaderValue::from_static("public"));
+    }
+    headers.append(PRAGMA, HeaderValue::from_static("no-cache"));
+    let captured = super::get::capture_headers_from(&headers);
+    assert!(
+        captured.too_many_headers,
+        "a Pragma past the cap is a partial view"
+    );
+    assert!(
+        !captured.pragma_no_cache,
+        "the hidden directive was never read"
+    );
+    assert!(crate::cache::policy::must_not_store(
+        &captured,
+        captured.pragma_no_cache
+    ));
+
+    // An over-long Pragma value is likewise un-inspectable in full.
+    let mut headers = HeaderMap::new();
+    let long = format!("public, {}", "x".repeat(config::MAX_CACHE_HEADER_CHARS + 1));
+    headers.insert(
+        PRAGMA,
+        HeaderValue::from_str(&long).expect("ASCII header value"),
+    );
+    let captured = super::get::capture_headers_from(&headers);
+    assert!(
+        captured.too_many_headers,
+        "an over-long Pragma fails closed"
+    );
+
+    // A single, short Pragma: no-cache is still honored directly.
+    let mut headers = HeaderMap::new();
+    headers.insert(PRAGMA, HeaderValue::from_static("no-cache"));
+    let captured = super::get::capture_headers_from(&headers);
+    assert!(captured.pragma_no_cache);
+    assert!(!captured.too_many_headers);
 }

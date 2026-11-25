@@ -386,8 +386,9 @@ card and the bookmark/history stores.
   lowercase hex chars the cache writes before they become path components,
   and startup sweeps remove symlinks instead of following them, so a planted entry
   cannot walk outside `cache/`. A
-  policy-header set beyond the bounded capture (repeated values, an over-long
-  value) is never stored: a partial view could hide `no-store`/`Vary: *`.
+  policy-header set beyond the bounded capture (`Cache-Control`, `Vary` or
+  `Pragma` repeated past the cap, or an over-long value) is never stored: a
+  partial view could hide `no-store`/`Vary: *`/`Pragma: no-cache`.
 - **Cache freshness.** Freshness is HTTP: `max-age` / `Expires` (+`Date`/`Age`;
   the response's age is the larger of the `Age` header and the apparent age
   `now - Date`), `no-store` (never persisted, and evicts an older record for
@@ -411,8 +412,9 @@ card and the bookmark/history stores.
   directory.
 - **Save page.** `Ctrl/Cmd+S` writes the page on screen as Markdown into the
   OS downloads folder — the Windows Downloads known folder, the XDG one when
-  configured and present, else `~/Downloads`, else home, else the current
-  directory: nothing is typed and no directory is created. A permission denial in the downloads folder falls
+  configured and present (a relative value or one containing `..` is ignored),
+  else `~/Downloads`, else home, else the current directory: nothing is typed
+  and no directory is created. A permission denial in the downloads folder falls
   back to home (announced in the toast), so the write never leaves the user's
   home tree; any other failure is reported instead of moving the file. The
   file name derives from the page, so it is

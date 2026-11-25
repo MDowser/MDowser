@@ -607,6 +607,20 @@ pub(crate) fn sanitize_for_display(input: &str) -> String {
         return stripped.into_owned();
     };
     let after = &pre[colon + 1..];
+    // Hierarchical `scheme://…`: credentials live in the AUTHORITY, up to
+    // the first path/query/fragment separator. An `@` beyond that boundary
+    // is ordinary path/query data (`https://host:8080/a@b`), not a
+    // `user:pass@` pair, so echoing the suffix after it would lose a valid
+    // URL. The port colon in `//host:8080` is what made the generic guard
+    // below miss this spelling: check the authority boundary explicitly.
+    if let Some(rest) = after.strip_prefix("//") {
+        if let Some(index) = rest.find(['/', '?', '#', '\\']) {
+            let authority_end = colon + 1 + 2 + index;
+            if at >= authority_end {
+                return stripped.into_owned();
+            }
+        }
+    }
     // `scheme://…` / `scheme:/…` with no other colon before the `@`: the
     // colon is the SCHEME separator, not a `user:pass` pair, and the `@`
     // is path/query data (`https://host/a@b`) — keep the token. A colon

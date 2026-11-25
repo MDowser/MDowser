@@ -99,8 +99,10 @@ if [ -n "${HOME:-}" ]; then
         done
     fi
     _cargo="${CARGO_HOME:-$HOME/.cargo}"
+    # rustc matches remap prefixes in order: the specific Cargo prefix must
+    # precede $HOME or it is absorbed into /build/.cargo (see scripts/lib.sh).
+    [ "$_cargo" = "$HOME" ] || _enc="${_enc:+$_enc$_sep}--remap-path-prefix=$_cargo=/cargo"
     _enc="${_enc:+$_enc$_sep}--remap-path-prefix=$HOME=/build"
-    [ "$_cargo" = "$HOME" ] || _enc="$_enc$_sep--remap-path-prefix=$_cargo=/cargo"
     CARGO_ENCODED_RUSTFLAGS="$_enc"
     export CARGO_ENCODED_RUSTFLAGS
     unset _sep _enc _f _cargo

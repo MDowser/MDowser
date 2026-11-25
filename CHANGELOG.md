@@ -27,8 +27,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `scripts/build-dist.sh`, `Makefile`, `.github/workflows/release.yml`,
   `docs/BUILDING.md`, `docs/SECURITY.md`, `docs/CONTRIBUTING.md`.)
 
+### Changed
+
+- Distributable builds now emit the more specific `--remap-path-prefix` first (`$HOME/.cargo` before `$HOME`, and the sandbox cargo directory before its parent). rustc matches remaps on a first-hit basis, so the shorter prefix used to absorb dependency paths into `/build/.cargo` and the documented `/cargo` target never applied. `scripts/lib.sh` also no longer emits a leading, empty flag when `HOME` is unset but `USERPROFILE` is set. (`scripts/lib.sh`, `packaging/rpm/mdowser.spec`, `windows.ps1`, `packaging/flatpak/dev.mdowser.app.yaml`, `docs/BUILDING.md`.)
+- The `mdowser(1)` man page is dated November 2026, matching the current release instead of the October date it inherited. (`packaging/linux/mdowser.1`.)
+
 ### Fixed
 
+- A warm target directory no longer ships font blobs compressed by an OLD generator: the stamp's content-only fast path now also requires the generator source hash to match, so changing the Brotli quality, window, input list or encoder logic recompresses the embedded faces instead of rewriting the stamp over stale `.br` files. (`build_support/gen_fonts.rs`.)
+- A `Pragma: no-cache` beyond the first eight values (or inside an over-long value) can no longer be missed and let a response be stored and later served as fresh: `Pragma` now participates in both fail-closed partial-view checks. The header capture is also testable directly from a `HeaderMap`, with regression tests for all three spellings. (`src/protocol/client/get.rs`, `src/protocol/client/tests.rs`, `docs/SECURITY.md`.)
+- `XDG_DOWNLOAD_DIR="$HOME/../../tmp"` no longer passes the absolute-path check: a value containing `..` is ignored, so Save page cannot be aimed outside the user's home tree by a malformed `user-dirs.dirs`. (`src/app/save.rs`, `docs/SECURITY.md`.)
+- The address bar and error details keep the full URL for hierarchical addresses with a port and an `@` in the path or query (`https://host:8080/a@b`): the port colon used to defeat the scheme-colon guard and reduce the echo to the suffix. Genuine `user:pass@` credentials are still stripped. (`src/protocol/client/mod.rs`, `src/protocol/client/tests.rs`.)
+- `make validate` no longer downgrades a real AppStream error to a warning when a validator spells it `Errors: 1`, `1 error` or `Validation failed`: the summary and error count are matched case-insensitively and a non-zero exit without an unambiguous success summary fails closed. (`scripts/validate.sh`.)
+- Debian packages cross-built on a macOS host keep their `libc6 (>= x.y)` floor: the ELF reader probe now also finds prefixed/cross `readelf` tools instead of falling back to Apple's `objdump`, which cannot read ELF version tables. (`scripts/build-dist.sh`.)
 - `#` comment highlighting follows each language's placement rule: Bash and
   YAML no longer treat a `#` inside a word or a URL fragment as a comment, a
   Dockerfile only starts one at line start, and PHP 8 attributes (`#[...]`)
@@ -225,6 +236,8 @@ credential-redaction hardening and release packaging fixes.
   be determined). (`Makefile`, `docs/BUILDING.md`, `docs/INTERFACE.md`.)
 
 ### Security
+
+- Updated `url` to 2.5.9 (and `form_urlencoded` to 1.2.3) for RUSTSEC-2026-0592: nested `blob:` URLs could overflow the stack in `Url::origin()`, aborting the process, and `cargo audit`/`cargo deny` — both release gates — failed against the old lockfile. Both gates are clean again. (`Cargo.lock`.)
 
 - Credentials are no longer echoed when a pasted schemeless password contains
   raw whitespace (`user:pa ss@[invalid`): both the log sanitizer and the

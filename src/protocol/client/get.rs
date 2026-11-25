@@ -12,13 +12,15 @@
 //!
 //! The response headers relevant to the encrypted disk cache
 //! (`Cache-Control`, `Expires`, `ETag`, `Last-Modified`, `Date`, `Age`,
-//! `Vary`) are captured on every outcome (first value wins, length-capped).
+//! `Vary`, `Pragma`) are captured on every outcome (first value wins,
+//! length-capped).
 //! A conditional request (`If-None-Match`/`If-Modified-Since`) may answer
 //! `304 Not Modified`: no body then, only refreshed headers.
 
 use super::*;
 use crate::cache::policy::CapturedHeaders;
 use crate::util::truncate_chars;
+use reqwest::header::HeaderMap;
 
 /// Conditional request validators (from a stale cache record).
 #[derive(Debug, Clone, Default)]
@@ -394,18 +396,18 @@ pub(crate) async fn get_bytes(
 }
 
 /// First value of a response header, length-capped (server-controlled).
-fn first_capped(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> Option<String> {
-    first_capped_chars(resp, name, config::MAX_CACHE_HEADER_CHARS)
+fn first_capped(headers: &HeaderMap, name: reqwest::header::HeaderName) -> Option<String> {
+    first_capped_chars(headers, name, config::MAX_CACHE_HEADER_CHARS)
 }
 
 /// [`first_capped`] with an explicit cap, for values that are persisted in
 /// a cache record (the record parser enforces the same bound).
 fn first_capped_chars(
-    resp: &reqwest::Response,
+    headers: &HeaderMap,
     name: reqwest::header::HeaderName,
     max_chars: usize,
 ) -> Option<String> {
-    let value = resp.headers().get(name)?;
+    let value = headers.get(name)?;
     let text = value.to_str().ok()?;
     let capped = truncate_chars(text, max_chars).into_owned();
     if capped.is_empty() {
@@ -420,13 +422,13 @@ fn first_capped_chars(
 /// `skip_empty` drops empty values (single-value headers keep them so the
 /// caller's gate still sees every declared value).
 fn capped_values(
-    resp: &reqwest::Response,
+    headers: &HeaderMap,
     name: reqwest::header::HeaderName,
     max_values: usize,
     skip_empty: bool,
 ) -> Option<String> {
     let mut values: Vec<String> = Vec::new();
-    for value in resp.headers().get_all(name).iter().take(max_values) {
+    for value in headers.get_all(name).iter().take(max_values) {
         if let Ok(text) = value.to_str() {
             let capped = truncate_chars(text, config::MAX_CACHE_HEADER_CHARS).into_owned();
             if !capped.is_empty() || !skip_empty {
@@ -443,24 +445,38 @@ fn capped_values(
 
 /// Captures the cache-relevant response headers (bounded, first-wins).
 fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
-    let count = |name: reqwest::header::HeaderName| resp.headers().get_all(name).iter().count();
+    capture_headers_from(resp.headers())
+}
+
+/// Header-only half of [`capture_headers`], kept separate so the bounded
+/// policy capture can be exercised directly in unit tests without building
+/// an HTTP response (which would need a live request).
+pub(super) fn capture_headers_from(headers: &HeaderMap) -> CapturedHeaders {
+    let count = |name: reqwest::header::HeaderName| headers.get_all(name).iter().count();
     // A repeated policy header past the capture cap, or a single policy
     // value too long to inspect in full, is a partial view: the hidden
     // bytes could contain `no-store`/`Vary: *`, so the response must not be
     // stored at all.
+    // `Pragma` belongs in both fail-closed checks as well: `pragma_no_cache`
+    // below reads only the FIRST `MAX_CACHE_HEADER_VALUES` values, so a
+    // `no-cache` hidden past the cap (or in an over-long value) would turn a
+    // partial view into a stored, later-fresh response. Treating a truncated
+    // view as unstorable is what keeps the "partial view is never stored"
+    // contract in `SECURITY.md` true for Pragma too.
     let too_many_headers = count(reqwest::header::CACHE_CONTROL) > config::MAX_CACHE_HEADER_VALUES
         || count(reqwest::header::VARY) > config::MAX_CACHE_HEADER_VALUES
+        || count(reqwest::header::PRAGMA) > config::MAX_CACHE_HEADER_VALUES
         || [
             reqwest::header::CACHE_CONTROL,
             reqwest::header::VARY,
             reqwest::header::EXPIRES,
             reqwest::header::DATE,
             reqwest::header::AGE,
+            reqwest::header::PRAGMA,
         ]
         .into_iter()
-        .any(|name| value_too_long(resp, name));
-    let pragma_no_cache = resp
-        .headers()
+        .any(|name| value_too_long(headers, name));
+    let pragma_no_cache = headers
         .get_all(reqwest::header::PRAGMA)
         .iter()
         .take(config::MAX_CACHE_HEADER_VALUES)
@@ -473,22 +489,22 @@ fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
         // `Cache-Control` may legitimately repeat: join the first few
         // values instead of keeping one.
         cache_control: capped_values(
-            resp,
+            headers,
             reqwest::header::CACHE_CONTROL,
             config::MAX_CACHE_HEADER_VALUES,
             true,
         ),
-        expires: first_capped(resp, reqwest::header::EXPIRES),
-        etag: first_capped(resp, reqwest::header::ETAG),
+        expires: first_capped(headers, reqwest::header::EXPIRES),
+        etag: first_capped(headers, reqwest::header::ETAG),
         last_modified: first_capped_chars(
-            resp,
+            headers,
             reqwest::header::LAST_MODIFIED,
             config::MAX_CACHE_RECORD_HEADER_CHARS,
         ),
-        date: first_capped(resp, reqwest::header::DATE),
-        age: first_capped(resp, reqwest::header::AGE),
+        date: first_capped(headers, reqwest::header::DATE),
+        age: first_capped(headers, reqwest::header::AGE),
         vary: capped_values(
-            resp,
+            headers,
             reqwest::header::VARY,
             config::MAX_CACHE_HEADER_VALUES,
             true,
@@ -498,7 +514,7 @@ fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
         // to the same per-field limit the record parser enforces, so a long
         // or repeated header can never make the stored file unreadable.
         content_type: capped_values(
-            resp,
+            headers,
             reqwest::header::CONTENT_TYPE,
             config::MAX_CONTENT_TYPE_VALUES,
             false,
@@ -511,8 +527,8 @@ fn capture_headers(resp: &reqwest::Response) -> CapturedHeaders {
 
 /// `true` when any occurrence of `name` is longer than the capture cap
 /// (server-controlled; used to fail closed on a partial policy view).
-fn value_too_long(resp: &reqwest::Response, name: reqwest::header::HeaderName) -> bool {
-    resp.headers()
+fn value_too_long(headers: &HeaderMap, name: reqwest::header::HeaderName) -> bool {
+    headers
         .get_all(name)
         .iter()
         .take(config::MAX_CACHE_HEADER_VALUES)

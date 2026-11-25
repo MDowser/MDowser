@@ -138,7 +138,16 @@ pub fn ensure(manifest_dir: &Path, out_dir: &Path) {
         // content hash decides, so it never pays a ~90 s recompression for
         // identical bytes.
         let hash = *cached_hash.get_or_insert_with(|| content_hash(manifest_dir));
-        if previous.content_hash == hash && all_outputs_present(out_dir) {
+        // The generator's own source is part of the contract too: a change to
+        // QUALITY, LGWIN, INPUTS or the encoder logic must recompress even
+        // when the raw font bytes are byte-identical (the stats-only fast
+        // path above already covers the unchanged-source case). Without this
+        // check the stamp is rewritten as current while the old `.br` blobs
+        // stay on disk, so a warm target directory ships stale fonts.
+        if previous.source_hash == source_hash
+            && previous.content_hash == hash
+            && all_outputs_present(out_dir)
+        {
             write_stamp(&stamp_path, hash, source_hash, &stats);
             return;
         }

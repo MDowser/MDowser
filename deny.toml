@@ -16,7 +16,7 @@ db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
 # Accepted transitive issues, documented so a NEW advisory still fails
-# `make audit`: 
+# `make audit`:
 # - The unmaintained crate is pulled in by the listed parent and cannot be
 #   changed from this workspace; revisit when the parent migrates.
 ignore = [

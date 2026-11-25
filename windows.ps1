@@ -497,8 +497,10 @@ if (-not $SkipBuild) {
     }
     if ($env:USERPROFILE) {
         foreach ($prefix in @($env:USERPROFILE, ($env:USERPROFILE -replace '\\', '/'))) {
-            $remapFlags += "--remap-path-prefix=$prefix=/build"
+            # rustc matches remap prefixes in order: the specific Cargo
+            # prefix must come first or $HOME absorbs it into /build/.cargo.
             $remapFlags += "--remap-path-prefix=$prefix/.cargo=/cargo"
+            $remapFlags += "--remap-path-prefix=$prefix=/build"
         }
     }
     if ($remapFlags.Count -gt 0) {

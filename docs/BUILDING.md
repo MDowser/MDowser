@@ -356,8 +356,11 @@ sets `CARGO_ENCODED_RUSTFLAGS` with `--remap-path-prefix=$HOME=/build` (plus
 `/cargo` before every DISTRIBUTABLE build: `make build`, `make dist` /
 `scripts/build-dist.sh`, `windows.ps1`, the RPM spec's `%build` and the
 Flatpak manifest (which remaps the sandbox paths
-`/run/build/mdowser[/cargo]` the same way). Debug builds keep real paths for
-debuggers.
+`/run/build/mdowser[/cargo]` the same way). The more specific Cargo prefix is
+emitted first in every one of those implementations: rustc matches remaps on a
+first-hit basis, so `$HOME` ahead of `$HOME/.cargo` would absorb dependency
+sources into `/build/.cargo` and never apply the `/cargo` target. Debug builds
+keep real paths for debuggers.
 
 The archives are cleaned: `zip -X` drops the Info-ZIP Unix uid/gid extra
 field, and the staging trees are xattr-swept (`sweep_xattrs`) plus tarred with

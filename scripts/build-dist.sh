@@ -301,14 +301,27 @@ elf_glibc_floor() {
         _symdump="$(readelf --version-info "$_e" 2>/dev/null || true)"
     elif have llvm-readelf; then
         _symdump="$(llvm-readelf --version-info "$_e" 2>/dev/null || true)"
-    elif have objdump; then
-        _symdump="$(objdump -T "$_e" 2>/dev/null || true)"
+    else
+        # A macOS host cross-building the .deb has no GNU `readelf` by
+        # default, and Apple's `objdump` cannot read ELF version tables.
+        # Probe the prefixed/cross readers as well so the glibc floor is
+        # not silently dropped from the package metadata there (Linux CI
+        # always has plain `readelf`).
+        for _reader in greadelf x86_64-linux-gnu-readelf aarch64-linux-gnu-readelf; do
+            if have "$_reader"; then
+                _symdump="$("$_reader" --version-info "$_e" 2>/dev/null || true)"
+                break
+            fi
+        done
+        if [ -z "$_symdump" ] && have objdump; then
+            _symdump="$(objdump -T "$_e" 2>/dev/null || true)"
+        fi
     fi
     printf '%s\n' "$_symdump" \
         | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' \
         | sed 's/^GLIBC_//' \
         | awk -F. '{ key = $1 * 1000000 + $2 * 1000 + ($3 + 0); if (key > m) { m = key; v = $0 } } END { if (m) print v }'
-    unset _e _symdump
+    unset _e _symdump _reader
 }
 
 try_strip() {
@@ -1355,8 +1368,9 @@ rm -f "$DIST/SHA256SUMS.txt"
         # sorts last is skipped (`SHA256SUMS.txt`).
         #
         # `latest.txt` is release METADATA (the in-app update marker), not a
-        # downloadable build: CI omits it from the checksums and a manual
-        # `gh release upload dist/*` must match that set byte for byte.
+        # downloadable build: CI omits it from the checksums. A manual
+        # `gh release upload` therefore uploads the checksummed artifacts
+        # PLUS this marker, which stays deliberately unchecksummed.
         if [ -f "$f" ] && [ "$f" != "SHA256SUMS.txt" ] && [ "$f" != "latest.txt" ]; then
             # shellcheck disable=SC2086: `_HASH` is a command plus its args
             # (`shasum -a 256` vs `sha256sum`); splitting is intended.

@@ -120,10 +120,15 @@ export_remap_rustflags() {
         done
     fi
     if [ -n "${HOME:-}" ]; then
-        _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$HOME=/build"
         _r_cargo="${CARGO_HOME:-$HOME/.cargo}"
+        # The MORE SPECIFIC prefix goes FIRST: rustc applies remaps on a
+        # first-match basis, so `$HOME` ahead of `$HOME/.cargo` would absorb
+        # dependency paths into `/build/.cargo` and the documented `/cargo`
+        # remap would never apply (both targets are neutral, but the contract
+        # is what keeps the flags auditable).
         [ "$_r_cargo" = "$HOME" ] ||
-            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_cargo=/cargo"
+            _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$_r_cargo=/cargo"
+        _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$HOME=/build"
     fi
     # Windows: rustc emits the USERPROFILE form (`C:\Users\...`), which the
     # MSYS-style $HOME above never matches (Git Bash HOME is `/c/Users/...`).
@@ -131,8 +136,11 @@ export_remap_rustflags() {
     # driven from Git Bash (`--host-only` in CI included) stays clean.
     if [ -n "${USERPROFILE:-}" ]; then
         for _r_up in "$USERPROFILE" "$(printf '%s' "$USERPROFILE" | tr '\\' '/')"; do
-            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_up=/build"
-            _r_enc="$_r_enc$_r_sep--remap-path-prefix=$_r_up/.cargo=/cargo"
+            # Specific prefix first (see the $HOME block), and always use the
+            # `:+` guard: without it an unset HOME left a leading separator in
+            # CARGO_ENCODED_RUSTFLAGS, which cargo reads as an empty flag.
+            _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$_r_up/.cargo=/cargo"
+            _r_enc="${_r_enc:+$_r_enc$_r_sep}--remap-path-prefix=$_r_up=/build"
         done
         unset _r_up
     fi

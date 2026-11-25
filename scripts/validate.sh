@@ -120,8 +120,13 @@ if have appstreamcli; then
     else
         if appstreamcli validate --no-net "$METAINFO" >"$TMP_OUT" 2>&1; then
             ok "appstreamcli"
-        elif grep -q 'Validation was successful' "$TMP_OUT" \
-            && ! grep -qE 'errors: [1-9]' "$TMP_OUT"; then
+        # Match the summary and the error count case-insensitively: appstreamcli
+        # releases have printed `Errors: 1`, `1 error` and `Validation failed`
+        # as well as the lowercase `errors: 1` form. A non-zero exit that does
+        # not carry an unambiguous success summary is a hard failure, never a
+        # downgraded warning.
+        elif grep -qi 'validation was successful' "$TMP_OUT" \
+            && ! grep -qiE '(errors:[[:space:]]*[1-9]|[1-9][0-9]*[[:space:]]+errors?|validation failed)' "$TMP_OUT"; then
             # Non-zero exit with a successful summary = warnings/infos only
             # (appstreamcli lists non-zero counts only, so the old
             # `errors: 0` match never fired and warnings were hard FAILs).

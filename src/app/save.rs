@@ -40,7 +40,7 @@
 //!   at the fetch cap, like the stores' own bounded writes.
 
 use crate::config;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Directory preferred for the destination when it exists.
 const DOWNLOADS_DIR: &str = "Downloads";
@@ -488,9 +488,12 @@ fn xdg_config_home(home: &Path) -> PathBuf {
 /// `XDG_DOWNLOAD_DIR` from `<config>/user-dirs.dirs`, resolved against
 /// `home`: `$HOME` and `${HOME}` expand (the form `xdg-user-dirs` writes,
 /// e.g. `XDG_DOWNLOAD_DIR="$HOME/Descargas"`), a value that stays relative
-/// is rejected, and a missing or unreadable file yields `None` (the caller
-/// falls back to `~/Downloads`). Quoting and comments follow the format the
-/// tool writes: one `KEY="value"` per line, `#` comments.
+/// or contains a `..` traversal is rejected, and a missing or unreadable
+/// file yields `None` (the caller falls back to `~/Downloads`). Quoting and
+/// comments follow the format the tool writes: one `KEY="value"` per line,
+/// `#` comments. A traversal is refused even when the joined path is still
+/// absolute: `$HOME/../../tmp` would otherwise pass the `is_absolute` check
+/// and send a saved page outside the user's home tree.
 fn xdg_download_dir_in(home: &Path, config: &Path) -> Option<PathBuf> {
     // Bounded, non-blocking read: this runs on the UI thread (Ctrl/Cmd+S),
     // and the file is user/config-controlled. A FIFO swapped in at the path
@@ -522,7 +525,11 @@ fn xdg_download_dir_in(home: &Path, config: &Path) -> Option<PathBuf> {
             Some(rest) => home.join(rest.trim_start_matches(['/', '\\'])),
             None => PathBuf::from(value),
         };
-        if path.is_absolute() {
+        if path.is_absolute()
+            && !path
+                .components()
+                .any(|component| component == Component::ParentDir)
+        {
             return Some(path);
         }
     }
@@ -684,6 +691,16 @@ mod tests {
             xdg_download_dir_in(&home, &config),
             None,
             "a relative entry must never resolve under the working directory"
+        );
+        std::fs::write(
+            config.join("user-dirs.dirs"),
+            "XDG_DOWNLOAD_DIR=\"$HOME/../../../../tmp\"\n",
+        )
+        .expect("user-dirs.dirs");
+        assert_eq!(
+            xdg_download_dir_in(&home, &config),
+            None,
+            "a traversal must not escape the home tree even when the joined path is absolute"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
